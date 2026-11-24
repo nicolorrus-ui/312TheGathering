@@ -61,12 +61,18 @@ uses official Scryfall collection metadata and normal-size JPEGs. Explicit
 `(SET) collector-number` entries import the requested printing. Name-only
 entries use Scryfall's selected printing. The web client prefers an imported
 exact printing and uses an imported image of the same name if the exact
-printing is absent. A card without a matching image falls back to text. Each
-import handles up to 150 distinct entries, combines with the existing pack, and
-reuses downloaded JPEGs. It reports card entries that Scryfall cannot resolve.
+printing is absent. Each import handles up to 150 distinct entries, combines
+with the existing pack, and reuses downloaded JPEGs. It reports card entries
+that Scryfall cannot resolve.
 
-The browser fetches images only from its own club server. Refresh both pages
-after an import. Copy the `web/assets/cards/` directory into a new bundle before
+Missing or unreadable local art falls back to a same-origin lookup at
+`/card-art`. The Go service caches Scryfall metadata and rate-limits misses,
+then redirects the browser to the approved Scryfall image CDN. The battlefield
+and hand request compact images immediately using eager loading, including at
+mobile widths. If the CDN cannot be reached or has no image, card text remains
+available.
+
+Refresh both pages after an import. Copy the `web/assets/cards/` directory into a new bundle before
 switching releases, or place the pack in `apps/web/public/assets/cards/` before
 building. To transfer a pack between your own machines, copy the entire
 directory, including `index.json` and the corresponding JPEGs.
@@ -144,6 +150,14 @@ page. Configure the public hostname and certificates before giving out links.
   round and its complete Top 8. Keep the local game cap at one for these tests.
 
 ## Browser play
+
+- Every phase has a left stop for your turn and a right stop for the opponent's
+  turn. Upkeep, both main phases, all combat steps, and the end step start on
+  for both turns. Stops preserve only priority windows Forge actually offers.
+  **Hold priority** pauses automatic priority passing until it is turned off.
+- Run the live test with `CLUB_TEST_LAYOUT=1 CLUB_TEST_MOBILE_IMAGES=1` to verify
+  the two stop columns and a visible card image at mobile width with the
+  imported index withheld. The test server and browser need Scryfall access.
 
 - Render Logs reports match startup as `Forge ready`. Read `worker` for
   worker acquisition, `create` for deck and game setup, `first_prompt`
