@@ -52,6 +52,7 @@ func (h *Handler) startForgeRuntime(ctx context.Context, roomID string, dedicate
 // first role-specific projection before match.started is published. Failure
 // therefore leaves the handler free to roll the room back to waiting.
 func (h *Handler) startForgeGame(r *room.Room) (forgeStartState, error) {
+	started := time.Now()
 	defer h.refreshPlayerHostStatus(r)
 	players, err := h.hub.RulesStartPlayers(r)
 	if err != nil {
@@ -81,11 +82,13 @@ func (h *Handler) startForgeGame(r *room.Room) (forgeStartState, error) {
 		h.forge.mu.Unlock()
 		return forgeStartState{}, err
 	}
+	workerReady := time.Now()
 	handle, err := client.StartGame(ctx, request)
 	if err != nil {
 		_ = client.Close()
 		return forgeStartState{}, &roomForgeStartFailure{cause: err, seats: seatOrder}
 	}
+	gameCreated := time.Now()
 	game, err := forgeRoomGameFromHandle(client, request.GameID, seatOrder, handle)
 	if err != nil {
 		h.abortUntrackedForgeGame(client, handle.SessionID)
@@ -112,12 +115,23 @@ func (h *Handler) startForgeGame(r *room.Room) (forgeStartState, error) {
 		h.abortForgeGame(r.ID)
 		return forgeStartState{}, fmt.Errorf("wait for initial Forge prompt: %w", err)
 	}
+	firstPrompt := time.Now()
 	state, err := h.prepareForgePublication(r, game, false)
 	if err != nil {
 		h.abortForgeGame(r.ID)
 		return forgeStartState{}, fmt.Errorf("prepare Forge table: %w", err)
 	}
+	if h.config.ClubMode {
+		log.Printf("club room %s: Forge ready total=%s worker=%s create=%s first_prompt=%s layout=%s",
+			r.ID, elapsedMillis(time.Since(started)), elapsedMillis(workerReady.Sub(started)),
+			elapsedMillis(gameCreated.Sub(workerReady)), elapsedMillis(firstPrompt.Sub(gameCreated)),
+			elapsedMillis(time.Since(firstPrompt)))
+	}
 	return state, nil
+}
+
+func elapsedMillis(duration time.Duration) time.Duration {
+	return duration.Round(time.Millisecond)
 }
 
 func forgeStartRequest(r *room.Room, players []room.RulesStartPlayer) (
