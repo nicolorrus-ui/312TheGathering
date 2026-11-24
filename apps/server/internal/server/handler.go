@@ -79,6 +79,7 @@ type Handler struct {
 	publicZoneMoveSeq       uint64
 	resumeMu                sync.Mutex
 	resumeHolds             map[string]resumeHold
+	clubResumeTokens        sync.Map // resume token -> live *Session
 	sideboardTimerMu        sync.Mutex
 	sideboardTimers         map[string]*time.Timer
 	actionClockMu           sync.Mutex
