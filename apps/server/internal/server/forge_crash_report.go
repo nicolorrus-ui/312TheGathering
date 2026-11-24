@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -333,6 +334,7 @@ func (h *Handler) captureForgeCrash(r *room.Room, game forgeRoomGame, recovery .
 				final := forgeCrashReportWithRecovery(base, info, recoveryInfo, true)
 				final.Revision = 2
 				if h.forgeCrashes.put(final, roomID, nil, time.Now().UTC()) {
+					h.logClubForgeCrash(roomID, final)
 					h.sendForgeCrashRevision(final)
 				}
 				return
@@ -352,10 +354,25 @@ func (h *Handler) captureForgeCrash(r *room.Room, game forgeRoomGame, recovery .
 		}
 		return nil
 	}
+	h.logClubForgeCrash(r.ID, report)
 	if begin != nil {
 		begin <- true
 	}
 	return &report
+}
+
+func (h *Handler) logClubForgeCrash(roomID string, report protocol.RulesCrashReport) {
+	if !h.config.ClubMode {
+		return
+	}
+	exitCode := "unknown"
+	if report.Failure.ExitCode != nil {
+		exitCode = strconv.Itoa(*report.Failure.ExitCode)
+	}
+	log.Printf("club room %s: Forge crash report=%s revision=%d fingerprint=%s collection=%s kind=%s code=%s stage=%s request=%q exit_code=%s exit_signal=%q turn=%d step=%q",
+		roomID, report.ReportID, report.Revision, report.Fingerprint, report.CollectionState,
+		report.Failure.Kind, report.Failure.Code, report.Failure.Stage, report.Failure.RequestFamily,
+		exitCode, report.Failure.ExitSignal, report.Context.Turn, report.Context.Step)
 }
 
 func (h *Handler) sendForgeCrashReport(sess *Session, report protocol.RulesCrashReport) {

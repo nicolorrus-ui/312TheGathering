@@ -75,6 +75,11 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .sideboard .form-row { align-items: start; margin: 1rem 0; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: .7rem; color: #f6d4b3; background: #382b22; border: 1px solid #795b40; padding: .65rem 1rem; border-radius: 8px; }
 .app-error { position: fixed; z-index: 9; right: 1rem; top: 4rem; max-width: min(580px, calc(100vw - 2rem)); }
+.crash-notice { display: block; width: min(30rem, calc(100vw - 2rem)); max-height: 70vh; overflow: auto; }
+.crash-notice > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.crash-notice summary { cursor: pointer; }
+.crash-notice pre { max-height: 35vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crash-notice [role="status"] { margin-left: .5rem; }
 .duel {
   display: grid; grid-template-columns: minmax(0, 1fr) clamp(104px, 9.8vw, 146px);
   min-height: calc(100dvh - 58px); padding: .55rem; gap: .5rem;

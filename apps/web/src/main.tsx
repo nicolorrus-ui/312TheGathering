@@ -5,12 +5,35 @@ import { createRoot } from "react-dom/client";
 import { Board } from "./Board";
 import { CardImage, CardImages } from "./CardImages";
 import { deckStorage, parseDeck, readDecks } from "./decks";
-import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata, type RulesPriority } from "./protocol";
+import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata, type RulesCrashReport, type RulesPriority } from "./protocol";
 import { useSession } from "./session";
 import { Tournaments } from "./Tournaments";
 import "./style.css";
 
 type Session = ReturnType<typeof useSession>;
+
+function CrashNotice({ report, dismiss }: { report: RulesCrashReport; dismiss: () => void }) {
+  const [copy, setCopy] = useState<{ revision: number; text: string }>();
+  const contents = JSON.stringify(report, null, 2);
+  async function copyReport() {
+    try {
+      await navigator.clipboard.writeText(contents);
+      setCopy({ revision: report.revision, text: "Copied." });
+    } catch {
+      setCopy({ revision: report.revision, text: "Select and copy the report below." });
+    }
+  }
+  return <section className="notice app-error crash-notice" aria-label="Forge crash">
+    <div><strong role="alert">Forge stopped</strong><button type="button" className="quiet" onClick={dismiss}>Dismiss</button></div>
+    <details>
+      <summary>View crash report</summary>
+      <p>{report.failure.code} · {report.failure.stage} · {report.collectionState}</p>
+      <button type="button" onClick={copyReport}>Copy report</button>
+      <span role="status">{copy?.revision === report.revision ? copy.text : ""}</span>
+      <pre tabIndex={0}>{contents}</pre>
+    </details>
+  </section>;
+}
 
 function DeckLibrary({ decks, save }: { decks: Deck[]; save: (next: Deck[]) => void }) {
   const [editing, setEditing] = useState<Pick<Deck, "id" | "name" | "text">>();
@@ -217,7 +240,8 @@ function App() {
         }}>Leave room</button>}
         {!session.room && <button type="button" className="quiet" onClick={session.forget}>Sign out</button>}</div>}
     </header>
-    {session.error && <div className="notice app-error" role="alert">{session.error}
+    {session.crash ? <CrashNotice key={session.crash.reportId} report={session.crash} dismiss={session.clearCrash} />
+      : session.error && <div className="notice app-error" role="alert">{session.error}
       <button type="button" className="quiet" onClick={session.clearError}>Dismiss</button></div>}
     {!session.identity ? <main className="shell intro">
       <div><p className="eyebrow">PRIVATE MAGIC DUELS</p><h1>Your club.<br />Your table.</h1></div>

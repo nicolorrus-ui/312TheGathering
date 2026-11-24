@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -119,6 +120,17 @@ func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error
 	}
 	cancel()
 	if err != nil {
+		if h.config.ClubMode {
+			reason := "rejected"
+			switch {
+			case errors.Is(err, context.DeadlineExceeded):
+				reason = "deadline_exceeded"
+			case !game.client.Healthy():
+				reason = "runtime_unavailable"
+			}
+			log.Printf("club room %s: Forge decision failed stage=submit prompt=%q submit=%s deadline=%s reason=%s",
+				r.ID, promptView.Kind, elapsedMillis(time.Since(validated)), runtimeTimeout(game.client, forgePromptTimeout), reason)
+		}
 		if game.nativeAI && !game.client.Healthy() {
 			h.failForgeGame(r)
 		} else {
@@ -130,6 +142,10 @@ func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error
 	}
 	submitted := time.Now()
 	if err := waitForForgePromptChange(game, promptView.PromptID); err != nil {
+		if h.config.ClubMode {
+			log.Printf("club room %s: Forge decision failed stage=next_prompt prompt=%q submit=%s next_prompt=%s",
+				r.ID, promptView.Kind, elapsedMillis(submitted.Sub(validated)), elapsedMillis(time.Since(submitted)))
+		}
 		h.failClosedGameProjections(r, err)
 		return nil
 	}
@@ -137,8 +153,8 @@ func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error
 	advanced := time.Now()
 	h.publishRulesDecision(r, game, sess.ConnectionID, env.ID, request, false, false)
 	if total := time.Since(received); h.config.ClubMode && total >= time.Second {
-		log.Printf("club room %s: slow Forge decision total=%s room_wait=%s validate=%s submit=%s next_prompt=%s publish=%s",
-			r.ID, elapsedMillis(total), elapsedMillis(locked.Sub(received)),
+		log.Printf("club room %s: slow Forge decision prompt=%q total=%s room_wait=%s validate=%s submit=%s next_prompt=%s publish=%s",
+			r.ID, promptView.Kind, elapsedMillis(total), elapsedMillis(locked.Sub(received)),
 			elapsedMillis(validated.Sub(locked)), elapsedMillis(submitted.Sub(validated)),
 			elapsedMillis(advanced.Sub(submitted)), elapsedMillis(time.Since(advanced)))
 	}

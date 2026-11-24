@@ -164,7 +164,14 @@ page. Configure the public hostname and certificates before giving out links.
   for the first decision, and `layout` for the initial projections.
   Successful decision processing at or above one second produces a
   `slow Forge decision` line with queue, validation, submission,
-  next-prompt, and publication timings. These are server timings.
+  next-prompt, and publication timings. `submit` includes Forge applying
+  the action, running the game to its next input, and capturing native
+  views. These are server timings. Failed actions log the stage and duration.
+- If a match shows **Forge stopped**, open **View crash report** and use
+  **Copy report**. The corresponding `Forge crash` line in Render Logs
+  includes the report ID, failure code, and any observed exit status.
+  Use Render Events to check for a service restart or memory-limit event
+  at the same time. The report stays limited to shareable diagnostic data.
 - The first Forge JVM stays warm after service startup. Use the Render HTTP
   health-check path `/readyz` to publish a new instance after its probe passes.
   An idle worker is used for the next match, and the hub warms its replacement

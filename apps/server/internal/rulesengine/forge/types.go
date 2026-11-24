@@ -49,6 +49,7 @@ type StartGameRequest struct {
 	Seed                int64          `json:"seed"`
 	Players             []PlayerConfig `json:"players"`
 	StartingPlayerIndex *int           `json:"startingPlayerIndex,omitempty"`
+	SkipReplay          bool           `json:"skipReplay,omitempty"`
 }
 
 func (request StartGameRequest) validate() error {

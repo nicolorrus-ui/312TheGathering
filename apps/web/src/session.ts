@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { protocol, type Envelope, type GameMetadata, type Prompt, type Response, type Room, type ServerError, type Snapshot, type Tournament, type Welcome } from "./protocol";
+import { protocol, type Envelope, type GameMetadata, type Prompt, type Response, type Room, type RulesCrashReport, type ServerError, type Snapshot, type Tournament, type Welcome } from "./protocol";
 
 export const identityStorage = "hexproof-club.identity.v1";
 const activeRoomStorage = "hexproof-club.active-room.v1";
@@ -9,7 +9,8 @@ type Identity = { name: string; resumeToken?: string; roomId?: string };
 type Connection = "idle" | "connecting" | "online" | "offline";
 type SessionState = { connection: Connection; welcome?: Welcome; seat?: number; room?: Room;
   resuming?: boolean; pendingReady?: string;
-  game?: Snapshot; prompt?: Prompt; metadata?: GameMetadata; error?: string; awaiting?: number; tournament?: Tournament };
+  game?: Snapshot; prompt?: Prompt; metadata?: GameMetadata; error?: string; crash?: RulesCrashReport;
+  dismissedCrashId?: string; awaiting?: number; tournament?: Tournament };
 const initialState: SessionState = { connection: "idle" };
 const rotatedIdentity = (identity: Identity, token: string, roomId?: string) => ({ name: identity.name, resumeToken: token, roomId });
 
@@ -92,8 +93,10 @@ export function useSession() {
             delay = 500;
             remember(rotatedIdentity(value, welcome.resumeToken, welcome.roomId));
             inFlightDecision.current = null;
-            setState({ connection: "online", welcome, seat: welcome.seat,
-              error: value.roomId && !welcome.resumed ? "Your previous seat is no longer available." : undefined });
+            setState((previous) => ({ connection: "online", welcome, seat: welcome.seat,
+              crash: welcome.resumed ? previous.crash : undefined,
+              dismissedCrashId: welcome.resumed ? previous.dismissedCrashId : undefined,
+              error: value.roomId && !welcome.resumed ? "Your previous seat is no longer available." : undefined }));
             const event = localStorage.getItem(eventKey(value.name));
             if (event) send("tournament.enter", { tournamentId: event, credential: localStorage.getItem(eventTokenKey(value.name, event)) ?? undefined });
             break;
@@ -178,6 +181,17 @@ export function useSession() {
             refused = envelope.id === hello;
             const failedDecision = envelope.id === inFlightDecision.current?.request;
             if (failedDecision) inFlightDecision.current = null;
+            const report = error.rulesCrashReport;
+            if (report?.schemaVersion === 1) {
+              setState((previous) => {
+                if (report.reportId === previous.dismissedCrashId ||
+                    (previous.crash && (report.reportId === previous.crash.reportId
+                      ? report.revision <= previous.crash.revision
+                      : report.occurredAt < previous.crash.occurredAt))) return previous;
+                return { ...previous, crash: report };
+              });
+              break;
+            }
             setState((previous) => ({ ...previous, error: describeError(error),
               pendingReady: envelope.id === previous.pendingReady ? undefined : previous.pendingReady,
               awaiting: failedDecision ? undefined : previous.awaiting }));
@@ -235,6 +249,7 @@ export function useSession() {
   }
 
   return { ...state, identity: identity?.name, enter, forget, send, setReady, answer, enterTournament,
+    clearCrash: () => setState((previous) => ({ ...previous, crash: undefined, dismissedCrashId: previous.crash?.reportId })),
     clearError: () => setState((previous) => ({ ...previous, error: undefined })) };
 }
 

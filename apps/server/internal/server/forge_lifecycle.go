@@ -64,6 +64,7 @@ func (h *Handler) startForgeGame(r *room.Room) (forgeStartState, error) {
 	}
 	if h.config.ClubMode {
 		request.DeckFormat = r.DeckFormat
+		request.SkipReplay = true
 	}
 	startTimeout := forgeGameStartTimeout
 	if runtime := h.config.ForgeRuntime; h.config.ClubMode && runtime != nil && runtime.StartTimeout > forgeGameStartTimeout {

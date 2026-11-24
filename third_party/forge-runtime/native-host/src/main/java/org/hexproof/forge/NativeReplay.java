@@ -33,11 +33,12 @@ final class NativeReplay {
     private final Deque<Entry> entries = new ArrayDeque<>();
     private long sequence;
     private int bytes;
-    private boolean complete = true;
+    private boolean complete;
 
-    NativeReplay(Game game, String gameId) {
+    NativeReplay(Game game, String gameId, boolean enabled) {
         this.game = game; this.gameId = gameId;
-        game.subscribeToEvents(this);
+        complete = enabled;
+        if (enabled) game.subscribeToEvents(this);
     }
 
     @Subscribe public void event(GameEvent event) {

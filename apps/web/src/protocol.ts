@@ -77,6 +77,10 @@ export type GameMetadata = {
 };
 export type Welcome = { resumeToken: string; resumed?: boolean; roomId?: string; seat?: number; forgeRulesAvailable: boolean };
 export type Envelope = { type: string; id?: string; payload: unknown };
-export type ServerError = { message: string; code: string; rulesStartFailure?: {
+export type RulesCrashReport = {
+  schemaVersion: number; reportId: string; revision: number; occurredAt: string; collectionState: string;
+  fingerprint: string; failure: { code: string; stage: string };
+};
+export type ServerError = { message: string; code: string; rulesCrashReport?: RulesCrashReport; rulesStartFailure?: {
   reason?: string; issues?: { code: string; cardName?: string }[];
 } };

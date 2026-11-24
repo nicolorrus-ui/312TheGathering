@@ -121,7 +121,8 @@ final class NativeSession implements AutoCloseable {
             rules.setAppliedVariants(EnumSet.of(type));
             match = new Match(rules, registered, "Hexproof native Forge");
             game = match.createGame();
-            replay = new NativeReplay(game, id);
+            boolean recordReplay = !request.has("skipReplay") || !request.get("skipReplay").getAsBoolean();
+            replay = new NativeReplay(game, id, recordReplay);
             for (Player p : game.getRegisteredPlayers()) {
                 if (p.getController() instanceof PlayerControllerHuman human) {
                     NativeGuiGame gui = new NativeGuiGame(this, human);

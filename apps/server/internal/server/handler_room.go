@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hexproof/server/internal/forgehost"
 	"hexproof/server/internal/protocol"
@@ -872,7 +873,11 @@ func lastRoomSnapshotSequence(envelopes []protocol.Envelope) (int, int64) {
 func (h *Handler) failClosedGameProjections(r *room.Room, cause error) {
 	if r != nil && r.RulesMode == protocol.RulesModeForge {
 		if game, ok := h.forgeGame(r.ID); ok && forgeFailureInformation(game.client).Boundary == nil {
-			game.diagnostics.fail("publication_invalid")
+			code := "publication_invalid"
+			if errors.Is(cause, context.DeadlineExceeded) {
+				code = "execution_timeout"
+			}
+			game.diagnostics.fail(code)
 		}
 		h.failForgeGame(r)
 		return
