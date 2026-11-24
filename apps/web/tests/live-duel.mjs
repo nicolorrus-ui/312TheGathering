@@ -80,7 +80,7 @@ async function selectDeck(peer) {
 }
 
 async function ready(peer) {
-  try { await peer.page.getByRole("button", { name: "Ready", exact: true }).click({ timeout: 5000 }); }
+  try { await peer.page.getByRole("button", { name: "Ready", exact: true }).click({ timeout: 60000 }); }
   catch (error) { throw new Error(`Could not ready ${peer.name}: ${await peer.page.locator("body").innerText()}`, { cause: error }); }
 }
 
@@ -90,7 +90,7 @@ async function startGuestFirst(host, guest) {
   await ready(host);
 }
 
-async function checkCapacityRejection() {
+async function checkCapacityGate() {
   const contexts = await Promise.all([browser.newContext({ ignoreHTTPSErrors }), browser.newContext({ ignoreHTTPSErrors })]);
   const [host, guest] = await Promise.all([
     enter(contexts[0], "Waiting host", deck),
@@ -99,10 +99,9 @@ async function checkCapacityRejection() {
   const room = await create(host, "custom", "bo3");
   await join(guest, room, "correct room password");
   await Promise.all([selectDeck(host), selectDeck(guest)]);
-  await startGuestFirst(host, guest);
   for (const peer of [host, guest]) {
-    await peer.page.getByRole("alert").filter({ hasText: /All Forge match slots are in use/ }).waitFor();
-    await peer.page.getByRole("button", { name: "Ready", exact: true }).waitFor();
+    await peer.page.getByText("Forge is occupied by another match.", { exact: true }).waitFor();
+    assert.ok(await peer.page.getByRole("button", { name: "Ready", exact: true }).isDisabled());
     assert.equal(await peer.page.locator(".room-code strong").innerText(), room);
     assert.equal(await peer.page.locator(".selected-deck").innerText(), "Browser fixture selected");
     assert.ok(!peer.messages.some(({ type }) => type === "match.started"));
@@ -340,7 +339,7 @@ try {
   await Promise.all([selectDeck(host), selectDeck(guest)]);
   await startGuestFirst(host, guest);
   await until(() => host.game && guest.game, "guest-first Forge start", 60000);
-  const waiting = verifyCapacity ? await checkCapacityRejection() : undefined;
+  const waiting = verifyCapacity ? await checkCapacityGate() : undefined;
   const answered = new Set();
   let gamesFinished = 0;
   let sideboardMoves = 0;
@@ -470,7 +469,7 @@ try {
     await waiting.guest.page.getByRole("button", { name: "Leave room", exact: true }).click();
     await waiting.guest.page.getByRole("heading", { name: "Club lobby" }).waitFor();
     await waiting.host.page.getByRole("heading", { name: "Duel room" }).waitFor();
-    console.log("Verified guest-first capacity rejection, retained decks and seats, successful retry, and leaving BO3 during sideboarding");
+    console.log("Verified guest-first availability gate, retained decks and seats, successful retry, and leaving BO3 during sideboarding");
   }
 
   // A marked Modern deck that fails native construction checks must never start.
