@@ -99,10 +99,26 @@ func shouldDelegatePriorityPass(prefs priorityPreference, known bool, view forge
 	return false
 }
 
+func (h *Handler) hasDelegatedPriority(roomID string) bool {
+	h.priorityMu.Lock()
+	defer h.priorityMu.Unlock()
+	for _, prefs := range h.priorityPrefs[roomID] {
+		if !prefs.fullControl && !prefs.hold {
+			return true
+		}
+	}
+	return false
+}
+
 // advanceRulesPriority runs at an explicit publication boundary while the
 // caller holds opMu, before collecting any snapshots or terminal result.
 // Read-only reconnects and receipt replays preserve the published position.
 func (h *Handler) advanceRulesPriority(r *room.Room, game forgeRoomGame) error {
+	if !h.hasDelegatedPriority(r.ID) {
+		// No seat asked the hub to pass priority. The caller will still
+		// project the authoritative state and next prompt.
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), runtimeTimeout(game.client, forgePromptTimeout))
 	gameOver, err := game.client.GameOver(ctx, game.sessionID)
 	if err != nil || gameOver {
