@@ -145,6 +145,12 @@ page. Configure the public hostname and certificates before giving out links.
 
 ## Browser play
 
+- Render Logs reports match startup as `Forge ready`. Read `worker` for
+  worker acquisition, `create` for deck and game setup, `first_prompt`
+  for the first decision, and `layout` for the initial projections.
+  Successful decision processing at or above one second produces a
+  `slow Forge decision` line with queue, validation, submission,
+  next-prompt, and publication timings. These are server timings.
 - The first Forge JVM stays warm after service startup. Use the Render HTTP
   health-check path `/readyz` to publish a new instance after its probe passes.
   An idle worker is used for the next match, and the hub warms its replacement
