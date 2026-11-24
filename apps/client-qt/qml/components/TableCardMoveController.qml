@@ -1,0 +1,702 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+pragma ComponentBehavior: Bound
+
+import QtQuick
+
+QtObject {
+    id: root
+
+    required property var tableRoot
+    property var pendingCardFaceAction: ({})
+    readonly property var battlefieldLayout: TableBattlefieldLayoutController {
+        tableRoot: root.tableRoot
+    }
+
+    // Public compatibility facade. Callers keep one card-move surface while
+    // the layout policy evolves independently from command coordination.
+    function catalogTypeLine(cardName, card) {
+        return battlefieldLayout.catalogTypeLine(cardName, card)
+    }
+
+    function resolvedTypeLine(card) {
+        return battlefieldLayout.resolvedTypeLine(card)
+    }
+
+    function battlefieldCategory(card) {
+        return battlefieldLayout.battlefieldCategory(card)
+    }
+
+    function categoryOrder(category) {
+        return battlefieldLayout.categoryOrder(category)
+    }
+
+    function battlefieldColumns(seatIndex) {
+        return battlefieldLayout.battlefieldColumns(seatIndex)
+    }
+
+    function battlefieldSlot(seatIndex, category, index) {
+        return battlefieldLayout.battlefieldSlot(
+                    seatIndex, category, index)
+    }
+
+    function battlefieldCardId(card) {
+        return battlefieldLayout.battlefieldCardId(card)
+    }
+
+    function battlefieldCardHasCounters(card) {
+        return battlefieldLayout.battlefieldCardHasCounters(card)
+    }
+
+    function battlefieldCardHasRelation(card) {
+        return battlefieldLayout.battlefieldCardHasRelation(card)
+    }
+
+    function battlefieldCardCanStack(card, category, seatIndex) {
+        return battlefieldLayout.battlefieldCardCanStack(
+                    card, category, seatIndex)
+    }
+
+    function battlefieldCardNeedsPriority(card, seatIndex) {
+        return battlefieldLayout.battlefieldCardNeedsPriority(card, seatIndex)
+    }
+
+    function battlefieldStackKey(card, category, seatIndex) {
+        return battlefieldLayout.battlefieldStackKey(
+                    card, category, seatIndex)
+    }
+
+    function battlefieldCardPosition(card) {
+        return battlefieldLayout.battlefieldCardPosition(card)
+    }
+
+    function stackedBattlefieldPosition(seatIndex, category, base,
+                                        stackIndex) {
+        return battlefieldLayout.stackedBattlefieldPosition(
+                    seatIndex, category, base, stackIndex)
+    }
+
+    function smartBattlefieldPosition(seatIndex, card, movingCardId) {
+        return battlefieldLayout.smartBattlefieldPosition(
+                    seatIndex, card, movingCardId)
+    }
+
+    function smartBattlefieldAnchor(seatIndex, cards) {
+        return battlefieldLayout.smartBattlefieldAnchor(seatIndex, cards)
+    }
+
+    function arrangeOwnBattlefield() {
+        return battlefieldLayout.arrangeOwnBattlefield()
+    }
+
+    function nonOverlappingBattlefieldPosition(seatIndex, requested,
+                                               movingCardId) {
+        return battlefieldLayout.nonOverlappingBattlefieldPosition(
+                    seatIndex, requested, movingCardId)
+    }
+
+    function batchBattlefieldPosition(anchor, index, count) {
+        return battlefieldLayout.batchBattlefieldPosition(
+                    anchor, index, count)
+    }
+
+    function canManageSelectedBattlefield() {
+        return tableRoot.canAct && tableRoot.selection.selectedCount() === 1
+                && tableRoot.selectedBattlefieldCardId.length > 0
+                && (tableRoot.selectedBattlefieldOwnerSeat
+                    === tableRoot.roomSession.seatIndex
+                    || tableRoot.selectedBattlefieldCard.ownerSeat
+                       === tableRoot.roomSession.seatIndex)
+    }
+
+    function canControlSelectedBattlefield() {
+        return tableRoot.canAct && tableRoot.selection.selectedCount() === 1
+                && tableRoot.selectedBattlefieldCardId.length > 0
+                && tableRoot.selectedBattlefieldOwnerSeat
+                   === tableRoot.roomSession.seatIndex
+    }
+
+    function moveSelectedBattlefieldCards(toZone, libraryPlacement,
+                                          randomize) {
+        const cardIds = Object.keys(tableRoot.selectedBattlefieldCardIds)
+        if (!tableRoot.canAct || cardIds.length < 2)
+            return
+        // Capture each card record and battlefield seat before the command is
+        // queued: battlefield bindings change once the source cards hide.
+        const pendingMoves = []
+        for (let index = 0; index < cardIds.length; ++index) {
+            const cardId = cardIds[index]
+            const card = tableRoot.zoneState.cardDataForId(cardId)
+            pendingMoves.push({
+                "cardId": cardId,
+                "card": card,
+                "fromZone": "battlefield",
+                "fromSeat": tableRoot.zoneState.visibleZoneSeatForCard(
+                                cardId, "battlefield"),
+                "toZone": toZone,
+                "toSeat": card && card.ownerSeat !== undefined
+                          ? card.ownerSeat
+                          : tableRoot.roomSession.seatIndex
+            })
+        }
+        tableRoot.optimisticCommands.beginPendingCardMoves(pendingMoves)
+        tableRoot.wsModel.moveCards(
+                    cardIds, "battlefield", toZone,
+                    libraryPlacement ? libraryPlacement : "",
+                    randomize === true)
+        tableRoot.selection.clear()
+    }
+
+    function moveSelectedBattlefieldCard(toZone, placement, index) {
+        if (!canManageSelectedBattlefield())
+            return
+        const cardId = tableRoot.selectedBattlefieldCardId
+        const card = tableRoot.selectedBattlefieldCard
+        const sourceSeat = tableRoot.selectedBattlefieldOwnerSeat
+        const ownerSeat = card.ownerSeat !== undefined
+                        ? card.ownerSeat : tableRoot.roomSession.seatIndex
+        tableRoot.optimisticCommands.beginPendingCardMove(
+                    cardId, card, "battlefield", sourceSeat,
+                    toZone, ownerSeat)
+        tableRoot.wsModel.moveCard(
+                    cardId, "battlefield", toZone, {}, -1,
+                    placement ? placement : "",
+                    index !== undefined ? index : -1)
+        tableRoot.selection.clear()
+    }
+
+    function moveSelectedBattlefieldToLibrary(placement, index) {
+        moveSelectedBattlefieldCard("library", placement, index)
+    }
+
+    function moveSelectedBattlefieldToZone(toZone) {
+        moveSelectedBattlefieldCard(toZone, "", -1)
+    }
+
+    function moveSelectedHandCard(toZone, faceDown) {
+        const card = tableRoot.selectedHandCard
+        if (!tableRoot.canAct || !card || !card.id)
+            return
+        if (toZone === "battlefield") {
+            const placementCard = faceDown === true
+                                  ? Object.assign({}, card, {"faceDown": true})
+                                  : card
+            const position = smartBattlefieldPosition(
+                                 tableRoot.roomSession.seatIndex,
+                                 placementCard, card.id)
+            moveCardToBattlefield(
+                        card.id, "hand", tableRoot.roomSession.seatIndex,
+                        position.x, position.y, undefined,
+                        faceDown === true)
+        } else {
+            tableRoot.optimisticCommands.beginPendingCardMove(
+                        card.id, card, "hand", tableRoot.roomSession.seatIndex,
+                        toZone, card.ownerSeat !== undefined
+                        ? card.ownerSeat : tableRoot.roomSession.seatIndex)
+            moveCardToShared(card.id, "hand", toZone)
+        }
+        tableRoot.selectedHandCard = ({})
+    }
+
+    function moveSelectedHandToLibrary(placement, index) {
+        const card = tableRoot.selectedHandCard
+        if (!tableRoot.canAct || !card || !card.id)
+            return
+        tableRoot.optimisticCommands.beginPendingCardMove(
+                    card.id, card, "hand", tableRoot.roomSession.seatIndex,
+                    "library", tableRoot.roomSession.seatIndex)
+        tableRoot.wsModel.moveCard(
+                    card.id, "hand", "library", {}, -1, placement, index)
+        tableRoot.selectedHandCard = ({})
+    }
+
+    function canMoveSharedSource(source) {
+        return source && source.cardId
+                && tableRoot.canAct
+                && (!source.modelData
+                    || source.modelData.pending !== true)
+                && (source.ownerSeat === tableRoot.roomSession.seatIndex
+                    || (source.zoneName === "battlefield"
+                        && source.zoneSeat === tableRoot.roomSession.seatIndex))
+    }
+
+    function canMoveToBattlefield(source) {
+        if (!source)
+            return false
+        return source.zoneName === "hand"
+                || source.zoneName === "library"
+                || source.zoneName === "battlefield"
+                || source.zoneName === "graveyard"
+                || source.zoneName === "exile"
+                || source.zoneName === "command"
+                || source.zoneName === "stack"
+                || source.zoneName === "reveal"
+    }
+
+    function canMoveToHand(source) {
+        if (!canMoveSharedSource(source))
+            return false
+        return source.zoneName === "stack"
+                || source.zoneName === "reveal"
+                || source.zoneName === "battlefield"
+                || source.zoneName === "library"
+                || source.zoneName === "graveyard"
+                || source.zoneName === "exile"
+                || source.zoneName === "command"
+    }
+
+    function canDragBattlefieldCard(source) {
+        return canMoveSharedSource(source)
+    }
+
+    function moveDroppedCardToBattlefield(source, targetSeat,
+                                          normalizedX, normalizedY) {
+        if (!canMoveSharedSource(source)
+            || !canMoveToBattlefield(source)) {
+            return false
+        }
+
+        // Public-zone pile bindings change as soon as the optimistic source
+        // card is hidden. Snapshot every source field before that happens.
+        const cardId = source.cardId
+        const fromZone = source.zoneName
+        const fromSeat = source.zoneSeat !== undefined
+                         ? source.zoneSeat : -1
+        const card = source.modelData ? source.modelData : ({})
+        const adjustedPosition = fromZone === "battlefield"
+                                 ? nonOverlappingBattlefieldPosition(
+                                       targetSeat,
+                                       {"x": normalizedX, "y": normalizedY},
+                                       cardId)
+                                 : smartBattlefieldPosition(
+                                       targetSeat, card, cardId)
+        moveCardToBattlefield(
+                    cardId, fromZone, targetSeat,
+                    adjustedPosition.x, adjustedPosition.y, fromSeat)
+        return true
+    }
+
+    function beginBattlefieldPreviewForCard(cardId, fromZone, fromSeat, card,
+                                            targetSeat,
+                                            normalizedX, normalizedY) {
+        const preview = {
+            "cardId": cardId,
+            "fromZone": fromZone,
+            "name": card.name ? card.name : "",
+            "setCode": card.setCode ? card.setCode : "",
+            "collectorNumber": card.collectorNumber
+                               ? card.collectorNumber : "",
+            "faceName": card.faceName ? card.faceName : "",
+            "faceDown": fromZone === "library" && !card.name,
+            "pending": true,
+            "tapped": card.tapped === true,
+            "toSeat": targetSeat,
+            "x": normalizedX,
+            "y": normalizedY
+        }
+        const pendingMove = {
+            "cardId": cardId,
+            "card": card,
+            "fromZone": fromZone,
+            "fromSeat": fromSeat,
+            "toZone": "battlefield",
+            "toSeat": targetSeat,
+            "x": normalizedX,
+            "y": normalizedY,
+            "tapped": card.tapped === true
+        }
+        if (fromZone === "library") {
+            // The server assigns a new instance id when the library top enters
+            // play, so reconcile matches on "a permanent that was not on the
+            // battlefield when the move began" rather than the pending id or
+            // exact coordinates (auto-slot can shift them).
+            const knownCardIds = battlefieldCardIdsForSeat(targetSeat)
+            preview.knownCardIds = knownCardIds
+            pendingMove.knownCardIds = knownCardIds
+        }
+        tableRoot.optimisticCommandModel.setBattlefieldMove(preview)
+        tableRoot.optimisticCommands.beginPendingCardMoves([pendingMove])
+    }
+
+    function battlefieldCardIdsForSeat(seatIndex) {
+        const ids = []
+        const cards = tableRoot.zoneState.zoneCardsForSeat(
+                          seatIndex, "battlefield")
+        for (let index = 0; index < cards.length; ++index) {
+            if (cards[index].id)
+                ids.push(cards[index].id)
+        }
+        return ids
+    }
+
+    function battlefieldGainedNewCard(cards, knownCardIds) {
+        const known = knownCardIds ? knownCardIds : []
+        for (let index = 0; index < cards.length; ++index) {
+            if (cards[index].id && known.indexOf(cards[index].id) < 0)
+                return true
+        }
+        return false
+    }
+
+    function pendingBattlefieldMoveCommitted() {
+        const pendingMove = tableRoot.pendingBattlefieldMove
+        if (!pendingMove.cardId)
+            return false
+        const cards = tableRoot.zoneState.zoneCardsForSeat(
+                          pendingMove.toSeat, "battlefield")
+        if (pendingMove.fromZone === "library") {
+            return battlefieldGainedNewCard(cards, pendingMove.knownCardIds)
+        }
+        for (let index = 0; index < cards.length; ++index) {
+            const card = cards[index]
+            const position = card.position ? card.position : ({})
+            if (card.id === pendingMove.cardId
+                    && position.x !== undefined
+                    && position.y !== undefined
+                    && Math.abs(position.x - pendingMove.x) < 0.001
+                    && Math.abs(position.y - pendingMove.y) < 0.001) {
+                return true
+            }
+        }
+        return false
+    }
+
+    function clearPendingBattlefieldMove() {
+        tableRoot.optimisticCommandModel.clearBattlefieldMove()
+    }
+
+    function rejectDrop(dropArea, drop) {
+        dropArea.cardSource = null
+        drop.accepted = false
+        if (tableRoot.appWindow
+                && typeof tableRoot.appWindow.showBanner === "function") {
+            tableRoot.appWindow.showBanner(
+                qsTr("That card cannot move to this zone."))
+        }
+    }
+
+    function finishLibraryDrop(dropArea, drop) {
+        const source = drop.source ? drop.source : dropArea.cardSource
+        if (!canMoveSharedSource(source)
+            || source.zoneName === "library") {
+            rejectDrop(dropArea, drop)
+            return
+        }
+        const cardId = source.cardId
+        const card = source.modelData
+                     ? Object.assign({}, source.modelData) : ({})
+        const fromZone = source.zoneName
+        const sourceZoneSeat = source.zoneSeat !== undefined
+                               ? source.zoneSeat : -1
+        const fromSeat = fromZone === "graveyard"
+                         || fromZone === "exile"
+                         ? sourceZoneSeat : -1
+        const ownerSeat = source.ownerSeat !== undefined
+                          ? source.ownerSeat : tableRoot.roomSession.seatIndex
+        tableRoot.optimisticCommands.beginPendingCardMove(
+                    cardId, card, fromZone, sourceZoneSeat,
+                    "library", ownerSeat)
+        tableRoot.wsModel.moveCard(
+                    cardId, fromZone, "library", {},
+                    -1, "top", -1, fromSeat)
+        dropArea.cardSource = null
+        drop.acceptProposedAction()
+    }
+
+    function finishStackDrop(dropArea, drop) {
+        const source = drop.source ? drop.source : dropArea.cardSource
+        if (!canMoveSharedSource(source)
+            || source.zoneName === "stack"
+            || source.zoneName === "reveal") {
+            rejectDrop(dropArea, drop)
+            return
+        }
+        moveCardToShared(source.cardId, source.zoneName, "stack")
+        dropArea.cardSource = null
+        drop.acceptProposedAction()
+    }
+
+    function finishPublicZoneDrop(dropArea, drop, toZone, toSeat) {
+        const source = drop.source ? drop.source : dropArea.cardSource
+        const requestedSeat = toSeat !== undefined ? toSeat : -1
+        const ownerSeat = source && source.ownerSeat !== undefined
+                          ? source.ownerSeat : tableRoot.roomSession.seatIndex
+        const destinationSeat = toZone === "graveyard"
+                                || toZone === "exile"
+                                || toZone === "command"
+                                ? ownerSeat : requestedSeat
+        if (!canMoveSharedSource(source)
+            || (source.zoneName === toZone
+                && source.zoneSeat === destinationSeat)) {
+            rejectDrop(dropArea, drop)
+            return
+        }
+        const cardId = source.cardId
+        const card = source.modelData
+                     ? Object.assign({}, source.modelData) : ({})
+        const fromZone = source.zoneName
+        const sourceZoneSeat = source.zoneSeat !== undefined
+                               ? source.zoneSeat : -1
+        const publicFromSeat = fromZone === "graveyard"
+                               || fromZone === "exile"
+                               ? sourceZoneSeat : -1
+        const remotePublicSource = publicFromSeat >= 0
+                                   && publicFromSeat
+                                      !== tableRoot.roomSession.seatIndex
+        if (!remotePublicSource) {
+            tableRoot.optimisticCommands.beginPendingCardMove(
+                        cardId, card, fromZone, sourceZoneSeat,
+                        toZone, destinationSeat >= 0
+                        ? destinationSeat : ownerSeat)
+        }
+        // Graveyard, exile, and command-zone destinations follow immutable
+        // ownership even when the card is controlled on another battlefield.
+        const wireTargetSeat = toZone === "graveyard" || toZone === "exile"
+                               ? destinationSeat : -1
+        const faceDown = fromZone === "library" && toZone === "exile"
+                         && (source.faceDownRequested === true
+                             || (drop.modifiers & Qt.ShiftModifier) !== 0)
+        tableRoot.wsModel.moveCard(
+                    cardId, fromZone, toZone, {},
+                    wireTargetSeat, "", -1, publicFromSeat, "", faceDown)
+        dropArea.cardSource = null
+        drop.acceptProposedAction()
+    }
+
+    function movePublicZoneCard(cardId, fromZone, fromSeat,
+                                toZone, toSeat) {
+        if (!tableRoot.canAct || !cardId)
+            return
+        const card = tableRoot.zoneState.cardDataForId(cardId)
+        if (toZone === "battlefield") {
+            const position = smartBattlefieldPosition(
+                                 tableRoot.roomSession.seatIndex, card, cardId)
+            moveCardToBattlefield(
+                        cardId, fromZone, tableRoot.roomSession.seatIndex,
+                        position.x, position.y, fromSeat)
+        } else {
+            const destinationSeat = toZone === "graveyard"
+                                    || toZone === "exile"
+                                    ? (card.ownerSeat !== undefined
+                                       ? card.ownerSeat : fromSeat)
+                                    : toSeat
+            if (fromSeat === tableRoot.roomSession.seatIndex) {
+                tableRoot.optimisticCommands.beginPendingCardMove(
+                            cardId, card, fromZone, fromSeat,
+                            toZone, destinationSeat)
+            }
+            tableRoot.wsModel.moveCard(
+                        cardId, fromZone, toZone, {},
+                        destinationSeat, "", -1, fromSeat)
+        }
+    }
+
+    function movePublicZoneCards(cardIds, fromZone, fromSeat,
+                                 toZone, toSeat, libraryPlacement, randomize) {
+        const ids = cardIds ? cardIds.slice() : []
+        if (!tableRoot.canAct || ids.length < 1
+                || (fromZone !== "graveyard" && fromZone !== "exile" && fromZone !== "hand")
+                || (fromZone !== "hand" && fromSeat < 0)) {
+            return
+        }
+        const sourceCards = []
+        for (let index = 0; index < ids.length; ++index)
+            sourceCards.push(tableRoot.zoneState.cardDataForId(ids[index]))
+        const anchor = toZone === "battlefield"
+                       ? smartBattlefieldAnchor(toSeat, sourceCards)
+                       : ({})
+        const pendingMoves = []
+        for (let index = 0; index < ids.length; ++index) {
+            const card = tableRoot.zoneState.cardDataForId(ids[index])
+            let destinationSeat = toSeat
+            if (toZone === "hand" || toZone === "library"
+                    || toZone === "graveyard" || toZone === "exile") {
+                destinationSeat = card.ownerSeat !== undefined
+                                  ? card.ownerSeat
+                                  : tableRoot.roomSession.seatIndex
+            }
+            const position = toZone === "battlefield"
+                             ? batchBattlefieldPosition(
+                                   anchor, index, ids.length) : ({})
+            pendingMoves.push({
+                "cardId": ids[index],
+                "card": card,
+                "fromZone": fromZone,
+                "fromSeat": fromZone === "hand" ? tableRoot.roomSession.seatIndex : fromSeat,
+                "toZone": toZone,
+                "toSeat": destinationSeat,
+                "x": position.x !== undefined ? position.x : 0,
+                "y": position.y !== undefined ? position.y : 0
+            })
+        }
+        if (fromZone === "hand" || fromSeat === tableRoot.roomSession.seatIndex)
+            tableRoot.optimisticCommands.beginPendingCardMoves(pendingMoves)
+        if (fromZone === "hand") {
+            tableRoot.wsModel.moveCards(ids, fromZone, toZone, libraryPlacement || "", randomize === true,
+                                        toZone === "battlefield" ? anchor : ({}), toZone === "battlefield" ? toSeat : -1)
+            return
+        }
+        const wireTargetSeat = toZone === "exile" ? -1 : toSeat
+        tableRoot.wsModel.movePublicCards(
+                    ids, fromZone, fromSeat, toZone, wireTargetSeat,
+                    toZone === "battlefield" ? anchor : ({}), libraryPlacement || "", randomize === true)
+    }
+
+    function moveCardToBattlefield(cardId, fromZone, targetSeat,
+                                   normalizedX, normalizedY, fromSeat,
+                                   faceDown) {
+        if (!tableRoot.canAct || !cardId)
+            return
+        const resolvedFromSeat = fromSeat !== undefined
+                                 ? fromSeat
+                                 : tableRoot.zoneState.visibleZoneSeatForCard(
+                                       cardId, fromZone)
+        const card = tableRoot.zoneState.cardDataForId(cardId)
+        const faces = tableRoot.presentation.availableCardFaces(card)
+        if (fromZone !== "battlefield" && faces.length > 1
+                && faceDown !== true) {
+            pendingCardFaceAction = {
+                "type": "move",
+                "cardId": cardId,
+                "fromZone": fromZone,
+                "targetSeat": targetSeat,
+                "normalizedX": normalizedX,
+                "normalizedY": normalizedY,
+                "fromSeat": resolvedFromSeat,
+                "faceDown": false
+            }
+            tableRoot.cardFacePicker.showFor(card, faces)
+            return
+        }
+        commitCardToBattlefield(
+                    cardId, fromZone, targetSeat,
+                    normalizedX, normalizedY, resolvedFromSeat,
+                    "", faceDown === true)
+    }
+
+    function commitCardToBattlefield(cardId, fromZone, targetSeat,
+                                     normalizedX, normalizedY, fromSeat,
+                                     faceName, faceDown) {
+        const card = tableRoot.zoneState.cardDataForId(cardId)
+        const previewCard = Object.assign({}, card, {
+            "faceName": fromZone === "battlefield"
+                        && card.faceName ? card.faceName : faceName,
+            "faceDown": faceDown === true
+        })
+        const publicFromSeat = fromZone === "graveyard"
+                               || fromZone === "exile"
+                               ? fromSeat : -1
+        if (publicFromSeat < 0
+                || publicFromSeat === tableRoot.roomSession.seatIndex) {
+            beginBattlefieldPreviewForCard(
+                        cardId, fromZone, fromSeat, previewCard, targetSeat,
+                        normalizedX, normalizedY)
+        }
+        tableRoot.wsModel.moveCard(
+                    cardId, fromZone, "battlefield", {
+                        "x": Math.max(0, Math.min(1, normalizedX)),
+                        "y": Math.max(0, Math.min(1, normalizedY))
+                    }, targetSeat, "", -1, publicFromSeat,
+                    faceName, faceDown === true)
+        tableRoot.selectedSharedCard = ({})
+        tableRoot.selectedSharedZone = ""
+    }
+
+    function requestBattlefieldFaceSelection() {
+        if (!tableRoot.selectedBattlefieldCard.id
+            || tableRoot.selectedBattlefieldFaces.length < 2) {
+            return
+        }
+        pendingCardFaceAction = {
+            "type": "set",
+            "cardId": tableRoot.selectedBattlefieldCard.id
+        }
+        tableRoot.cardFacePicker.showFor(
+                    tableRoot.selectedBattlefieldCard,
+                    tableRoot.selectedBattlefieldFaces)
+    }
+
+    function finishCardFaceSelection(faceName) {
+        const action = pendingCardFaceAction
+        pendingCardFaceAction = ({})
+        if (action.type === "move") {
+            const card = tableRoot.zoneState.cardDataForId(action.cardId)
+            const selectedFaceCard = Object.assign(
+                                       {}, card, {"faceName": faceName})
+            const position = smartBattlefieldPosition(
+                                 action.targetSeat, selectedFaceCard,
+                                 action.cardId)
+            commitCardToBattlefield(
+                        action.cardId, action.fromZone, action.targetSeat,
+                        position.x, position.y,
+                        action.fromSeat, faceName, action.faceDown === true)
+        } else if (action.type === "set") {
+            tableRoot.wsModel.setCardFace(action.cardId, faceName)
+        }
+    }
+
+    function exileLibraryTopFaceDown() {
+        if (!tableRoot.canAct || tableRoot.ownSeatData.libraryCount <= 0
+                || tableRoot.optimisticCommands.isCardPendingFrom(
+                    "__library_top__", "library", tableRoot.roomSession.seatIndex))
+            return
+        moveCardToShared("__library_top__", "library", "exile", true)
+    }
+
+    function moveCardToShared(cardId, fromZone, toZone, faceDown) {
+        if (!tableRoot.canAct || !cardId)
+            return
+        const card = Object.assign({}, tableRoot.zoneState.cardDataForId(cardId))
+        const fromSeat = fromZone === "library" ? tableRoot.roomSession.seatIndex
+                        : tableRoot.zoneState.visibleZoneSeatForCard(cardId, fromZone)
+        if (fromZone === "library")
+            card.ownerSeat = fromSeat
+        let destinationSeat = -1
+        if (toZone === "hand" || toZone === "graveyard"
+            || toZone === "exile" || toZone === "library") {
+            destinationSeat = card.ownerSeat !== undefined
+                              ? card.ownerSeat : tableRoot.roomSession.seatIndex
+        }
+        tableRoot.optimisticCommands.beginPendingCardMove(
+                    cardId, card, fromZone, fromSeat,
+                    toZone, destinationSeat)
+        const publicFromSeat = fromZone === "graveyard"
+                               || fromZone === "exile"
+                               ? fromSeat : -1
+        // Hidden destinations are always inferred from the immutable owner by
+        // the server. Only public player zones may carry an explicit target
+        // seat on the wire.
+        const targetSeat = toZone === "graveyard" || toZone === "exile"
+                           ? destinationSeat : -1
+        tableRoot.wsModel.moveCard(
+                    cardId, fromZone, toZone, {},
+                    targetSeat, "", -1, publicFromSeat, "", faceDown === true)
+        tableRoot.selectedSharedCard = ({})
+        tableRoot.selectedSharedZone = ""
+    }
+
+    function moveSelectedSharedCard(toZone) {
+        if (!tableRoot.selectedSharedOwned
+            || !tableRoot.selectedSharedCard.id) {
+            return
+        }
+        if (toZone === "battlefield") {
+            const position = smartBattlefieldPosition(
+                                 tableRoot.roomSession.seatIndex,
+                                 tableRoot.selectedSharedCard,
+                                 tableRoot.selectedSharedCard.id)
+            moveCardToBattlefield(
+                        tableRoot.selectedSharedCard.id,
+                        tableRoot.selectedSharedZone,
+                        tableRoot.roomSession.seatIndex,
+                        position.x, position.y)
+        } else {
+            moveCardToShared(
+                        tableRoot.selectedSharedCard.id,
+                        tableRoot.selectedSharedZone, toZone)
+        }
+        tableRoot.selectedSharedCard = ({})
+        tableRoot.selectedSharedZone = ""
+    }
+}

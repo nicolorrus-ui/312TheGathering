@@ -1,0 +1,21 @@
+[Unit]
+Description=Hexproof Club
+After=network.target
+
+[Service]
+Type=simple
+User=hexproof-club
+Group=hexproof-club
+StateDirectory=hexproof-club
+UMask=0077
+EnvironmentFile=-/etc/hexproof-club.env
+ExecStart=/opt/hexproof-club/current/run.sh
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

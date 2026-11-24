@@ -1,0 +1,303 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+// Command hexproof-server is the Hexproof room hub. It serves WebSocket
+// sessions at /ws and manages room state via the room reducer (P1).
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"hexproof/server/internal/buildinfo"
+	"hexproof/server/internal/cluster"
+	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/rulesengine/forge"
+	"hexproof/server/internal/server"
+)
+
+func main() {
+	forgeHarnessDefault, forgeHomeDefault, forgeJavaDefault := forgeRuntimeDefaults()
+	clusterPath := flag.String("cluster-config", os.Getenv("HEXPROOF_CLUSTER_CONFIG"), "optional official cluster configuration JSON")
+	accountDir := flag.String("account-dir", os.Getenv("HEXPROOF_ACCOUNT_DIR"), "private account authority directory (empty disables the local authority)")
+	accountRealmDefault := strings.TrimSpace(os.Getenv("HEXPROOF_ACCOUNT_REALM"))
+	if accountRealmDefault == "" {
+		accountRealmDefault = "hexproof-official"
+	}
+	accountRealm := flag.String("account-realm", accountRealmDefault, "official account realm shared by trusted hubs")
+	accountAuthority := flag.String("account-authority", os.Getenv("HEXPROOF_ACCOUNT_AUTHORITY"), "HTTPS account authority endpoint for a satellite official hub")
+	accountKeyFile := flag.String("account-service-key-file", os.Getenv("HEXPROOF_ACCOUNT_SERVICE_KEY_FILE"), "private file containing the shared hub-to-authority service key")
+	showProtocol := flag.Bool("protocol", false, "print communication protocol and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	bind := flag.String("bind", "127.0.0.1", "bind address")
+	port := flag.Int("port", 57320, "listen port")
+	reconnectWindow := flag.Duration("reconnect-window", 3*time.Minute,
+		"network-drop seat hold duration")
+	helloTimeout := flag.Duration("hello-timeout", 10*time.Second,
+		"maximum time to complete session.hello")
+	retentionTTL := flag.Duration("retention-ttl", 7*24*time.Hour,
+		"retained match expiration duration")
+	retentionDir := flag.String("retention-dir", "data/retained",
+		"operator-only retained match directory (empty disables storage)")
+	retentionMaxFiles := flag.Int("retention-max-files", 512,
+		"maximum retained match files")
+	retentionMaxBytes := flag.Int64("retention-max-bytes", 512<<20,
+		"maximum retained match bytes")
+	replayPageSize := flag.Int("replay-page-size", 50,
+		"maximum replay summaries per response")
+	trustedProxies := flag.String("trusted-proxies", "127.0.0.1/32,::1/128",
+		"comma-separated proxy CIDRs allowed to supply X-Forwarded-For")
+	maxRooms := flag.Int("max-rooms", 256, "maximum live rooms")
+	maxTournaments := flag.Int("max-tournaments", 64, "maximum live tournaments")
+	maxConnections := flag.Int64("max-connections", 1024,
+		"maximum simultaneous WebSocket connections")
+	maxMessageBytes := flag.Int64("max-message-bytes", 1<<20,
+		"maximum inbound WebSocket message size")
+	messagesPerSecond := flag.Int("messages-per-second", 60,
+		"per-connection inbound message rate")
+	replayRequestsPerMinute := flag.Int("replay-requests-per-minute", 30,
+		"per-IP replay list/load request rate")
+	roomCreatesPerMinute := flag.Int("room-creates-per-minute", 6,
+		"per-IP room creation rate")
+	tournamentCreatesPerMinute := flag.Int("tournament-creates-per-minute", 3,
+		"per-IP tournament creation rate")
+	tournamentClosedTTL := flag.Duration("tournament-closed-ttl", 24*time.Hour,
+		"retention for completed and cancelled tournament history")
+	tournamentInactiveTTL := flag.Duration("tournament-inactive-ttl", 5*time.Minute,
+		"reconnect grace for registration tournaments without an online organizer or participant")
+	tournamentAbandonedTTL := flag.Duration("tournament-abandoned-ttl", 5*time.Minute,
+		"reconnect grace for running tournaments without online organizers or players")
+	passwordJoinsPerMinute := flag.Int("password-joins-per-minute", 20,
+		"per-IP protected-room join rate")
+	maxConcurrentPasswordChecks := flag.Int("max-concurrent-password-checks", 8,
+		"maximum concurrent bcrypt password checks")
+	clubWebRoot := flag.String("club-web-root", os.Getenv("HEXPROOF_CLUB_WEB_ROOT"), "serve the built web client and enable private Forge-only club mode")
+	forgeOverlay := flag.String("forge-overlay", os.Getenv("HEXPROOF_FORGE_OVERLAY"), "path to a verified matching Forge overlay jar")
+	forgeHeap := flag.Int("forge-heap-mib", 1536, "maximum Forge heap in MiB for club mode")
+	forgeHarness := flag.String("forge-harness", forgeHarnessDefault,
+		"path to forge-harness.jar (defaults to HEXPROOF_FORGE_HARNESS; empty disables Forge rules rooms)")
+	forgeHome := flag.String("forge-home", forgeHomeDefault,
+		"path to the Forge runtime home containing card scripts (defaults to HEXPROOF_FORGE_HOME)")
+	forgeJava := flag.String("forge-java", forgeJavaDefault,
+		"Java command for the Forge runtime (defaults to HEXPROOF_FORGE_JAVA or java)")
+	forgeMaxGames := flag.String("max-forge-games", forgeMaxGamesDefault(),
+		"maximum concurrent Forge games, including startup (positive integer; defaults to HEXPROOF_FORGE_MAX_GAMES or 1)")
+	forgeGamesPerJVM := flag.Int("forge-games-per-jvm", 1,
+		"games per isolated Forge worker (1: dedicated processes; 2-4: shared JVM, requires adapter 3)")
+	allowPlayerHosting := flag.Bool("allow-player-hosting", false, "allow trusted players to host Forge through the relay")
+	maxPlayerHostedGames := flag.Int("max-player-hosted-games", 32, "maximum player-hosted room bindings")
+	peerSTUNServers := flag.String("peer-stun-servers", peerSTUNServersDefault(),
+		"comma-separated UDP STUN URLs, at most two (defaults to HEXPROOF_PEER_STUN_SERVERS or managed Server 1/2; empty disables STUN discovery)")
+	flag.Parse()
+	if *showProtocol {
+		fmt.Println(protocol.ProtocolVersion)
+		return
+	}
+	if *showVersion {
+		fmt.Fprintf(os.Stdout, "hexproof-server %s\n", buildinfo.Version)
+		return
+	}
+	maxForgeGames, err := parseForgeGameLimit(*forgeMaxGames)
+	if err != nil {
+		log.Fatalf("hexproof-server: %v", err)
+	}
+
+	accountKey := ""
+	if *accountKeyFile != "" {
+		raw, readErr := os.ReadFile(*accountKeyFile)
+		if readErr != nil {
+			log.Fatal("hexproof-server: cannot read account service key file")
+		}
+		accountKey = strings.TrimSpace(string(raw))
+		if len(accountKey) < 32 || len(accountKey) > 4096 {
+			log.Fatal("hexproof-server: invalid account service key length")
+		}
+	}
+	clubMode := *clubWebRoot != ""
+	if clubMode {
+		if _, err := os.Stat(filepath.Join(*clubWebRoot, "index.html")); err != nil {
+			log.Fatalf("hexproof-server: club web build unavailable: %v", err)
+		}
+		if *forgeOverlay == "" || *forgeHeap < 256 || *forgeGamesPerJVM != 1 {
+			log.Fatal("hexproof-server: club mode requires a Forge overlay, a heap of at least 256 MiB and dedicated Forge processes")
+		}
+	}
+	var forgeRuntime *forge.ProcessConfig
+	if (*forgeHarness == "") != (*forgeHome == "") {
+		log.Fatal("hexproof-server: -forge-harness and -forge-home must be set together")
+	}
+	if *forgeHarness != "" {
+		configured := hostedForgeRuntimeConfig(*forgeJava, *forgeHarness, *forgeHome)
+		if *forgeOverlay != "" {
+			configured = forge.JavaOverlayProcessConfig(*forgeJava, *forgeHarness, *forgeHome, *forgeOverlay)
+			configured.Stderr = io.Discard
+		}
+		if clubMode {
+			configured.Args = append([]string{fmt.Sprintf("-Xmx%dm", *forgeHeap), "-Djava.awt.headless=true"}, configured.Args...)
+		}
+		forgeRuntime = &configured
+	}
+
+	clusterConfig, err := cluster.Load(*clusterPath)
+	if err != nil {
+		log.Fatalf("hexproof-server: %v", err)
+	}
+	handler, err := server.NewHandlerWithConfig(server.Config{
+		ClubMode:   clubMode,
+		Cluster:    clusterConfig,
+		AccountDir: *accountDir, AccountRealm: *accountRealm, AccountAuthority: *accountAuthority, AccountServiceKey: accountKey,
+		ReconnectWindow:             *reconnectWindow,
+		HelloTimeout:                *helloTimeout,
+		RetentionTTL:                *retentionTTL,
+		RetentionDir:                *retentionDir,
+		RetentionMaxFiles:           *retentionMaxFiles,
+		RetentionMaxBytes:           *retentionMaxBytes,
+		ReplayPageSize:              *replayPageSize,
+		TrustedProxyCIDRs:           splitCommaSeparated(*trustedProxies),
+		MaxRooms:                    *maxRooms,
+		MaxTournaments:              *maxTournaments,
+		MaxConnections:              *maxConnections,
+		MaxMessageBytes:             *maxMessageBytes,
+		MessagesPerSecond:           *messagesPerSecond,
+		ReplayRequestsPerMinute:     *replayRequestsPerMinute,
+		RoomCreatesPerMinute:        *roomCreatesPerMinute,
+		TournamentCreatesPerMinute:  *tournamentCreatesPerMinute,
+		TournamentClosedTTL:         *tournamentClosedTTL,
+		TournamentInactiveTTL:       *tournamentInactiveTTL,
+		TournamentAbandonedTTL:      *tournamentAbandonedTTL,
+		PasswordJoinsPerMinute:      *passwordJoinsPerMinute,
+		MaxConcurrentPasswordChecks: *maxConcurrentPasswordChecks,
+		ForgeRuntime:                forgeRuntime,
+		MaxForgeGames:               maxForgeGames,
+		ForgeGamesPerJVM:            *forgeGamesPerJVM,
+		AllowPlayerHosting:          *allowPlayerHosting,
+		MaxPlayerHostedGames:        *maxPlayerHostedGames,
+		PeerSTUNServers:             splitCommaSeparated(*peerSTUNServers),
+	})
+	if err != nil {
+		log.Fatalf("hexproof-server: configure: %v", err)
+	}
+	defer func() {
+		if closeErr := handler.Close(); closeErr != nil {
+			log.Printf("hexproof-server: close Forge runtime: %v", closeErr)
+		}
+	}()
+
+	mux := http.NewServeMux()
+	// Ops/tunnel health checks (Cloudflare / curl). Not part of the game protocol.
+	mux.HandleFunc("/healthz", handler.ServeHealth)
+	mux.HandleFunc("/readyz", handler.ServeReadiness)
+	mux.Handle("/ws", handler)
+	if clubMode {
+		files := os.DirFS(*clubWebRoot)
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			http.ServeFileFS(w, r, files, "index.html")
+		})
+		mux.Handle("GET /assets/", http.FileServerFS(files))
+	} else {
+		mux.HandleFunc("/internal/accounts", handler.ServeAccountAuthority)
+		mux.HandleFunc("/internal/cluster", handler.ServeClusterCoordinator)
+		mux.Handle("/ai", handler)
+	}
+
+	addr := fmt.Sprintf("%s:%d", *bind, *port)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("hexproof-server: listen %s: %v", addr, err)
+	}
+
+	// Graceful shutdown on SIGINT/SIGTERM (resolves review #6: no accept-loop
+	// error spam when the listener closes).
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-stop
+		log.Printf("hexproof-server: shutting down")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	// Print readiness only after the socket has been bound successfully. This
+	// keeps deployment scripts from observing a false-positive ready line when
+	// the configured address is unavailable.
+	fmt.Fprintf(os.Stdout,
+		"hexproof-server %s listening on %s (ws path /ws, protocol %s)\n",
+		buildinfo.Version, listener.Addr(), protocol.ProtocolVersion)
+	log.Printf("hexproof-server %s ready on %s", buildinfo.Version, listener.Addr())
+
+	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("hexproof-server: %v", err)
+	}
+	log.Printf("hexproof-server: stopped")
+}
+
+func hostedForgeRuntimeConfig(javaCommand, harness, home string) forge.ProcessConfig {
+	configured := forge.JavaProcessConfig(javaCommand, harness, home)
+	// Upstream stderr may contain private card identities, actions, and stack
+	// traces. Hosted games use only Hexproof's fixed, non-sensitive diagnostics.
+	// Isolated synthetic tests can explicitly supply their own diagnostic sink.
+	configured.Stderr = io.Discard
+	return configured
+}
+
+func forgeRuntimeDefaults() (string, string, string) {
+	javaCommand := os.Getenv("HEXPROOF_FORGE_JAVA")
+	if javaCommand == "" {
+		javaCommand = "java"
+	}
+	return os.Getenv("HEXPROOF_FORGE_HARNESS"),
+		os.Getenv("HEXPROOF_FORGE_HOME"), javaCommand
+}
+
+func forgeMaxGamesDefault() string {
+	if value, set := os.LookupEnv("HEXPROOF_FORGE_MAX_GAMES"); set {
+		return value
+	}
+	return strconv.Itoa(server.DefaultConfig().MaxForgeGames)
+}
+
+func parseForgeGameLimit(value string) (int, error) {
+	limit, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || limit < 1 {
+		return 0, fmt.Errorf("-max-forge-games / HEXPROOF_FORGE_MAX_GAMES must be a positive integer")
+	}
+	return limit, nil
+}
+
+func peerSTUNServersDefault() string {
+	if value, set := os.LookupEnv("HEXPROOF_PEER_STUN_SERVERS"); set {
+		return value
+	}
+	return strings.Join(server.DefaultConfig().PeerSTUNServers, ",")
+}
+
+func splitCommaSeparated(value string) []string {
+	if value == "" {
+		return []string{}
+	}
+	parts := strings.Split(value, ",")
+	for index := range parts {
+		parts[index] = strings.TrimSpace(parts[index])
+	}
+	return parts
+}

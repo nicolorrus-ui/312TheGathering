@@ -1,0 +1,778 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+// Package server is the WebSocket hub: it owns the room registry, per-connection
+// sessions, and the dispatch loop that translates wire commands into room
+// reducer calls and fans out the resulting events.
+package server
+
+import (
+	"context"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"hexproof/server/internal/cluster"
+	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/room"
+)
+
+// Session is one WebSocket connection's state.
+type Session struct {
+	rulesCrashReports atomic.Bool
+	// Cluster fields belong to the connection read loop.
+	clusterGrant      *cluster.Ticket
+	clusterRedirected bool
+	clusterEnabled    bool
+	clusterLatency    map[string]int
+	accountMu         sync.RWMutex
+	account           accountBinding
+	ConnectionID      string
+	DisplayName       string
+	ResumeToken       string
+	RemoteIP          string
+	// Send is buffered; the hub pushes outbound envelopes here, the write pump
+	// drains them onto the WebSocket.
+	Send chan []byte
+	// closeMu guards close state so concurrent fanout writers do not send on a
+	// closed channel (race-safe shutdown).
+	closeMu sync.Mutex
+	closed  bool
+	cancel  context.CancelFunc
+	// roomMu guards roomRef.
+	roomMu  sync.RWMutex
+	roomRef *room.Room
+	// Tournament membership is independent from a pairing room. A participant
+	// remains registered while entering and leaving ordinary room state.
+	tournamentMu sync.RWMutex
+	tournament   tournamentBinding
+	// The read loop is the only writer for these fixed-window rate fields.
+	rateWindowStart time.Time
+	rateMessages    int
+}
+
+type accountBinding struct{ ID, Token, SessionID string }
+
+func (s *Session) Account() accountBinding {
+	s.accountMu.RLock()
+	defer s.accountMu.RUnlock()
+	return s.account
+}
+
+func (s *Session) setAccount(binding accountBinding) {
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
+	s.account = binding
+}
+
+type tournamentBinding struct {
+	TournamentID  string
+	Role          string
+	ParticipantID string
+	generation    uint64
+}
+
+func (s *Session) allowMessage(now time.Time, limit int) bool {
+	if limit <= 0 {
+		return true
+	}
+	if s.rateWindowStart.IsZero() || now.Sub(s.rateWindowStart) >= time.Second {
+		s.rateWindowStart = now
+		s.rateMessages = 0
+	}
+	s.rateMessages++
+	return s.rateMessages <= limit
+}
+
+// Room returns the session's current room (nil if none).
+func (s *Session) Room() *room.Room {
+	s.roomMu.RLock()
+	defer s.roomMu.RUnlock()
+	return s.roomRef
+}
+
+// setRoom sets the session's current room.
+func (s *Session) setRoom(r *room.Room) {
+	s.roomMu.Lock()
+	defer s.roomMu.Unlock()
+	s.roomRef = r
+}
+
+func (s *Session) Tournament() tournamentBinding {
+	s.tournamentMu.RLock()
+	defer s.tournamentMu.RUnlock()
+	return s.tournament
+}
+
+func (s *Session) setTournament(binding tournamentBinding) {
+	s.tournamentMu.Lock()
+	defer s.tournamentMu.Unlock()
+	binding.generation = s.tournament.generation + 1
+	s.tournament = binding
+}
+
+func (s *Session) clearTournament() tournamentBinding {
+	s.tournamentMu.Lock()
+	defer s.tournamentMu.Unlock()
+	previous := s.tournament
+	s.tournament = tournamentBinding{generation: previous.generation + 1}
+	return previous
+}
+
+// trySend pushes data onto Send without blocking. A full buffer means this
+// client can no longer consume the ordered event stream, so the session is
+// closed and its read loop is cancelled instead of silently dropping state.
+// It is race-safe against Close: close state and channel sends share closeMu.
+func (s *Session) trySend(data []byte) bool {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return false
+	}
+	select {
+	case s.Send <- data:
+		s.closeMu.Unlock()
+		return true
+	default:
+		cancel := s.closeLocked()
+		s.closeMu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+		return false
+	}
+}
+
+// closeAfterSend preserves the ordered final account notice. The write pump
+// drains queued envelopes before ending the transport; authority is already revoked.
+func (s *Session) closeAfterSend() {
+	s.closeMu.Lock()
+	s.closeLocked()
+	s.closeMu.Unlock()
+}
+
+// Close marks the session closed and closes the Send channel. Safe to call
+// once; subsequent trySend calls return false.
+func (s *Session) Close() {
+	s.closeMu.Lock()
+	cancel := s.closeLocked()
+	s.closeMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// closeLocked transitions the session to closed. The caller must hold closeMu
+// and invoke the returned cancellation function after releasing the mutex.
+func (s *Session) closeLocked() context.CancelFunc {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	close(s.Send)
+	return s.cancel
+}
+
+// Hub owns the room registry and sessions. It is safe for concurrent use.
+type Hub struct {
+	mu              sync.Mutex
+	rooms           map[string]*roomEntry
+	reservedRoomIDs map[string]bool
+	maxRooms        int
+	passwordCheck   func([]byte, string) bool
+	passwordSlots   chan struct{}
+}
+
+type roomEntry struct {
+	room         *room.Room
+	passwordHash []byte // immutable bcrypt hash; never enters reducer state
+	// opMu preserves reducer/reply/fan-out order across concurrent sessions.
+	// Handler operations hold it from before the reducer call until all
+	// resulting messages have been queued.
+	opMu              sync.Mutex
+	mu                sync.Mutex // protects room state during reducer calls and projections
+	tournamentID      string
+	tournamentPairing string
+}
+
+// NewHub creates an empty Hub.
+func NewHub() *Hub {
+	defaults := DefaultConfig()
+	return NewHubWithLimits(defaults.MaxRooms, defaults.MaxConcurrentPasswordChecks)
+}
+
+// NewHubWithLimit creates a hub with a hard room-registry bound.
+func NewHubWithLimit(maxRooms int) *Hub {
+	return NewHubWithLimits(maxRooms, DefaultConfig().MaxConcurrentPasswordChecks)
+}
+
+// NewHubWithLimits creates a hub with room and bcrypt concurrency bounds.
+func NewHubWithLimits(maxRooms, maxConcurrentPasswordChecks int) *Hub {
+	if maxConcurrentPasswordChecks <= 0 {
+		maxConcurrentPasswordChecks = 1
+	}
+	return &Hub{
+		rooms:           make(map[string]*roomEntry),
+		reservedRoomIDs: make(map[string]bool),
+		maxRooms:        maxRooms,
+		passwordCheck:   checkPassword,
+		passwordSlots:   make(chan struct{}, maxConcurrentPasswordChecks),
+	}
+}
+
+// roomCreateOptions contains settings bound before a room becomes visible in
+// the hub registry. Callers validate admission and supply their explicit defaults.
+type roomCreateOptions struct {
+	name                    string
+	format                  string
+	deckFormat              string
+	matchMode               string
+	cardLoadMode            string
+	rulesMode               string
+	hostingMode             string
+	maxSeats                int
+	allowSpectators         bool
+	spectatorsSeeHands      bool
+	password                string
+	tournamentID            string
+	tournamentPairing       string
+	tournamentParticipantID string
+	aiDifficulty            string
+	aiSource                string
+}
+
+// createRoom generates and registers a room with its host bound to seat 0.
+// Allocation, tournament tagging and the initial snapshot precede publication
+// under Hub.mu, so readers cannot observe a partially configured room.
+func (h *Hub) createRoom(options roomCreateOptions, host *Session) (*room.Room, protocol.RoomSnapshot, int64, *roomEntry, error) {
+	if err := validateRoomRulesFormat(options.format, options.rulesMode); err != nil {
+		return nil, protocol.RoomSnapshot{}, 0, nil, err
+	}
+	if !protocol.ValidDeckFormat(options.deckFormat) ||
+		protocol.TableModeForDeckFormat(options.deckFormat) != options.format {
+		return nil, protocol.RoomSnapshot{}, 0, nil,
+			&protocolError{code: protocol.ErrUnsupportedFormat,
+				message: "deck format does not match table mode"}
+	}
+	hash, err := hashPassword(options.password)
+	if err != nil {
+		return nil, protocol.RoomSnapshot{}, 0, nil, err
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.maxRooms > 0 && len(h.rooms)+len(h.reservedRoomIDs) >= h.maxRooms {
+		return nil, protocol.RoomSnapshot{}, 0, nil,
+			&protocolError{code: protocol.ErrServerLimit, message: "maximum rooms reached"}
+	}
+
+	// Generate + uniqueness-check + insert atomically.
+	var id string
+	var r *room.Room
+	for {
+		id, err = genRoomID()
+		if err != nil {
+			return nil, protocol.RoomSnapshot{}, 0, nil,
+				&protocolError{
+					code:    protocol.ErrInternal,
+					message: "room id generation unavailable",
+				}
+		}
+		if _, ok := h.rooms[id]; ok {
+			continue // collision, retry
+		}
+		if h.reservedRoomIDs[id] {
+			continue
+		}
+		r, err = room.NewWithRulesMode(id, options.name, options.format, options.matchMode, options.cardLoadMode, options.rulesMode,
+			options.maxSeats, options.allowSpectators, len(hash) > 0, host.DisplayName, host.ConnectionID, time.Now())
+		if err != nil {
+			return nil, protocol.RoomSnapshot{}, 0, nil, err
+		}
+		r.HostingMode = options.hostingMode
+		r.DeckFormat = options.deckFormat
+		r.LimitedDeckLocked = options.tournamentID != ""
+		r.TournamentID = options.tournamentID
+		r.TournamentPairingID = options.tournamentPairing
+		source, difficulty := options.aiSource, options.aiDifficulty
+		if source == "" && difficulty != "" {
+			source = protocol.AISourceForge
+		}
+		if source != "" {
+			if err := r.AddAI(source, difficulty); err != nil {
+				return nil, protocol.RoomSnapshot{}, 0, nil, mapRoomError(err)
+			}
+		}
+		r.SpectatorsSeeHands = options.allowSpectators && options.spectatorsSeeHands
+		if options.tournamentParticipantID != "" {
+			r.Seats[r.HostSeat].TournamentParticipantID = options.tournamentParticipantID
+		}
+		// Build the first snapshot and bind the host before publishing the room.
+		// Once the map entry is visible, every state read/write must use entry.mu.
+		snapshot := r.Snapshot()
+		seq := r.AllocSeq()
+		host.setRoom(r)
+		entry := &roomEntry{
+			room: r, passwordHash: append([]byte(nil), hash...),
+			tournamentID: options.tournamentID, tournamentPairing: options.tournamentPairing,
+		}
+		// The entry is new and remains unreachable while h.mu is held, so this
+		// opMu acquisition cannot contend with lockRoomOperation. The caller
+		// receives opMu locked so no subsequent room operation can mutate the
+		// initial state before its reply/projection is queued.
+		entry.opMu.Lock()
+		h.rooms[id] = entry
+		return r, snapshot, seq, entry, nil
+	}
+}
+
+// ResumeRoom rebinds a held membership and returns only fresh projections for
+// that member. Historical per-role envelopes are never replayed.
+func (h *Hub) ResumeRoom(oldConnID string, sess *Session,
+	r *room.Room) (room.ReconnectInfo, []protocol.Envelope, error) {
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return room.ReconnectInfo{}, nil,
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	info, err := r.Reconnect(oldConnID, sess.ConnectionID)
+	if err != nil {
+		return room.ReconnectInfo{}, nil, mapRoomError(err)
+	}
+	envelopes, err := r.ResumeEnvelopes(sess.ConnectionID)
+	if err != nil {
+		if _, rollbackErr := r.Reconnect(sess.ConnectionID, oldConnID); rollbackErr != nil {
+			return room.ReconnectInfo{}, nil,
+				&protocolError{
+					code:    protocol.ErrInternal,
+					message: "failed to roll back incomplete room resume",
+				}
+		}
+		return room.ReconnectInfo{}, nil, mapRoomError(err)
+	}
+	if entry.tournamentID != "" && info.Role == protocol.RoleSpectator {
+		publicEnvelopes := make([]protocol.Envelope, 0, len(envelopes))
+		for _, envelope := range envelopes {
+			if envelope.Type != protocol.TypeMatchLoadRequired {
+				publicEnvelopes = append(publicEnvelopes, envelope)
+			}
+		}
+		envelopes = publicEnvelopes
+	}
+	sess.setRoom(r)
+	return info, envelopes, nil
+}
+
+// ExpireDisconnected releases a membership after its reconnect deadline.
+func (h *Hub) ExpireDisconnected(connID string,
+	r *room.Room) (room.Result, bool, error) {
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return room.Result{}, false,
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	result, empty, err := r.ExpireDisconnected(connID)
+	if err != nil {
+		return room.Result{}, false, mapRoomError(err)
+	}
+	return result, empty, nil
+}
+
+// FindRoom returns the room with the given id (nil if none).
+func (h *Hub) FindRoom(id string) *room.Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if e, ok := h.rooms[id]; ok {
+		return e.room
+	}
+	return nil
+}
+
+// TournamentForRoom returns the immutable tournament tag of a private pairing
+// room. Ordinary rooms return an empty id.
+func (h *Hub) TournamentForRoom(r *room.Room) string {
+	if r == nil {
+		return ""
+	}
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil || entry.room != r {
+		return ""
+	}
+	return entry.tournamentID
+}
+
+func pairingRoomOccupied(r *room.Room) bool {
+	if r == nil || r.Disbanded {
+		return false
+	}
+	if r.PlayerCount() > 0 {
+		return true
+	}
+	return len(r.Spectators) > 0
+}
+
+// ListRooms returns stable, public projections of rooms on this hub only.
+// Registry and room locks are never held together, avoiding lock inversion
+// with room removal while still taking each projection atomically.
+func (h *Hub) ListRooms() []protocol.RoomListEntry {
+	h.mu.Lock()
+	entries := make([]*roomEntry, 0, len(h.rooms))
+	for _, entry := range h.rooms {
+		entries = append(entries, entry)
+	}
+	h.mu.Unlock()
+
+	rooms := make([]protocol.RoomListEntry, 0, len(entries))
+	for _, entry := range entries {
+		entry.mu.Lock()
+		if !entry.room.Disbanded && !entry.room.Playtest && entry.tournamentID == "" {
+			rooms = append(rooms, entry.room.ListEntry())
+		}
+		entry.mu.Unlock()
+	}
+	sort.Slice(rooms, func(left, right int) bool {
+		return rooms[left].RoomID < rooms[right].RoomID
+	})
+	return rooms
+}
+
+// roomEntryFor returns the roomEntry (with its lock) for atomic join/leave.
+func (h *Hub) roomEntryFor(id string) *roomEntry {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.rooms[id]
+}
+
+// reduceRoom owns the repeated room lookup, identity check, state lock, and
+// reducer-error mapping used by ordinary room.Result operations. Callers still
+// hold opMu across their reply and fan-out so command ordering is unchanged.
+func (h *Hub) reduceRoom(r *room.Room,
+	reducer func(*room.Room) (room.Result, error)) (room.Result, error) {
+	if r == nil {
+		return room.Result{},
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return room.Result{},
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.room != r {
+		return room.Result{},
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	result, err := reducer(entry.room)
+	if err != nil {
+		return result, mapRoomError(err)
+	}
+	return result, nil
+}
+
+// lockRoomOperation begins a reducer/reply/fan-out transaction for one room.
+// The caller must unlock entry.opMu after all resulting messages are queued.
+func (h *Hub) lockRoomOperation(id string) (*roomEntry, error) {
+	entry := h.roomEntryFor(id)
+	if entry == nil {
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.opMu.Lock()
+
+	// The room may have been removed while this operation waited for opMu.
+	h.mu.Lock()
+	current := h.rooms[id]
+	h.mu.Unlock()
+	if current != entry {
+		entry.opMu.Unlock()
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	return entry, nil
+}
+
+// beginJoin validates the immutable room password before acquiring opMu, then
+// verifies that the same room entry is still registered. bcrypt comparison is
+// intentionally outside the room operation transaction so failed joins cannot
+// stall legitimate gameplay in that room.
+func (h *Hub) beginJoin(roomID, password string) (*roomEntry, error) {
+	entry := h.roomEntryFor(roomID)
+	if entry == nil {
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	hasPassword := len(entry.passwordHash) > 0
+	passwordHash := append([]byte(nil), entry.passwordHash...)
+	if hasPassword {
+		select {
+		case h.passwordSlots <- struct{}{}:
+			defer func() { <-h.passwordSlots }()
+		default:
+			return nil, &protocolError{
+				code: protocol.ErrRateLimited, message: "password checks are busy",
+			}
+		}
+		if !h.passwordCheck(passwordHash, password) {
+			return nil, &protocolError{code: protocol.ErrWrongPassword, message: "wrong password"}
+		}
+	}
+
+	entry.opMu.Lock()
+	h.mu.Lock()
+	current := h.rooms[roomID]
+	h.mu.Unlock()
+	if current != entry {
+		entry.opMu.Unlock()
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	return entry, nil
+}
+
+// RoomRequiresPassword reports immutable password presence without exposing a
+// hash. The bool result is false when the room no longer exists.
+func (h *Hub) RoomRequiresPassword(roomID string) (bool, bool) {
+	entry := h.roomEntryFor(roomID)
+	if entry == nil {
+		return false, false
+	}
+	return len(entry.passwordHash) > 0, true
+}
+
+// removeRoom drops a disbanded room from the registry.
+func (h *Hub) removeRoom(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.rooms, id)
+}
+
+// joinRoom attempts to join through an entry returned by beginJoin. On
+// success the session is bound to the room. The caller holds entry.opMu until
+// all resulting messages have been queued.
+func (h *Hub) joinRoom(entry *roomEntry, sess *Session, asSpectator bool) (room.Result, *room.Room, error) {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	res, err := entry.room.Join(sess.ConnectionID, sess.DisplayName, asSpectator, "")
+	if err != nil {
+		return room.Result{}, nil, mapRoomError(err)
+	}
+	// Bind the session before releasing the room lock. This prevents a host
+	// kick/disband from racing between reducer membership and Session.roomRef.
+	sess.setRoom(entry.room)
+	return res, entry.room, nil
+}
+
+// joinTournamentRoom binds a current tournament participant to exactly one
+// player seat in a pairing room.
+func (h *Hub) joinTournamentRoom(entry *roomEntry, sess *Session,
+	participantID string) (room.Result, *room.Room, error) {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	res, err := entry.room.JoinTournamentParticipant(
+		sess.ConnectionID, sess.DisplayName, participantID)
+	if err != nil {
+		return room.Result{}, nil, mapRoomError(err)
+	}
+	sess.setRoom(entry.room)
+	return res, entry.room, nil
+}
+
+// LeaveRoom removes a connection from its room. If the host leaves, the room
+// is marked disbanded (but NOT removed from the registry yet - the caller must
+// fanout the disband event first, then call RemoveRoom). Returns the reducer
+// result. The returned bool is true if the room disbanded.
+func (h *Hub) LeaveRoom(connID string, r *room.Room) (room.Result, bool, error) {
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return room.Result{}, false, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	res, err := r.Leave(connID)
+	if err != nil {
+		return room.Result{}, false, mapRoomError(err)
+	}
+	return res, r.Disbanded, nil
+}
+
+// RemoveRoom drops a room from the registry. Called by the handler AFTER the
+// disband event has been fanned out to remaining members.
+func (h *Hub) RemoveRoom(id string) {
+	h.removeRoom(id)
+}
+
+// GameProjection builds one role-specific game.snapshot using an existing
+// room sequence. The caller owns sequence allocation.
+func (h *Hub) GameProjection(r *room.Room, connID string,
+	seq int64) (protocol.Envelope, error) {
+	if r == nil {
+		return protocol.Envelope{},
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return protocol.Envelope{},
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.room != r {
+		return protocol.Envelope{},
+			&protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	return gameProjectionEnvelope(entry.room, connID, seq)
+}
+
+// GameProjections builds one role-specific game.snapshot per current member.
+// Every projection shares one room sequence number while hidden hands differ.
+func (h *Hub) GameProjections(r *room.Room) (map[string]protocol.Envelope, error) {
+	if r == nil {
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.room != r {
+		return nil, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	locked := entry.room
+
+	seq := locked.AllocSeq()
+	projections := make(map[string]protocol.Envelope,
+		locked.PlayerCount()+len(locked.Spectators))
+	for _, seat := range locked.Seats {
+		if !seat.Occupied || seat.Controller != "" || seat.ConnectionID == "" {
+			continue
+		}
+		envelope, err := gameProjectionEnvelope(locked, seat.ConnectionID, seq)
+		if err != nil {
+			return nil, err
+		}
+		projections[seat.ConnectionID] = envelope
+	}
+
+	var spectatorEnvelope protocol.Envelope
+	for index, spectator := range locked.Spectators {
+		if index == 0 {
+			envelope, err := gameProjectionEnvelope(
+				locked, spectator.ConnectionID, seq)
+			if err != nil {
+				return nil, err
+			}
+			spectatorEnvelope = envelope
+		}
+		projections[spectator.ConnectionID] = spectatorEnvelope
+	}
+	return projections, nil
+}
+
+func gameProjectionEnvelope(r *room.Room, connID string,
+	seq int64) (protocol.Envelope, error) {
+	var snapshot protocol.GameSnapshot
+	var err error
+	if r.RulesMode == protocol.RulesModeForge {
+		snapshot, err = r.RulesGameSnapshot(connID)
+	} else {
+		snapshot, err = r.GameSnapshot(connID)
+	}
+	if err != nil {
+		return protocol.Envelope{}, mapRoomError(err)
+	}
+	envelope, err := protocol.NewEnvelope(protocol.TypeGameSnapshot, snapshot)
+	if err != nil {
+		return protocol.Envelope{}, &protocolError{
+			code:    protocol.ErrInternal,
+			message: "internal server error",
+		}
+	}
+	return envelope.WithSeq(seq), nil
+}
+
+// RulesProjectionTargets snapshots the authenticated viewer seat for each
+// current room member and allocates one shared room sequence number. A seat of
+// -1 denotes the explicit spectator projection.
+func (h *Hub) RulesProjectionTargets(r *room.Room) (map[string]int, int64, error) {
+	if r == nil {
+		return nil, 0, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return nil, 0, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.room != r || r.RulesMode != protocol.RulesModeForge ||
+		r.Phase != protocol.RoomPhaseStarted {
+		return nil, 0, &protocolError{code: protocol.ErrGameNotStarted, message: "game not started"}
+	}
+	targets := make(map[string]int, r.PlayerCount()+len(r.Spectators))
+	for seatIndex, seat := range r.Seats {
+		if seat.Occupied && seat.Controller == "" && seat.ConnectionID != "" {
+			targets[seat.ConnectionID] = seatIndex
+		}
+	}
+	for _, spectator := range r.Spectators {
+		targets[spectator.ConnectionID] = -1
+	}
+	return targets, r.AllocSeq(), nil
+}
+
+// DisbandRoom validates that actorConnID is the host and disbands the room in
+// one per-room critical section.
+func (h *Hub) DisbandRoom(actorConnID string, r *room.Room) (room.Result, error) {
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return room.Result{}, &protocolError{code: protocol.ErrRoomNotFound, message: "room not found"}
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	if !r.IsHost(actorConnID) {
+		return room.Result{}, &protocolError{code: protocol.ErrNotHost, message: "host only"}
+	}
+	res, err := r.Leave(actorConnID)
+	if err != nil {
+		return room.Result{}, mapRoomError(err)
+	}
+	return res, nil
+}
+
+// protocolError carries a wire error code.
+type protocolError struct {
+	code    string
+	message string
+}
+
+func (e *protocolError) Error() string { return e.code + ": " + e.message }
+
+// mapRoomError translates a typed room-package error into a wire error.
+// Arbitrary reducer failures remain private server details.
+func mapRoomError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if code, ok := room.ErrorCode(err); ok {
+		return &protocolError{code: code, message: code}
+	}
+	return &protocolError{
+		code:    protocol.ErrInternal,
+		message: "internal server error",
+	}
+}
+
+// ErrCode extracts the wire code from an error returned by hub methods.
+func ErrCode(err error) (string, bool) {
+	if pe, ok := err.(*protocolError); ok {
+		return pe.code, true
+	}
+	return "", false
+}

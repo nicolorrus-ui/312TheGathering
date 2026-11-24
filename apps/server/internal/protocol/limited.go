@@ -1,0 +1,227 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+package protocol
+
+// LimitedCardDefinition is one weighted printing in a product sheet. Weight
+// is also the physical quantity when the product is a Cube.
+// A missing TypeLine inherits a nonempty type from the same set/collector
+// elsewhere in the product; it does not depend on the printing's finish.
+type LimitedCardDefinition struct {
+	Name                string `json:"name"`
+	SetCode             string `json:"setCode"`
+	CollectorNumber     string `json:"collectorNumber"`
+	TypeLine            string `json:"typeLine,omitempty"`
+	Rarity              string `json:"rarity,omitempty"`
+	Finish              string `json:"finish,omitempty"`
+	Weight              int    `json:"weight"`
+	PairCollectorNumber string `json:"pairCollectorNumber,omitempty"`
+}
+
+type LimitedSheetDefinition struct {
+	Name            string                  `json:"name"`
+	WithReplacement bool                    `json:"withReplacement"`
+	ExcludePrevious bool                    `json:"excludePrevious,omitempty"`
+	Cards           []LimitedCardDefinition `json:"cards,omitempty"`
+	CardRefs        []LimitedCardReference  `json:"cardRefs,omitempty"`
+}
+
+// CardIndex is one-based; zero and out-of-range indices are invalid.
+// Exactly one of Cards and CardRefs must be populated in each sheet.
+type LimitedCardReference struct {
+	CardIndex int `json:"cardIndex"`
+	Weight    int `json:"weight"`
+}
+
+type LimitedSlotDefinition struct {
+	Sheet string `json:"sheet"`
+	Count int    `json:"count"`
+}
+
+type LimitedPackVariantDefinition struct {
+	Weight int                     `json:"weight"`
+	Slots  []LimitedSlotDefinition `json:"slots"`
+}
+
+// LimitedProductDefinition is locked before an online limited event starts.
+// Official definitions are generated data; custom Cube definitions are
+// bounded organizer input and use productType "cube".
+type LimitedProductDefinition struct {
+	ID           string                         `json:"id"`
+	Name         string                         `json:"name"`
+	SetCode      string                         `json:"setCode,omitempty"`
+	ProductType  string                         `json:"productType"`
+	Authentic    bool                           `json:"authentic"`
+	CardsPerPack int                            `json:"cardsPerPack"`
+	Sheets       []LimitedSheetDefinition       `json:"sheets"`
+	CardPool     []LimitedCardDefinition        `json:"cardPool,omitempty"`
+	Variants     []LimitedPackVariantDefinition `json:"variants"`
+}
+
+type LimitedCardView struct {
+	InstanceID      string `json:"instanceId"`
+	Name            string `json:"name"`
+	SetCode         string `json:"setCode"`
+	CollectorNumber string `json:"collectorNumber"`
+	TypeLine        string `json:"typeLine,omitempty"`
+	Rarity          string `json:"rarity,omitempty"`
+	Finish          string `json:"finish,omitempty"`
+}
+
+type LimitedProductView struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	SetCode      string `json:"setCode,omitempty"`
+	ProductType  string `json:"productType"`
+	Authentic    bool   `json:"authentic"`
+	CardsPerPack int    `json:"cardsPerPack"`
+	CardCount    int    `json:"cardCount"`
+	ProductHash  string `json:"productHash"`
+}
+
+// LimitedPackPlanDefinition deduplicates recipes while preserving pack order.
+// Entries are rounds for Draft and quantities in reveal order for Sealed.
+type LimitedPackPlanDefinition struct {
+	Products []LimitedProductDefinition `json:"products"`
+	Entries  []LimitedPackPlanEntry     `json:"entries"`
+}
+
+type LimitedPackPlanEntry struct {
+	ProductID string `json:"productId"`
+	Count     int    `json:"count"`
+}
+
+// LimitedPackPlanView contains content identities and composition, never sheets
+// or generated cards. Hashes identify content, not official recipe authenticity.
+type LimitedPackPlanView struct {
+	Products       []LimitedProductView   `json:"products"`
+	Entries        []LimitedPackPlanEntry `json:"entries"`
+	PlanHash       string                 `json:"planHash"`
+	PacksPerPlayer int                    `json:"packsPerPlayer"`
+	CardsPerPlayer int                    `json:"cardsPerPlayer"`
+	Custom         bool                   `json:"custom"`
+}
+
+// LimitedReceivedPackView refers only to instances in the recipient's pool.
+type LimitedReceivedPackView struct {
+	PackID      string   `json:"packId"`
+	ProductID   string   `json:"productId"`
+	InstanceIDs []string `json:"instanceIds"`
+}
+
+type LimitedParticipantView struct {
+	ParticipantID string `json:"participantId"`
+	DisplayName   string `json:"displayName"`
+	Picked        int    `json:"picked"`
+	PackCards     int    `json:"packCards"`
+	QueuedPacks   int    `json:"queuedPacks"`
+	DeckSubmitted bool   `json:"deckSubmitted"`
+	AutoDraft     bool   `json:"autoDraft,omitempty"`
+	Withdrawn     bool   `json:"withdrawn,omitempty"`
+}
+
+// LimitedDraftSettings is locked when the room is created. Packs remain
+// independent even when two are opened and passed together.
+type LimitedDraftSettings struct {
+	PacksPerPlayer int `json:"packsPerPlayer"`
+	PacksPerBatch  int `json:"packsPerBatch"`
+	CardsPerPack   int `json:"cardsPerPack,omitempty"`
+}
+
+type LimitedDraftPackView struct {
+	PackID        string            `json:"packId"`
+	ProductID     string            `json:"productId,omitempty"`
+	Cards         []LimitedCardView `json:"cards"`
+	PicksRequired int               `json:"picksRequired"`
+}
+
+type LimitedBasicLand struct {
+	Name            string `json:"name"`
+	Count           int    `json:"count"`
+	SetCode         string `json:"setCode,omitempty"`
+	CollectorNumber string `json:"collectorNumber,omitempty"`
+	TypeLine        string `json:"typeLine,omitempty"`
+}
+
+type LimitedPick struct {
+	InstanceID  string   `json:"instanceId,omitempty"`
+	InstanceIDs []string `json:"instanceIds,omitempty"`
+}
+
+type LimitedSetDraftControl struct {
+	ParticipantID string `json:"participantId,omitempty"`
+	Automatic     bool   `json:"automatic"`
+}
+
+type LimitedSetParticipation struct {
+	Participating bool `json:"participating"`
+}
+
+type LimitedCreateCasualMatch struct {
+	PlayerAID string   `json:"playerAId,omitempty"`
+	PlayerBID string   `json:"playerBId,omitempty"`
+	PlayerIDs []string `json:"playerIds,omitempty"`
+	PairingID string   `json:"pairingId,omitempty"`
+	Action    string   `json:"action,omitempty"`
+}
+
+type LimitedPicked struct {
+	TournamentID string `json:"tournamentId"`
+	Remaining    int    `json:"remaining"`
+}
+
+type LimitedSubmitDeck struct {
+	Name                 string                  `json:"name"`
+	MainboardInstanceIDs []string                `json:"mainboardInstanceIds"`
+	CommanderInstanceIDs []string                `json:"commanderInstanceIds,omitempty"`
+	CommanderColors      []LimitedCommanderColor `json:"commanderColors,omitempty"`
+	BasicLands           []LimitedBasicLand      `json:"basicLands"`
+}
+
+// LimitedCommanderColor chooses exactly one color for a selected Piper instance.
+type LimitedCommanderColor struct {
+	InstanceID string `json:"instanceId"`
+	Color      string `json:"color"`
+}
+
+type LimitedDeckSubmitted struct {
+	TournamentID   string `json:"tournamentId"`
+	MainboardCount int    `json:"mainboardCount"`
+	SideboardCount int    `json:"sideboardCount"`
+}
+
+// LimitedSnapshot is role-specific. CurrentPack and Pool are empty unless the
+// recipient owns the participant projection.
+type LimitedSnapshot struct {
+	TournamentID         string                    `json:"tournamentId"`
+	EventType            string                    `json:"eventType"`
+	Stage                string                    `json:"stage"`
+	Product              LimitedProductView        `json:"product"`
+	Plan                 *LimitedPackPlanView      `json:"plan,omitempty"`
+	ReceivedPacks        []LimitedReceivedPackView `json:"receivedPacks,omitempty"`
+	PackRound            int                       `json:"packRound"`
+	Direction            int                       `json:"direction"`
+	CurrentPack          []LimitedCardView         `json:"currentPack"`
+	CurrentPacks         []LimitedDraftPackView    `json:"currentPacks,omitempty"`
+	PacksThisBatch       int                       `json:"packsThisBatch,omitempty"`
+	Pool                 []LimitedCardView         `json:"pool"`
+	FallbackCommanders   []LimitedCardView         `json:"fallbackCommanders,omitempty"`
+	OptionalCards        []LimitedCardView         `json:"optionalCards,omitempty"`
+	MainboardInstanceIDs []string                  `json:"mainboardInstanceIds"`
+	CommanderInstanceIDs []string                  `json:"commanderInstanceIds,omitempty"`
+	CommanderColors      []LimitedCommanderColor   `json:"commanderColors,omitempty"`
+	PicksRequired        int                       `json:"picksRequired,omitempty"`
+	PacksPerPlayer       int                       `json:"packsPerPlayer,omitempty"`
+	MinimumDeckCards     int                       `json:"minimumDeckCards,omitempty"`
+	BasicLands           []LimitedBasicLand        `json:"basicLands"`
+	Participants         []LimitedParticipantView  `json:"participants"`
+	DeckSubmitted        bool                      `json:"deckSubmitted"`
+	AllDecksSubmitted    bool                      `json:"allDecksSubmitted"`
+}
+
+// LimitedProgress replaces only public seat progress, never private cards.
+// Entry, recovery, and changed private state use a full LimitedSnapshot.
+type LimitedProgress struct {
+	TournamentID string                   `json:"tournamentId"`
+	Participants []LimitedParticipantView `json:"participants"`
+}

@@ -1,0 +1,414 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#include "cardcatalog_test.h"
+
+#include "services/CatalogStorage.h"
+
+void TestCardCatalog::simulatesTrkPlayProduct() const
+{
+    QFile source(qEnvironmentVariable(
+        "HEXPROOF_TRK_PRODUCT",
+        QFINDTESTDATA("../../../testdata/limited/trk-estimated-product.json")));
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    const QVariantMap product = QJsonDocument::fromJson(source.readAll()).object().toVariantMap();
+    QCOMPARE(product.value(u"id"_s).toString(), u"hexproof-trk-play"_s);
+    QCOMPARE(product.value(u"productType"_s).toString(), u"approximate"_s);
+    QVERIFY(!product.value(u"authentic"_s).toBool());
+    QCOMPARE(product.value(u"cardsPerPack"_s).toInt(), 14);
+    QTemporaryDir storage;
+    QVERIFY(storage.isValid());
+    CardCatalog catalog(storage.path());
+    const QString databasePath = qEnvironmentVariable("HEXPROOF_TRK_DATABASE");
+    if (!databasePath.isEmpty()) {
+        catalog.importCatalogFile(QUrl::fromLocalFile(databasePath), u"default_cards"_s);
+        QTRY_VERIFY_WITH_TIMEOUT(!catalog.busy(), 30000);
+        QVERIFY2(catalog.lastError().isEmpty(), qPrintable(catalog.lastError()));
+        const QVariantList sets = catalog.limitedSets();
+        const auto selected = std::find_if(sets.cbegin(), sets.cend(), [](const QVariant &value) {
+            return value.toMap().value(u"id"_s).toString() == u"TRK"_s;
+        });
+        QVERIFY(selected != sets.cend());
+        QCOMPARE(selected->toMap().value(u"productId"_s).toString(), u"hexproof-trk-play"_s);
+        QVERIFY(!selected->toMap().value(u"authentic"_s).toBool());
+        QCOMPARE(catalog.limitedProduct(u"hexproof-trk-play"_s), product);
+    }
+    for (int run = 0; run < 10; ++run) {
+        const QVariantList packs = catalog.simulateLimitedPacks(product, 36);
+        QCOMPARE(packs.size(), 36);
+        QSet<QString> physicalCards;
+        for (const QVariant &pack : packs) {
+            const QVariantList cards = pack.toMap().value(u"cards"_s).toList();
+            QCOMPARE(cards.size(), 14);
+            int bonus = 0;
+            int foils = 0;
+            QSet<QString> printings;
+            for (const QVariant &value : cards) {
+                const QVariantMap card = value.toMap();
+                const QString set = card.value(u"setCode"_s).toString();
+                const QString printing = set + u"/"_s +
+                                         card.value(u"collectorNumber"_s).toString() + u"/"_s +
+                                         card.value(u"finish"_s).toString();
+                QVERIFY(!printings.contains(printing));
+                printings.insert(printing);
+                QVERIFY(set == u"TRK"_s || set == u"SDS"_s);
+                QVERIFY(!card.value(u"typeLine"_s).toString().isEmpty());
+                const QString id = card.value(u"instanceId"_s).toString();
+                QVERIFY(!id.isEmpty() && !physicalCards.contains(id));
+                physicalCards.insert(id);
+                if (set == u"SDS"_s) {
+                    ++bonus;
+                    QCOMPARE(card.value(u"finish"_s).toString(), u"nonfoil"_s);
+                }
+                if (card.value(u"finish"_s).toString() == u"foil"_s)
+                    ++foils;
+            }
+            QVERIFY(bonus <= 1);
+            QVERIFY(foils >= 1);
+        }
+    }
+}
+
+void TestCardCatalog::simulatesLimitedWeightTotalBoundary() const
+{
+    QTemporaryDir storage;
+    QVERIFY(storage.isValid());
+    CardCatalog catalog(storage.path());
+    for (const int count : {1024, 1025, 2049}) {
+        QVariantList cards;
+        for (int index = 0; index < count; ++index)
+            cards.append(QVariantMap{{u"name"_s, u"Card %1"_s.arg(index)},
+                                     {u"weight"_s, qint64(9007199254740991)}});
+        const QVariantMap product{
+            {u"cardsPerPack"_s, 1},
+            {u"sheets"_s, QVariantList{QVariantMap{{u"name"_s, u"main"_s}, {u"cards"_s, cards}}}},
+            {u"variants"_s,
+             QVariantList{QVariantMap{{u"weight"_s, 1},
+                                      {u"slots"_s, QVariantList{QVariantMap{{u"sheet"_s, u"main"_s},
+                                                                            {u"count"_s, 1}}}}}}},
+        };
+        const QVariantList packs = catalog.simulateLimitedPacks(product, 1);
+        QCOMPARE(packs.size(), count == 1024 ? 1 : 0);
+        if (!packs.isEmpty())
+            QCOMPARE(packs.first().toMap().value(u"cards"_s).toList().size(), 1);
+    }
+}
+
+namespace {
+
+bool writeLimitedArtCatalog(const QString &storagePath, bool doubleFaced = false)
+{
+    const QString sourcePath = storagePath + QStringLiteral("/bulk.json");
+    const QString databasePath = storagePath + QStringLiteral("/cards.sqlite");
+    QJsonObject cardObject{
+        {u"id"_s, u"card-1"_s},
+        {u"oracle_id"_s, u"oracle-1"_s},
+        {u"name"_s, u"Lightning Bolt"_s},
+        {u"type_line"_s, u"Instant"_s},
+        {u"set"_s, u"M11"_s},
+        {u"collector_number"_s, u"149"_s},
+        {u"lang"_s, u"en"_s},
+        {u"layout"_s, u"normal"_s},
+        {u"image_uris"_s, QJsonObject{{u"normal"_s, u"https://example.test/bolt.jpg"_s}}},
+    };
+    if (doubleFaced) {
+        cardObject.insert(u"name"_s, u"Lightning Bolt // Back Face"_s);
+        cardObject.insert(u"layout"_s, u"transform"_s);
+        cardObject.insert(
+            u"card_faces"_s,
+            QJsonArray{
+                QJsonObject{{u"name"_s, u"Lightning Bolt"_s},
+                            {u"image_uris"_s,
+                             QJsonObject{{u"normal"_s, u"https://example.test/bolt.jpg"_s}}}},
+                QJsonObject{{u"name"_s, u"Back Face"_s},
+                            {u"image_uris"_s,
+                             QJsonObject{{u"normal"_s, u"https://example.test/back.jpg"_s}}}}});
+    }
+    const QJsonArray cards{cardObject};
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::WriteOnly))
+        return false;
+    const QByteArray payload = QJsonDocument(cards).toJson(QJsonDocument::Compact);
+    if (source.write(payload) != payload.size())
+        return false;
+    source.close();
+    if (!CardCatalog::importBulkFile(sourcePath, databasePath, u"default_cards"_s).ok)
+        return false;
+
+    const QJsonObject card{{u"name"_s, u"Lightning Bolt"_s}, {u"setCode"_s, u"M11"_s},
+                           {u"collectorNumber"_s, u"149"_s}, {u"typeLine"_s, u"Instant"_s},
+                           {u"rarity"_s, u"common"_s},       {u"weight"_s, 1}};
+    QJsonObject definition{
+        {u"id"_s, u"mtgjson-m11-play"_s},
+        {u"name"_s, u"M11 Play Booster"_s},
+        {u"setCode"_s, u"M11"_s},
+        {u"productType"_s, u"official"_s},
+        {u"authentic"_s, true},
+        {u"cardsPerPack"_s, 1},
+        {u"sheets"_s, QJsonArray{QJsonObject{{u"name"_s, u"common"_s},
+                                             {u"withReplacement"_s, false},
+                                             {u"cards"_s, QJsonArray{card}}},
+                                 QJsonObject{{u"name"_s, u"duplicate"_s},
+                                             {u"withReplacement"_s, false},
+                                             {u"cards"_s, QJsonArray{card}}}}},
+        {u"variants"_s,
+         QJsonArray{QJsonObject{
+             {u"weight"_s, 1},
+             {u"slots"_s, QJsonArray{QJsonObject{{u"sheet"_s, u"common"_s}, {u"count"_s, 1}}}}}}},
+    };
+
+    if (doubleFaced) {
+        definition.insert(u"cardPool"_s, QJsonArray{card});
+        definition.insert(
+            u"sheets"_s,
+            QJsonArray{QJsonObject{{u"name"_s, u"common"_s},
+                                   {u"withReplacement"_s, false},
+                                   {u"cardRefs"_s, QJsonArray{QJsonObject{{u"cardIndex"_s, 1},
+                                                                          {u"weight"_s, 1}}}}},
+                       QJsonObject{{u"name"_s, u"duplicate"_s},
+                                   {u"withReplacement"_s, false},
+                                   {u"cardRefs"_s, QJsonArray{QJsonObject{{u"cardIndex"_s, 1},
+                                                                          {u"weight"_s, 1}}}}}});
+    }
+
+    static int connectionSerial = 0;
+    const QString connectionName = u"limited-art-product-%1"_s.arg(++connectionSerial);
+    bool ok = false;
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connectionName);
+        database.setDatabaseName(databasePath);
+        if (database.open()) {
+            QSqlQuery query(database);
+            ok = query.exec(u"CREATE TABLE IF NOT EXISTS limited_products ("
+                            "id TEXT PRIMARY KEY, name TEXT, set_code TEXT, product_type TEXT, "
+                            "authentic INTEGER, definition_json TEXT)"_s);
+            if (ok) {
+                query.prepare(u"INSERT INTO limited_products VALUES (?, ?, ?, ?, ?, ?)"_s);
+                query.addBindValue(u"mtgjson-m11-play"_s);
+                query.addBindValue(u"M11 Play Booster"_s);
+                query.addBindValue(u"M11"_s);
+                query.addBindValue(u"official"_s);
+                query.addBindValue(1);
+                query.addBindValue(QJsonDocument(definition).toJson(QJsonDocument::Compact));
+                ok = query.exec();
+            }
+            database.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return ok;
+}
+
+} // namespace
+
+void TestCardCatalog::limitedArtExpansionWaitsForCatalogReplacement() const
+{
+    QTemporaryDir storage;
+    QVERIFY(storage.isValid());
+    QVERIFY(writeLimitedArtCatalog(storage.path(), true));
+    FakeNetworkAccessManager network;
+    CardCatalog catalog(storage.path(), &network);
+    catalog.cacheLimitedProductArt(u"mtgjson-m11-play"_s);
+    QReadLocker catalogReader(&hexproof::client::catalogstorage::databaseLock());
+    catalog.importCatalogFile(QUrl::fromLocalFile(storage.filePath(u"bulk.json"_s)),
+                              u"default_cards"_s);
+    QTest::qWait(30);
+    catalogReader.unlock();
+    QTRY_VERIFY_WITH_TIMEOUT(!catalog.busy(), 5'000);
+    QVERIFY2(catalog.lastError().isEmpty(), qPrintable(catalog.lastError()));
+    QCOMPARE(catalog.limitedArtTotal(), 2);
+    QCOMPARE(catalog.limitedArtCompleted(), 2);
+    QCOMPARE(catalog.limitedArtFailed(), 0);
+}
+
+void TestCardCatalog::cachesLimitedProductWithMtgchSetIndex() const
+{
+    QTemporaryDir storage;
+    QVERIFY(storage.isValid());
+    QVERIFY2(writeLimitedArtCatalog(storage.path()), "limited catalog setup failed");
+    {
+        FakeNetworkAccessManager network;
+        CardCatalog catalog(storage.path(), &network);
+        catalog.setLanguage(u"zh"_s);
+
+        catalog.cacheLimitedProductArt(u"mtgjson-m11-play"_s);
+
+        QTRY_VERIFY_WITH_TIMEOUT(!catalog.limitedArtCaching(), 3'000);
+        QCOMPARE(catalog.limitedArtTotal(), 1);
+        QCOMPARE(catalog.limitedArtCompleted(), 1);
+        QCOMPARE(catalog.limitedArtFailed(), 0);
+        QCOMPARE(network.requestedUrls.size(), 3);
+        QCOMPARE(network.requestedUrls.at(0).path(), u"/api/v1/set/M11/cards/"_s);
+        QCOMPARE(network.requestedUrls.at(1).host(), u"images.mtgch.com"_s);
+        // The set index still supplies the image; only missing translated rules
+        // require a per-card metadata request after that image is cached.
+        QCOMPARE(network.requestedUrls.at(2), QUrl(u"https://mtgch.com/api/v1/card/M11/149/"_s));
+        QVERIFY(catalog.printingImageSource(u"Lightning Bolt"_s, u"M11"_s, u"149"_s)
+                    .startsWith(u"file:"_s));
+    }
+
+    QTemporaryDir fallbackStorage;
+    QVERIFY(fallbackStorage.isValid());
+    QVERIFY2(writeLimitedArtCatalog(fallbackStorage.path()), "fallback catalog setup failed");
+    FakeNetworkAccessManager fallbackNetwork;
+    fallbackNetwork.missMtgchSetRequests = true;
+    CardCatalog fallbackCatalog(fallbackStorage.path(), &fallbackNetwork);
+    fallbackCatalog.setLanguage(u"zh"_s);
+
+    fallbackCatalog.cacheLimitedProductArt(u"mtgjson-m11-play"_s);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!fallbackCatalog.limitedArtCaching(), 3'000);
+    QCOMPARE(fallbackCatalog.limitedArtFailed(), 0);
+    QVERIFY(std::any_of(fallbackNetwork.requestedUrls.cbegin(),
+                        fallbackNetwork.requestedUrls.cend(),
+                        [](const QUrl &url) { return url.path().startsWith(u"/api/v1/card/"_s); }));
+}
+
+void TestCardCatalog::simulatesPairedLimitedProduct() const
+{
+    QFile fixture(
+        QFINDTESTDATA("../../../testdata/protocol/v3/tournament-create-paired-product.json"));
+    QVERIFY(fixture.open(QIODevice::ReadOnly));
+    const QVariantMap product = QJsonDocument::fromJson(fixture.readAll())
+                                    .object()
+                                    .value(u"payload"_s)
+                                    .toObject()
+                                    .value(u"product"_s)
+                                    .toObject()
+                                    .toVariantMap();
+    QTemporaryDir storage;
+    CardCatalog catalog(storage.path());
+    for (int run = 0; run < 20; ++run) {
+        const QVariantList packs = catalog.simulateLimitedPacks(product, 36);
+        QCOMPARE(packs.size(), 36);
+        for (const QVariant &pack : packs) {
+            const QVariantList cards = pack.toMap().value(u"cards"_s).toList();
+            QCOMPARE(cards.size(), 3);
+            const int a = cards.at(0).toMap().value(u"collectorNumber"_s).toInt();
+            const int b = cards.at(1).toMap().value(u"collectorNumber"_s).toInt();
+            QCOMPARE((a - 1) / 2, (b - 1) / 2);
+            QVERIFY(a != b);
+            const int c = cards.at(2).toMap().value(u"collectorNumber"_s).toInt();
+            QVERIFY(c != a && c != b);
+            QVERIFY(!cards.first().toMap().contains(u"pairCollectorNumber"_s));
+        }
+    }
+    QVariantMap malformed = product;
+    QVariantList sheets = malformed.value(u"sheets"_s).toList();
+    QVariantMap sheet = sheets.first().toMap();
+    QVariantList cards = sheet.value(u"cards"_s).toList();
+    cards.removeFirst();
+    sheet.insert(u"cards"_s, cards);
+    sheets[0] = sheet;
+    malformed.insert(u"sheets"_s, sheets);
+    QVERIFY(catalog.simulateLimitedPacks(malformed, 1).isEmpty());
+
+    QVariantMap inherited = product;
+    QVariantMap foilCopy = product.value(u"sheets"_s)
+                               .toList()
+                               .first()
+                               .toMap()
+                               .value(u"cards"_s)
+                               .toList()
+                               .first()
+                               .toMap();
+    const QString inheritedType = u"Creature"_s;
+    QVariantList inheritedSheets = product.value(u"sheets"_s).toList();
+    QVariantMap sourceSheet = inheritedSheets.first().toMap();
+    QVariantList sourceCards = sourceSheet.value(u"cards"_s).toList();
+    QVariantMap typedSource = sourceCards.first().toMap();
+    typedSource.insert(u"typeLine"_s, inheritedType);
+    sourceCards.first() = typedSource;
+    sourceSheet.insert(u"cards"_s, sourceCards);
+    inheritedSheets.first() = sourceSheet;
+    foilCopy.remove(u"pairCollectorNumber"_s);
+    foilCopy.remove(u"typeLine"_s);
+    foilCopy.insert(u"finish"_s, u"foil"_s);
+    inheritedSheets.append(
+        QVariantMap{{u"name"_s, u"foil-copy"_s}, {u"cards"_s, QVariantList{foilCopy}}});
+    inherited.insert(u"sheets"_s, inheritedSheets);
+    inherited.insert(u"cardsPerPack"_s, 1);
+    inherited.insert(
+        u"variants"_s,
+        QVariantList{QVariantMap{{u"weight"_s, 1},
+                                 {u"slots"_s, QVariantList{QVariantMap{{u"sheet"_s, u"foil-copy"_s},
+                                                                       {u"count"_s, 1}}}}}});
+    const QVariantList inheritedPacks = catalog.simulateLimitedPacks(inherited, 1);
+    QCOMPARE(inheritedPacks.size(), 1);
+    QCOMPARE(inheritedPacks.first()
+                 .toMap()
+                 .value(u"cards"_s)
+                 .toList()
+                 .first()
+                 .toMap()
+                 .value(u"typeLine"_s)
+                 .toString(),
+             inheritedType);
+    foilCopy.insert(u"typeLine"_s, u"Conflicting type"_s);
+    QVariantMap conflictingSheet = inheritedSheets.last().toMap();
+    conflictingSheet.insert(u"cards"_s, QVariantList{foilCopy});
+    inheritedSheets.last() = conflictingSheet;
+    inherited.insert(u"sheets"_s, inheritedSheets);
+    QVERIFY(catalog.simulateLimitedPacks(inherited, 1).isEmpty());
+
+    QFile pooledFixture(
+        QFINDTESTDATA("../../../testdata/protocol/v3/tournament-create-card-pool.json"));
+    QVERIFY(pooledFixture.open(QIODevice::ReadOnly));
+    QVariantMap pooled = QJsonDocument::fromJson(pooledFixture.readAll())
+                             .object()
+                             .value(u"payload"_s)
+                             .toObject()
+                             .value(u"product"_s)
+                             .toObject()
+                             .toVariantMap();
+    QCOMPARE(catalog.simulateLimitedPacks(pooled, 36).size(), 36);
+    for (const int badIndex : {0, 10000}) {
+        QVariantMap bad = pooled;
+        QVariantList pooledSheets = bad.value(u"sheets"_s).toList();
+        QVariantMap pooledSheet = pooledSheets.first().toMap();
+        QVariantList refs = pooledSheet.value(u"cardRefs"_s).toList();
+        QVariantMap ref = refs.first().toMap();
+        ref.insert(u"cardIndex"_s, badIndex);
+        refs.first() = ref;
+        pooledSheet.insert(u"cardRefs"_s, refs);
+        pooledSheets.first() = pooledSheet;
+        bad.insert(u"sheets"_s, pooledSheets);
+        QVERIFY(catalog.simulateLimitedPacks(bad, 1).isEmpty());
+    }
+
+    const QString databasePath = qEnvironmentVariable("HEXPROOF_FRA_DATABASE");
+    if (!databasePath.isEmpty()) {
+        catalog.importCatalogFile(QUrl::fromLocalFile(databasePath), u"default_cards"_s);
+        QTRY_VERIFY_WITH_TIMEOUT(!catalog.busy(), 30000);
+        QVERIFY2(catalog.lastError().isEmpty(), qPrintable(catalog.lastError()));
+        const QVariantList sets = catalog.limitedSets();
+        const auto fraSet = std::find_if(sets.cbegin(), sets.cend(), [](const QVariant &value) {
+            return value.toMap().value(u"id"_s).toString() == u"FRA"_s;
+        });
+        QVERIFY(fraSet != sets.cend());
+        QCOMPARE(fraSet->toMap().value(u"productId"_s).toString(), u"mtgjson-fra-play"_s);
+        QVERIFY(fraSet->toMap().value(u"authentic"_s).toBool());
+        QCOMPARE(
+            catalog.simulateLimitedPacks(catalog.limitedProduct(u"mtgjson-fra-play"_s), 6).size(),
+            6);
+    }
+
+    const QString builtPath =
+        qEnvironmentVariable("HEXPROOF_FRA_PRODUCT",
+                             QFINDTESTDATA("../../../testdata/limited/fra-upstream-product.json"));
+    if (!builtPath.isEmpty()) {
+        QFile built(builtPath);
+        QVERIFY(built.open(QIODevice::ReadOnly));
+        const QVariantMap fra = QJsonDocument::fromJson(built.readAll()).object().toVariantMap();
+        for (int run = 0; run < 10; ++run) {
+            const QVariantList packs = catalog.simulateLimitedPacks(fra, 36);
+            QCOMPARE(packs.size(), 36);
+            for (const QVariant &pack : packs) {
+                const QVariantList cards = pack.toMap().value(u"cards"_s).toList();
+                QCOMPARE(cards.size(), 14);
+                for (const QVariant &card : cards)
+                    QVERIFY(!card.toMap().value(u"typeLine"_s).toString().isEmpty());
+            }
+        }
+    }
+}

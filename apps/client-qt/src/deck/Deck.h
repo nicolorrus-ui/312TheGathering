@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#pragma once
+
+#include <QJsonObject>
+#include <QString>
+#include <QStringList>
+#include <QVector>
+
+namespace hexproof::client {
+
+struct DeckCard
+{
+    QString name;
+    QString localizedName;
+    QString setCode;
+    QString collectorNumber;
+    QString typeLine;
+    QString imagePath;
+    int count = 1;
+    QString colors;
+    double manaValue = -1.0;
+    QString rarity;
+    QString cardColors;
+    QString manaCost;
+    // Session-only presentation. These fields are not serialized or sent to peers.
+    QString displayImagePath{};
+    bool displayImagePathResolved = false;
+    bool displayImagePathPending = false;
+};
+
+struct DeckToken
+{
+    QString name;
+    QString localizedName;
+    QString setCode;
+    QString collectorNumber;
+    QString typeLine;
+    QString power;
+    QString toughness;
+    QString oracleText;
+    QString kind = QStringLiteral("token");
+};
+
+struct Deck
+{
+    QString id;
+    QString name;
+    // Legacy wire/table behavior value: modern (generic 1v1), duel, or edh.
+    QString format;
+    // Actual deck-construction policy: custom, standard, pioneer, modern,
+    // legacy, vintage, pauper, duel, commander, or cube.
+    QString deckFormat;
+    QStringList commanders;
+    QString createdAt;
+    QString updatedAt;
+    QVector<DeckCard> mainboard;
+    QVector<DeckCard> sideboard;
+    // Editor-only maybeboard. It is persisted and exported, but never sent as
+    // part of a registered match deck.
+    QVector<DeckCard> consider;
+    QVector<DeckToken> tokens;
+};
+
+QString normalizedCardNameSeparators(const QString &name);
+QString normalizedCardName(const QString &name);
+bool cardNamesMatch(const QString &left, const QString &right);
+bool cardIdentityMatches(const DeckCard &card, const QString &name, const QString &setCode,
+                         const QString &collectorNumber);
+bool cardIdentityMatches(const DeckCard &left, const DeckCard &right);
+QString cardCategory(const QString &typeLine);
+int cardCount(const QVector<DeckCard> &cards);
+void mergeSideboardIntoMain(Deck &deck);
+
+QJsonObject deckCardToJson(const DeckCard &card);
+DeckCard deckCardFromJson(const QJsonObject &object);
+QJsonObject deckTokenToJson(const DeckToken &token);
+QString normalizedDeckTokenKind(const QString &kind, const QString &typeLine,
+                                const QString &layout = {});
+DeckToken deckTokenFromJson(const QJsonObject &object);
+QJsonObject deckToJson(const Deck &deck);
+Deck deckFromJson(const QJsonObject &object);
+
+} // namespace hexproof::client

@@ -1,0 +1,1019 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+
+Item {
+    id: root
+
+    required property var wsModel
+    required property var cardCatalogModel
+    required property var tableModel
+    property var rulesSession: null
+    required property var gameTableModel
+    readonly property var roomSession: wsModel.roomSession
+    readonly property var gameSession: wsModel.gameSession
+    property int remainingSeconds: 0
+    property var dragSource: null
+    property var dragCard: ({})
+    property string dragFromZone: ""
+    property point dragPosition: Qt.point(0, 0)
+    property var inspectedCard: ({})
+    property var inspectedSourceItem: null
+    property bool hoverPreviewSourceActive: false
+    property bool hoverPreviewPointerActive: false
+    property bool hoverPreviewFocusActive: false
+    property bool hoverPreviewVisible: false
+    property real hoverPreviewX: 0
+    property real hoverPreviewY: 0
+
+    Timer {
+        id: previewDismiss
+        interval: 350
+        onTriggered: {
+            if (!root.hoverPreviewSourceActive && !root.hoverPreviewPointerActive
+                    && !root.hoverPreviewFocusActive)
+                root.hideSideboardCardPreview()
+        }
+    }
+    property var resolvedTypeLineCache: ({})
+    property bool basicLandsExpanded: false
+    readonly property bool compactLayout: width < Theme.size(1100)
+                                           || height < Theme.size(700)
+    onBasicLandsExpandedChanged: {
+        if (compactLayout && basicLandsExpanded) {
+            toolsPopup.showBasicLands = true
+            toolsPopup.open()
+        }
+    }
+    onCompactLayoutChanged: {
+        if (toolsPopup)
+            toolsPopup.close()
+        basicLandsExpanded = false
+    }
+    readonly property var sideboardData: gameSession.sideboard
+                                                   ? gameSession.sideboard : ({})
+    readonly property var mainboard: sideboardData.mainboard
+                                     ? sideboardData.mainboard : []
+    readonly property var sideboard: sideboardData.sideboard
+                                    ? sideboardData.sideboard : []
+    readonly property var mainboardGroups: tableModel.mainboardGroups
+    readonly property var sideboardGroups: tableModel.sideboardGroups
+    readonly property bool isPlayer: roomSession.role === "player"
+    readonly property var matchScoreSeatOrder: {
+        const score = gameSession.score || []
+        if (roomSession.matchMode !== "bo3" || score.length !== 2)
+            return []
+        const ownSeat = roomSession.seatIndex
+        return isPlayer && ownSeat >= 0 && ownSeat < 2
+            ? [ownSeat, 1 - ownSeat] : [0, 1]
+    }
+    readonly property bool ownReady: playerReady(roomSession.seatIndex)
+    property bool readyPending: false
+    onOwnReadyChanged: readyPending = false
+    onEnabledChanged: if (!enabled) readyPending = false
+    readonly property bool deckChangesAllowed: roomSession.format !== "duel"
+    readonly property bool limitedDeck: roomSession.deckFormat === "limited"
+    readonly property var commanders: sideboardData.commanders
+                                      ? sideboardData.commanders : []
+    property real trailingChromeWidth: 0
+
+    onSideboardDataChanged: updateClock()
+    onVisibleChanged: {
+        if (!visible) {
+            boardReview.close()
+            toolsPopup.close()
+            hideSideboardCardPreview()
+        }
+    }
+    Component.onCompleted: updateClock()
+
+    Connections {
+        target: root.wsModel
+        ignoreUnknownSignals: true
+        function onLastErrorChanged() { if (root.wsModel.lastError) root.readyPending = false }
+        function onInRoomChanged() { if (!root.wsModel.inRoom) root.readyPending = false }
+    }
+
+    Binding {
+        target: root.tableModel
+        property: "mainboardCards"
+        value: limitedFilters.visibleMainboard
+    }
+
+    Binding {
+        target: root.tableModel
+        property: "sideboardCards"
+        value: limitedFilters.visibleSideboard
+    }
+
+    Connections {
+        target: root.cardCatalogModel
+        ignoreUnknownSignals: true
+
+        function onImageRevisionChanged() {
+            root.resolvedTypeLineCache = ({})
+        }
+
+        function onLanguageChanged() {
+            root.resolvedTypeLineCache = ({})
+        }
+    }
+
+    z: 200
+
+    Rectangle {
+        objectName: "sideboardWorkspace"
+        anchors.fill: parent
+        color: Theme.useGlass ? "transparent" : Theme.background
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.AllButtons
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: Theme.size(root.compactLayout ? 12 : 20)
+        spacing: Theme.size(root.compactLayout ? 4 : 12)
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.rightMargin: root.trailingChromeWidth
+            spacing: Theme.size(16)
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.size(3)
+
+                    Text {
+                        textFormat: Text.PlainText
+                        objectName: "sideboardGameTitle"
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: (root.deckChangesAllowed
+                               ? qsTr("Sideboard · Game ")
+                               : qsTr("Between games · Game "))
+                              + root.gameSession.gameNumber
+                              + " → " + (root.gameSession.gameNumber + 1)
+                        color: Theme.text
+                        font.pixelSize: Theme.fontSize(root.compactLayout ? 18 : 22)
+                        font.weight: Font.DemiBold
+                    }
+
+                    RowLayout {
+                        objectName: "sideboardMatchScore"
+                        Layout.fillWidth: true
+                        visible: root.matchScoreSeatOrder.length === 2
+                        spacing: Theme.size(6)
+
+                        Text {
+                            textFormat: Text.PlainText
+                            text: qsTranslate("Table", "Score") + ":"
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSize(12)
+                        }
+
+                        Repeater {
+                            model: root.matchScoreSeatOrder
+
+                            RowLayout {
+                                id: scoreSlot
+                                required property int index
+                                required property int modelData
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                Layout.maximumWidth: implicitWidth
+                                spacing: Theme.size(4)
+
+                                Text {
+                                    id: scorePlayerName
+                                    objectName: "sideboardMatchPlayer" + scoreSlot.index
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    textFormat: Text.PlainText
+                                    text: root.displayName(scoreSlot.modelData)
+                                    elide: Text.ElideRight
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSize(12)
+                                    HoverHandler { id: scoreNameHover }
+
+                                    ToolTip {
+                                        id: scoreNameTooltip
+                                        objectName: "sideboardMatchNameTooltip" + scoreSlot.index
+                                        visible: scoreNameHover.hovered && scorePlayerName.truncated
+                                        text: scorePlayerName.text
+                                        width: Math.min(implicitWidth, Theme.size(560),
+                                                        root.width - Theme.size(24))
+                                        contentItem: Text {
+                                            objectName: "sideboardMatchNameTooltipText" + scoreSlot.index
+                                            textFormat: Text.PlainText
+                                            text: scoreNameTooltip.text
+                                            font: scoreNameTooltip.font
+                                            wrapMode: Text.Wrap
+                                            color: scoreNameTooltip.palette.toolTipText
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    objectName: "sideboardMatchWins" + scoreSlot.index
+                                    textFormat: Text.PlainText
+                                    text: root.gameSession.score[scoreSlot.modelData]
+                                    color: Theme.accent
+                                    font.pixelSize: Theme.fontSize(12)
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Text {
+                                    visible: scoreSlot.index === 0
+                                    textFormat: Text.PlainText
+                                    text: "–"
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontSize(12)
+                                }
+                            }
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                        }
+                    }
+
+                    Text {
+                        textFormat: Text.PlainText
+                        objectName: "sideboardDeckRulesHint"
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: root.limitedDeck
+                              ? qsTr("Move pool cards between main and sideboard; ordinary basic lands are unlimited.")
+                              : root.deckChangesAllowed
+                              ? qsTr("Move only registered cards between main and sideboard.")
+                              : qsTr("Choose one or two commanders for the next game; the registered deck stays unchanged.")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSize(12)
+                    }
+
+                    Text {
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        visible: !root.compactLayout && !root.deckChangesAllowed
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Use the star on a mainboard card, then confirm Ready.")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSize(10)
+                    }
+                }
+
+                StatusPill {
+                    objectName: "sideboardCountdown"
+                    text: root.clockText()
+                    statusColor: root.remainingSeconds <= 60
+                                 ? Theme.error : Theme.warning
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.size(8)
+
+                Repeater {
+                    model: root.sideboardData.seats
+                           ? root.sideboardData.seats : []
+
+                    ColumnLayout {
+                        required property var modelData
+                        id: seatStatus
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: Theme.size(2)
+
+                        Text {
+                            objectName: "sideboardSeatName" + seatStatus.modelData.seat
+                            Layout.fillWidth: true
+                            textFormat: Text.PlainText
+                            text: root.displayName(seatStatus.modelData.seat)
+                            elide: Text.ElideRight
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSize(10)
+                        }
+
+                        StatusPill {
+                            objectName: "sideboardSeatStatus" + seatStatus.modelData.seat
+                            maximumWidth: seatStatus.width
+                            text: seatStatus.modelData.mainboardCount + "+"
+                                  + seatStatus.modelData.sideboardCount + " · "
+                                  + (seatStatus.modelData.ready
+                                     ? qsTr("Ready") : qsTr("Editing"))
+                            statusColor: seatStatus.modelData.ready
+                                         ? Theme.success : Theme.textMuted
+                        }
+                        ToolTip.visible: seatHover.hovered
+                        ToolTip.text: root.displayName(modelData.seat)
+                        HoverHandler { id: seatHover }
+                    }
+                }
+
+                AppButton {
+                    objectName: "sideboardFiltersButton"
+                    visible: root.compactLayout && root.isPlayer && root.limitedDeck
+                    compact: true
+                    variant: limitedFilters.filtersActive ? "highlight" : "secondary"
+                    text: qsTr("Filter both tables")
+                    onClicked: {
+                        toolsPopup.showBasicLands = false
+                        toolsPopup.open()
+                    }
+                }
+
+                AppButton {
+                    objectName: "sideboardBasicLandsButton"
+                    visible: root.isPlayer && root.limitedDeck
+                    compact: true
+                    variant: root.basicLandsExpanded ? "highlight" : "secondary"
+                    text: qsTr("Basic lands · %1")
+                          .arg(basicLandsPanel.virtualBasicTotal())
+                    onClicked: root.basicLandsExpanded = !root.basicLandsExpanded
+                }
+
+                Text {
+                    textFormat: Text.PlainText
+                    visible: !root.isPlayer
+                    text: qsTr("Spectating sideboard readiness")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSize(11)
+                }
+            }
+
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.size(8)
+                AppButton {
+                    objectName: "sideboardReviewButton"
+                    compact: true
+                    text: qsTr("Review previous game")
+                    onClicked: boardReview.open()
+                }
+
+                AppButton {
+                    objectName: "sideboardClearMainboardButton"
+                    compact: true
+                    visible: root.isPlayer && root.limitedDeck
+                    enabled: !root.ownReady && root.mainboard.length > 0
+                    text: qsTr("Remove all mainboard cards")
+                    onClicked: root.wsModel.clearSideboardMainboard()
+                }
+
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.sideboardData.canChooseStartingPlayer === true
+                Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: qsTr("Choose play or draw for the next game")
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                }
+                AppButton {
+                    objectName: "sideboardChoosePlayButton"
+                    compact: true
+                    text: qsTr("Play first")
+                    variant: root.sideboardData.chosenStartingSeat === root.roomSession.seatIndex ? "highlight" : "secondary"
+                    enabled: !root.ownReady
+                    onClicked: root.wsModel.chooseStartingPlayer(root.roomSession.seatIndex)
+                }
+                AppButton {
+                    objectName: "sideboardChooseDrawButton"
+                    compact: true
+                    text: qsTr("Draw first")
+                    variant: root.sideboardData.chosenStartingSeat === 1 - root.roomSession.seatIndex ? "highlight" : "secondary"
+                    enabled: !root.ownReady
+                    onClicked: root.wsModel.chooseStartingPlayer(1 - root.roomSession.seatIndex)
+                }
+            }
+
+            Item {
+                id: filtersSlot
+                Layout.fillWidth: true
+                implicitHeight: limitedFilters.implicitHeight
+                visible: !root.compactLayout && root.isPlayer && root.limitedDeck
+            }
+
+            Item {
+                id: basicLandsSlot
+                Layout.fillWidth: true
+                implicitHeight: basicLandsPanel.implicitHeight
+                visible: !root.compactLayout && root.isPlayer && root.limitedDeck
+                         && root.basicLandsExpanded
+            }
+
+            GridLayout {
+                id: boardTables
+
+                objectName: "sideboardTables"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: root.isPlayer
+                columns: root.deckChangesAllowed && sideBySide ? 2 : 1
+                columnSpacing: Theme.size(10)
+                rowSpacing: Theme.size(10)
+                readonly property bool sideBySide:
+                    width >= Theme.size(440)
+                    && width >= height * 1.55
+
+                SideboardZoneView {
+                    id: mainZone
+                    panel: root
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.row: 0
+                    Layout.column: 0
+                    Layout.horizontalStretchFactor:
+                        boardTables.sideBySide
+                        ? root.zoneColumnUnits(root.mainboardGroups) : 1
+                    Layout.verticalStretchFactor:
+                        boardTables.sideBySide
+                        ? 1
+                        : Math.max(1, Math.round(
+                            root.zoneRowUnits(
+                                root.mainboardGroups,
+                                boardTables.width) * 100))
+                    title: qsTr("Mainboard")
+                    zoneName: "mainboard"
+                    totalCount: limitedFilters.mainboardCount
+                    visibleCount: limitedFilters.visibleMainboardCount
+                    filtersActive: limitedFilters.filtersActive
+                    groups: root.mainboardGroups
+                    destinationName: "sideboard"
+                    enabled: !root.ownReady
+                }
+
+                SideboardZoneView {
+                    id: sideZone
+                    panel: root
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.row: boardTables.sideBySide ? 0 : 1
+                    Layout.column: boardTables.sideBySide ? 1 : 0
+                    Layout.horizontalStretchFactor:
+                        boardTables.sideBySide
+                        ? root.zoneColumnUnits(root.sideboardGroups) : 1
+                    Layout.verticalStretchFactor:
+                        boardTables.sideBySide
+                        ? 1
+                        : Math.max(1, Math.round(
+                            root.zoneRowUnits(
+                                root.sideboardGroups,
+                                boardTables.width) * 100))
+                    title: qsTr("Sideboard")
+                    zoneName: "sideboard"
+                    totalCount: limitedFilters.sideboardCount
+                    visibleCount: limitedFilters.visibleSideboardCount
+                    filtersActive: limitedFilters.filtersActive
+                    groups: root.sideboardGroups
+                    destinationName: "mainboard"
+                    enabled: root.deckChangesAllowed && !root.ownReady
+                    visible: root.deckChangesAllowed
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: !root.isPlayer
+
+                Text {
+                    textFormat: Text.PlainText
+                    anchors.centerIn: parent
+                    text: qsTr("Spectating sideboard readiness")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSize(15)
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Text {
+                    textFormat: Text.PlainText
+                    Layout.fillWidth: true
+                    text: qsTr("Timeout restores the previous game’s deck partition.")
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSize(11)
+                }
+
+                AppButton {
+                    objectName: "sideboardReadyButton"
+                    compact: root.compactLayout
+                    visible: root.isPlayer
+                    variant: root.ownReady ? "ghost" : "primary"
+                    text: root.readyPending ? qsTr("Waiting…")
+                          : root.ownReady ? qsTr("Cancel ready") : qsTr("Ready for next game")
+                    enabled: !root.readyPending
+                             && (root.sideboardData.canChooseStartingPlayer !== true
+                                 || Number(root.sideboardData.chosenStartingSeat) >= 0)
+                             && (root.ownReady || limitedFilters.mainboardCount
+                             >= (root.limitedDeck ? 40 : 7))
+                    onClicked: {
+                        root.readyPending = true
+                        root.wsModel.setSideboardReady(!root.ownReady)
+                    }
+                }
+            }
+    }
+
+    LimitedSideboardFilters {
+        id: limitedFilters
+        panel: root
+        parent: root.compactLayout ? toolsBody : filtersSlot
+        width: parent.width
+        visible: root.isPlayer && root.limitedDeck
+                 && (!root.compactLayout || !toolsPopup.showBasicLands)
+    }
+
+    LimitedSideboardBasicLandsPanel {
+        id: basicLandsPanel
+        panel: root
+        parent: root.compactLayout ? toolsBody : basicLandsSlot
+        width: parent.width
+        visible: root.isPlayer && root.limitedDeck && root.basicLandsExpanded
+                 && (!root.compactLayout || toolsPopup.showBasicLands)
+    }
+
+    Popup {
+        id: toolsPopup
+        property bool showBasicLands: false
+        objectName: "sideboardToolsPopup"
+        parent: Overlay.overlay
+        width: Math.min(Theme.size(680), parent.width - Theme.size(32))
+        height: Math.min(implicitHeight, parent.height - Theme.size(32))
+        x: Math.round((parent.width - width) / 2)
+        y: Math.round((parent.height - height) / 2)
+        padding: Theme.size(14)
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onClosed: root.basicLandsExpanded = false
+        background: Surface { elevated: true }
+        contentItem: ColumnLayout {
+            spacing: Theme.size(10)
+            ScrollView {
+                id: toolsScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 0
+                implicitHeight: toolsBody.implicitHeight
+                contentWidth: availableWidth
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                Item {
+                    id: toolsBody
+                    width: toolsScroll.availableWidth
+                    implicitHeight: toolsPopup.showBasicLands
+                                    ? basicLandsPanel.implicitHeight
+                                    : limitedFilters.implicitHeight
+                }
+            }
+            AppButton {
+                objectName: "sideboardToolsCloseButton"
+                Layout.fillWidth: true
+                text: qsTr("Close")
+                onClicked: toolsPopup.close()
+            }
+        }
+    }
+
+    SideboardBoardReview {
+        id: boardReview
+        panel: root
+    }
+
+    SideboardPreviewLayer {
+        id: previewLayer
+        panel: root
+    }
+
+    Timer {
+        interval: 1000
+        running: root.visible
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.updateClock()
+    }
+
+    function updateClock() {
+        const deadline = Number(sideboardData.deadlineUnixMs
+                                ? sideboardData.deadlineUnixMs : 0)
+        remainingSeconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    }
+
+    function clockText() {
+        const minutes = Math.floor(remainingSeconds / 60)
+        const seconds = remainingSeconds % 60
+        return minutes + ":" + (seconds < 10 ? "0" : "") + seconds
+    }
+
+    function playerReady(seat) {
+        const players = sideboardData.seats ? sideboardData.seats : []
+        for (let index = 0; index < players.length; ++index) {
+            if (players[index].seat === seat)
+                return players[index].ready === true
+        }
+        return false
+    }
+
+    function commanderDesignated(name) {
+        for (let index = 0; index < commanders.length; ++index) {
+            if (String(commanders[index]).toLocaleLowerCase()
+                    === String(name).toLocaleLowerCase())
+                return true
+        }
+        return false
+    }
+
+    function moveSideboardCard(card, fromZone, toZone) {
+        if (limitedDeck && fromZone === "mainboard"
+                && toZone === "sideboard"
+                && basicLandsPanel.isVirtualOrdinaryBasic(card)) {
+            toZone = "basic_lands"
+        }
+        wsModel.moveSideboardCard(card, fromZone, toZone)
+    }
+
+    function setSideboardCommander(name, designated) {
+        wsModel.setSideboardCommander(name, designated)
+    }
+
+    function displayName(seat) {
+        const player = gameTableModel.seatData(seat)
+        if (player && player.displayName)
+            return player.displayName
+        return qsTr("Seat") + " " + (seat + 1)
+    }
+
+    function cardCategory(typeLine) {
+        return tableModel.cardCategory(typeLine ? typeLine : "")
+    }
+
+    function cardCategories() {
+        return [
+            "Artifact", "Creature", "Enchantment", "Instant", "Land",
+            "Planeswalker", "Sorcery", "Other"
+        ]
+    }
+
+    function categoryGroupIndex(groups, category) {
+        for (let index = 0; index < groups.length; ++index) {
+            if (groups[index].category === category)
+                return index
+        }
+        return -1
+    }
+
+    function categoryGroup(groups, category) {
+        const index = categoryGroupIndex(groups, category)
+        if (index >= 0)
+            return groups[index]
+        return {
+            "category": category,
+            "count": 0,
+            "cards": []
+        }
+    }
+
+    function sideboardCardKey(card) {
+        return String(card.name ? card.name : "").trim().toLowerCase()
+                + (card.virtualCard === true ? "\u001fvirtual" : "\u001fprinted")
+    }
+
+    function sideboardCardModelEntry(card) {
+        const name = String(card.name ? card.name : "")
+        const count = Math.max(1, Number(card.count ? card.count : 1))
+        const pileCount = Math.max(
+                            1,
+                            Number(card.pileCount ? card.pileCount : count))
+        const setCode = String(card.setCode ? card.setCode : "")
+        const collectorNumber = String(
+                                    card.collectorNumber
+                                    ? card.collectorNumber : "")
+        const typeLine = String(card.typeLine ? card.typeLine : "")
+        const category = String(card.category ? card.category : "Other")
+        const virtualCard = card.virtualCard === true
+        const tableIndex = Number(
+                               typeof card.tableIndex !== "undefined"
+                               ? card.tableIndex : 0)
+        return {
+            "cardKey": sideboardCardKey(card),
+            "contentKey": [
+                name, count, pileCount, setCode, collectorNumber, typeLine,
+                category, virtualCard, tableIndex
+            ].join("\u001f"),
+            "name": name,
+            "count": count,
+            "pileCount": pileCount,
+            "setCode": setCode,
+            "collectorNumber": collectorNumber,
+            "typeLine": typeLine,
+            "category": category,
+            "virtualCard": virtualCard,
+            "tableIndex": tableIndex
+        }
+    }
+
+    function syncSideboardCategoryModel(model, cards) {
+        const targetCards = cards ? cards : []
+        const targetKeys = ({})
+        for (let index = 0; index < targetCards.length; ++index)
+            targetKeys[sideboardCardKey(targetCards[index])] = true
+
+        for (let index = model.count - 1; index >= 0; --index) {
+            if (!targetKeys[model.get(index).cardKey])
+                model.remove(index)
+        }
+
+        for (let targetIndex = 0;
+             targetIndex < targetCards.length; ++targetIndex) {
+            const entry = sideboardCardModelEntry(targetCards[targetIndex])
+            let currentIndex = -1
+            for (let index = targetIndex; index < model.count; ++index) {
+                if (model.get(index).cardKey === entry.cardKey) {
+                    currentIndex = index
+                    break
+                }
+            }
+            if (currentIndex < 0) {
+                model.insert(targetIndex, entry)
+                continue
+            }
+            if (currentIndex !== targetIndex)
+                model.move(currentIndex, targetIndex, 1)
+            if (model.get(targetIndex).contentKey !== entry.contentKey)
+                model.set(targetIndex, entry)
+        }
+    }
+
+    function cardsWithResolvedTypes(cards) {
+        const result = []
+        for (let index = 0; index < cards.length; ++index) {
+            const card = Object.assign({}, cards[index])
+            card.typeLine = resolvedTypeLine(card)
+            result.push(card)
+        }
+        return result
+    }
+
+    function categoryGroups(cards) {
+        return tableModel.groupCards(cardsWithResolvedTypes(cards))
+    }
+
+    function categoryTableMetrics(groups, width, height, labelWidth, gap) {
+        if (groups.length === 0 || width <= 0 || height <= 0) {
+            return {
+                "columns": 1,
+                "cardWidth": Theme.size(80),
+                "cardHeight": Theme.size(112),
+                "bandHeights": []
+            }
+        }
+        const usableWidth = Math.max(1, width - labelWidth - gap)
+        let largestGroup = 1
+        for (let groupIndex = 0;
+             groupIndex < groups.length; ++groupIndex) {
+            largestGroup = Math.max(
+                               largestGroup,
+                               groups[groupIndex].cards.length)
+        }
+
+        let bestColumns = 1
+        let bestCardWidth = 1
+        const bandPadding = Theme.size(4)
+        for (let columns = 1; columns <= largestGroup; ++columns) {
+            let totalRows = 0
+            let interRowGaps = 0
+            for (let groupIndex = 0;
+                 groupIndex < groups.length; ++groupIndex) {
+                const rows = Math.max(
+                                 1, Math.ceil(
+                                     groups[groupIndex].cards.length
+                                     / columns))
+                totalRows += rows
+                interRowGaps += Math.max(0, rows - 1) * gap
+            }
+            const horizontalWidth = Math.max(
+                                        1,
+                                        (usableWidth
+                                         - gap * (columns - 1)) / columns)
+            const verticalCardHeight = Math.max(
+                                           1,
+                                           (height
+                                            - interRowGaps
+                                            - groups.length * bandPadding)
+                                           / totalRows)
+            const cardWidth = Math.min(horizontalWidth,
+                                       verticalCardHeight * 63 / 88,
+                                       Theme.size(190))
+            if (cardWidth > bestCardWidth) {
+                bestCardWidth = cardWidth
+                bestColumns = columns
+            }
+        }
+
+        const cardHeight = bestCardWidth * 88 / 63
+        const baseHeights = []
+        let baseHeightTotal = 0
+        for (let groupIndex = 0;
+             groupIndex < groups.length; ++groupIndex) {
+            const rows = Math.max(
+                             1, Math.ceil(
+                                 groups[groupIndex].cards.length
+                                 / bestColumns))
+            const bandHeight = rows * cardHeight
+                               + Math.max(0, rows - 1) * gap
+                               + bandPadding
+            baseHeights.push(bandHeight)
+            baseHeightTotal += bandHeight
+        }
+        const extraPerBand = Math.max(
+                                 0, height - baseHeightTotal) / groups.length
+        const bandHeights = []
+        for (let groupIndex = 0;
+             groupIndex < baseHeights.length; ++groupIndex) {
+            bandHeights.push(baseHeights[groupIndex] + extraPerBand)
+        }
+        return {
+            "columns": bestColumns,
+            "cardWidth": bestCardWidth,
+            "cardHeight": cardHeight,
+            "bandHeights": bandHeights
+        }
+    }
+
+    function zoneRowUnits(groups, width) {
+        if (groups.length === 0)
+            return 1
+        const columns = Math.max(
+                            1, Math.floor(
+                                Math.max(1, width - Theme.size(100))
+                                / Theme.size(82)))
+        let units = 0
+        for (let index = 0; index < groups.length; ++index) {
+            units += Math.max(
+                         1, Math.ceil(groups[index].cards.length / columns))
+                     + 0.35
+        }
+        return units
+    }
+
+    function zoneColumnUnits(groups) {
+        let largestGroup = 1
+        for (let index = 0; index < groups.length; ++index) {
+            largestGroup = Math.max(
+                               largestGroup, groups[index].cards.length)
+        }
+        return Math.max(4, largestGroup)
+    }
+
+    function cardImageSource(card) {
+        if (!card || !card.name || !cardCatalogModel)
+            return ""
+        void cardCatalogModel.imageRevision
+        return cardCatalogModel.imageSource(
+                    card.name,
+                    card.setCode ? card.setCode : "",
+                    card.collectorNumber ? card.collectorNumber : "")
+    }
+
+    function tableCardImageSource(card) {
+        if (!card || !card.name || !cardCatalogModel)
+            return ""
+        void cardCatalogModel.imageRevision
+        if (typeof cardCatalogModel.tableImageSource === "function") {
+            return cardCatalogModel.tableImageSource(
+                        card.name,
+                        card.setCode ? card.setCode : "",
+                        card.collectorNumber ? card.collectorNumber : "")
+        }
+        return cardImageSource(card)
+    }
+
+    function resolvedTypeLine(card) {
+        if (!card)
+            return ""
+        const supplied = String(card.typeLine ? card.typeLine : "").trim()
+        if (supplied.length > 0)
+            return supplied
+        if (!cardCatalogModel
+                || typeof cardCatalogModel.cachedCardTypeLine !== "function") {
+            return ""
+        }
+        const language = typeof cardCatalogModel.language !== "undefined"
+                         ? cardCatalogModel.language : ""
+        const imageRevision =
+            typeof cardCatalogModel.imageRevision !== "undefined"
+            ? cardCatalogModel.imageRevision : 0
+        const key = language + "\u001f" + imageRevision + "\u001f"
+                    + String(card.name ? card.name : "").toLowerCase()
+                    + "\u001f"
+                    + String(card.setCode ? card.setCode : "").toUpperCase()
+                    + "\u001f"
+                    + String(card.collectorNumber
+                             ? card.collectorNumber : "")
+        if (Object.prototype.hasOwnProperty.call(
+                    resolvedTypeLineCache, key)) {
+            return resolvedTypeLineCache[key]
+        }
+        const resolved = cardCatalogModel.cachedCardTypeLine(
+                           card.name ? card.name : "",
+                           card.setCode ? card.setCode : "",
+                           card.collectorNumber
+                           ? card.collectorNumber : "")
+        resolvedTypeLineCache[key] = resolved
+        return resolved
+    }
+
+    function inspectSideboardCard(card, sourceItem) {
+        if (!card || !card.name || !sourceItem)
+            return
+        previewDismiss.stop()
+        inspectedCard = card
+        inspectedSourceItem = sourceItem
+        hoverPreviewSourceActive = true
+        repositionSideboardCardPreview()
+        hoverPreviewVisible = true
+    }
+
+    function repositionSideboardCardPreview() {
+        const sourceItem = inspectedSourceItem
+        if (!sourceItem)
+            return
+        const previewWidth = previewLayer.previewWidth
+        const previewHeight = previewLayer.previewHeight
+        const margin = Theme.size(12)
+        const right = sourceItem.mapToItem(root, sourceItem.width, 0)
+        const left = sourceItem.mapToItem(root, 0, 0)
+        let x = right.x + margin
+        if (x + previewWidth > root.width - margin)
+            x = left.x - previewWidth - margin
+        hoverPreviewX = Math.max(
+                            margin,
+                            Math.min(root.width - previewWidth - margin, x))
+        hoverPreviewY = Math.max(
+                            margin,
+                            Math.min(root.height - previewHeight - margin,
+                                     left.y))
+    }
+
+    function hideSideboardCardPreview(immediate = true) {
+        if (!immediate) {
+            previewDismiss.restart()
+            return
+        }
+        previewDismiss.stop()
+        hoverPreviewSourceActive = false
+        hoverPreviewVisible = false
+    }
+
+    function releaseSideboardCardPreview(sourceItem) {
+        if (sourceItem !== inspectedSourceItem)
+            return
+        hoverPreviewSourceActive = false
+        hideSideboardCardPreview(false)
+    }
+
+    function retainSideboardCardPreview(hovered) {
+        hoverPreviewPointerActive = hovered
+        if (hovered)
+            previewDismiss.stop()
+        else if (hoverPreviewVisible)
+            hideSideboardCardPreview(false)
+    }
+
+    function beginSideboardDrag(sourceItem, scenePosition) {
+        hideSideboardCardPreview()
+        dragSource = sourceItem
+        dragCard = sourceItem.cardData
+        dragFromZone = sourceItem.zoneName
+        updateSideboardDrag(scenePosition)
+    }
+
+    function updateSideboardDrag(scenePosition) {
+        const point = root.mapFromItem(null, scenePosition.x, scenePosition.y)
+        dragPosition = Qt.point(point.x, point.y)
+    }
+
+    function finishSideboardDrag() {
+        previewLayer.finishDrag()
+        dragSource = null
+        dragCard = ({})
+        dragFromZone = ""
+    }
+}

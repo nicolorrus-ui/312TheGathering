@@ -1,0 +1,852 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#include "testing/NativeAudit.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QQmlApplicationEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <QScopeGuard>
+#include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QTest>
+
+using hexproof::client::NativeAudit;
+
+class NativeAuditTest : public QObject
+{
+    Q_OBJECT
+
+  private slots:
+    void explicitProfileIsIndependentOfPlatformAppData()
+    {
+        const QByteArray original = qgetenv("HEXPROOF_TEST_PROFILE_ROOT");
+        const auto restore = qScopeGuard([original] {
+            if (original.isNull())
+                qunsetenv("HEXPROOF_TEST_PROFILE_ROOT");
+            else
+                qputenv("HEXPROOF_TEST_PROFILE_ROOT", original);
+        });
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_TEST_PROFILE_ROOT", temporary.path().toUtf8());
+        QCOMPARE(NativeAudit::profileStorageRoot(),
+                 QDir(QFileInfo(temporary.path()).canonicalFilePath())
+                     .filePath(QStringLiteral("data/Hexproof/Hexproof")));
+        for (const QByteArray &invalid :
+             {QByteArray(), QByteArray("relative"), QDir::rootPath().toUtf8(),
+              temporary.filePath(QStringLiteral("missing")).toUtf8()}) {
+            qputenv("HEXPROOF_TEST_PROFILE_ROOT", invalid);
+            QVERIFY(NativeAudit::profileStorageRoot().isEmpty());
+        }
+    }
+
+    void windowFixture_data()
+    {
+        QTest::addColumn<bool>("windowed");
+        QTest::newRow("maximized-default") << false;
+        QTest::newRow("explicit-window-size") << true;
+    }
+
+    void windowFixture()
+    {
+        QFETCH(bool, windowed);
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", windowed ? "900" : "");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", windowed ? "620" : "");
+        qunsetenv("AUDIT_WIDTH");
+        qunsetenv("AUDIT_HEIGHT");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        QSignalSpy steps(&audit, &NativeAudit::stepRequested);
+        engine.loadData(R"(
+import QtQuick
+Window {
+    width: 1000; height: 700; visible: true
+    MouseArea { objectName: "viewport"; anchors.fill: parent }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QTRY_COMPARE(window->visibility(), windowed ? QWindow::Windowed : QWindow::Maximized);
+        QFile startup(temporary.filePath(QStringLiteral("startup.json")));
+        QTRY_VERIFY(startup.exists());
+        QTRY_VERIFY(steps.size() >= 2);
+        QVERIFY(startup.open(QIODevice::ReadOnly));
+        const QVariantMap observed = QJsonDocument::fromJson(startup.readAll())
+                                         .toVariant()
+                                         .toMap()
+                                         .value(QStringLiteral("window"))
+                                         .toMap();
+        const QString mode = windowed ? QStringLiteral("windowed") : QStringLiteral("maximized");
+        QCOMPARE(observed.value(QStringLiteral("requestedWindowMode")).toString(), mode);
+        QCOMPARE(observed.value(QStringLiteral("windowMode")).toString(), mode);
+        QCOMPARE(observed.value(QStringLiteral("width")).toInt(), window->width());
+        QCOMPARE(observed.value(QStringLiteral("height")).toInt(), window->height());
+        QCOMPARE(observed.value(QStringLiteral("screenGeometry")).toList().size(), 4);
+        QCOMPARE(observed.value(QStringLiteral("screenAvailableGeometry")).toList().size(), 4);
+        if (windowed) {
+            QCOMPARE(window->width(), 900);
+            QCOMPARE(window->height(), 620);
+        }
+        QVERIFY(audit.click(audit.find(window, QStringLiteral("viewport"))));
+        QFile actions(temporary.filePath(QStringLiteral("actions.jsonl")));
+        QVERIFY(actions.open(QIODevice::ReadOnly));
+        const QVariantMap action = QJsonDocument::fromJson(actions.readLine()).toVariant().toMap();
+        QCOMPARE(action.value(QStringLiteral("window"))
+                     .toMap()
+                     .value(QStringLiteral("windowMode"))
+                     .toString(),
+                 mode);
+    }
+
+    void fileChooserUsesPathInput_data()
+    {
+        QTest::addColumn<bool>("exists");
+        QTest::newRow("existing-file-is-accepted") << true;
+        QTest::newRow("missing-file-is-not-accepted") << false;
+    }
+
+    void fileChooserUsesPathInput()
+    {
+        QFETCH(bool, exists);
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+        const QString source = temporary.filePath(QStringLiteral("catalog with spaces.sqlite"));
+        QFile fixture(source);
+        if (exists) {
+            QVERIFY(fixture.open(QIODevice::WriteOnly));
+            fixture.write("file chooser fixture");
+            fixture.close();
+        }
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Dialogs
+Window {
+    width: 900; height: 620; visible: true
+    property url acceptedFile
+    Button { objectName: "openFile"; text: "Import"; onClicked: chooser.open() }
+    FileDialog {
+        id: chooser
+        objectName: "testFileChooser"
+        options: FileDialog.DontUseNativeDialog
+        onAccepted: acceptedFile = selectedFile
+    }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.click(audit.find(window, QStringLiteral("openFile"))));
+        QTRY_VERIFY(audit.fileDialogState(QStringLiteral("testFileChooser"))
+                        .value(QStringLiteral("visible"))
+                        .toBool());
+        QTest::qWait(250);
+        if (exists) {
+            QVERIFY2(audit.chooseFile(QStringLiteral("testFileChooser"), source),
+                     qPrintable(audit.lastError()));
+            QTRY_COMPARE(window->property("acceptedFile").toUrl(), QUrl::fromLocalFile(source));
+        } else {
+            QVERIFY(!audit.chooseFile(QStringLiteral("testFileChooser"), source));
+            QVERIFY(window->property("acceptedFile").toUrl().isEmpty());
+        }
+    }
+
+    void selectorsAndInput()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        const QString driverPath = temporary.filePath(QStringLiteral("driver.qml"));
+        QFile driver(driverPath);
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driverPath.toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+Window {
+    width: 480; height: 360; visible: true
+    property int clicks: 0
+    property bool covered: true
+    function beginTransition() { navigation.push(nextPage) }
+    function openModal() { modalPopup.open() }
+    function closeModal() { modalPopup.close() }
+    Popup { id: modalPopup; x: 420; y: 400; width: 150; height: 150; modal: true; closePolicy: Popup.NoAutoClose }
+    StackView {
+        id: navigation
+        x: 0; y: 210; width: 120; height: 100
+        initialItem: Item {}
+        pushEnter: Transition { NumberAnimation { property: "x"; from: 120; to: 0; duration: 400 } }
+    }
+    Component {
+        id: nextPage
+        Rectangle { objectName: "transitionTarget"; width: 120; height: 100 }
+    }
+    Rectangle {
+        objectName: "clippedScope"
+        width: 100; height: 100; clip: true
+        Rectangle { objectName: "outside"; y: 120; width: 80; height: 40 }
+    }
+    Rectangle { objectName: "hidden"; visible: false; width: 80; height: 40 }
+    Rectangle { objectName: "disabled"; enabled: false; x: 110; width: 80; height: 40 }
+    Item {
+        objectName: "group"
+        y: 120; width: 100; height: 90
+        Repeater {
+            model: 2
+            Rectangle {
+                required property int index
+                property string entityKey: String(index)
+                objectName: "duplicate"
+                x: index * 45; width: 40; height: 50
+            }
+        }
+    }
+    Rectangle {
+        objectName: "target"
+        x: 220; y: 20; width: 90; height: 50
+        MouseArea { anchors.fill: parent; onClicked: parent.Window.window.clicks++ }
+    }
+    Rectangle {
+        objectName: "cover"
+        x: 220; y: 20; width: 90; height: 50
+        visible: Window.window.covered
+        MouseArea { anchors.fill: parent }
+    }
+    TextInput { objectName: "input"; x: 220; y: 120; width: 200; height: 50 }
+    ComboBox { objectName: "combo"; x: 330; y: 220; width: 130; model: ["One", "Two", "Three"] }
+    TextField { objectName: "paddedInput"; x: 130; y: 285; width: 200; height: 54; leftPadding: 14 }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QCOMPARE(window->width(), 900);
+        QCOMPARE(window->height(), 620);
+        QCOMPARE(audit.observe(window).value(QStringLiteral("requestedWidth")).toInt(), 900);
+        QVERIFY2(audit.activate(), qPrintable(audit.lastError()));
+        QVERIFY(window->isActive());
+
+        QVERIFY(!audit.find(window, QStringLiteral("hidden")));
+        QVERIFY(!audit.find(window, QStringLiteral("disabled")));
+        QVERIFY(!audit.find(window, QStringLiteral("outside")));
+        QVERIFY(!audit.find(window, QStringLiteral("duplicate")));
+        auto *group = audit.find(window, QStringLiteral("group"));
+        QVERIFY(group);
+        auto *entity = audit.find(group, QStringLiteral("duplicate"),
+                                  {{QStringLiteral("entityKey"), QStringLiteral("1")}});
+        QVERIFY(entity);
+        QCOMPARE(entity->property("entityKey").toString(), QStringLiteral("1"));
+        QVERIFY(!audit.find(window, QStringLiteral("target")));
+        window->setProperty("covered", false);
+        auto *target = audit.find(window, QStringLiteral("target"));
+        QVERIFY2(target, qPrintable(audit.lastError()));
+        QVERIFY(audit.click(target));
+        QCOMPARE(window->property("clicks").toInt(), 1);
+
+        auto *input = audit.find(window, QStringLiteral("input"));
+        QVERIFY(input);
+        QVERIFY(audit.click(input));
+        QVERIFY(audit.type(QStringLiteral("English 中文")));
+        QCOMPARE(input->property("text").toString(), QStringLiteral("English 中文"));
+        QVERIFY(audit.key(Qt::Key_A, Qt::ControlModifier));
+        QVERIFY(audit.type(QStringLiteral("Replacement")));
+        QCOMPARE(input->property("text").toString(), QStringLiteral("Replacement"));
+
+        QVERIFY(QMetaObject::invokeMethod(window, "beginTransition"));
+        QVERIFY(!audit.find(window, QStringLiteral("transitionTarget")));
+        QTRY_VERIFY(audit.find(window, QStringLiteral("transitionTarget")));
+
+        auto *combo = audit.find(window, QStringLiteral("combo"));
+        QVERIFY(combo);
+        QVERIFY(audit.click(combo));
+        QTest::qWait(150);
+        QVERIFY2(audit.key(Qt::Key_Home), qPrintable(audit.lastError()));
+        QVERIFY(audit.key(Qt::Key_Down));
+        QVERIFY(audit.key(Qt::Key_Return));
+        QCOMPARE(combo->property("currentIndex").toInt(), 1);
+
+        auto *padded = audit.find(window, QStringLiteral("paddedInput"));
+        QVERIFY2(padded, qPrintable(audit.lastError()));
+        QVERIFY2(audit.click(padded, padded->width() - 12, padded->height() / 2),
+                 qPrintable(audit.lastError()));
+        QVERIFY(audit.type(QStringLiteral("Padded input")));
+        QCOMPARE(padded->property("text").toString(), QStringLiteral("Padded input"));
+
+        QVERIFY(QMetaObject::invokeMethod(window, "openModal"));
+        QTest::qWait(150);
+        QVERIFY(!audit.find(window, QStringLiteral("paddedInput")));
+        QVERIFY(QMetaObject::invokeMethod(window, "closeModal"));
+        QTRY_VERIFY(audit.find(window, QStringLiteral("paddedInput")));
+        QVERIFY(audit.click(padded));
+        QVERIFY(audit.key(Qt::Key_A, Qt::ControlModifier));
+        QVERIFY(audit.type(QStringLiteral("After modal")));
+        QCOMPARE(padded->property("text").toString(), QStringLiteral("After modal"));
+
+        const QVariantList items = audit.observe(window).value(QStringLiteral("items")).toList();
+        bool disabledObserved = false;
+        for (const QVariant &value : items) {
+            const QVariantMap item = value.toMap();
+            if (item.value(QStringLiteral("objectName")) == QStringLiteral("disabled")) {
+                disabledObserved = true;
+                QCOMPARE(item.value(QStringLiteral("enabled")).toBool(), false);
+            }
+        }
+        QVERIFY(disabledObserved);
+        QVERIFY(audit.record(QStringLiteral("checks"), QVariantList{true, QStringLiteral("ok")}));
+        QVERIFY(!audit.record(QStringLiteral("../escape"), QVariantMap{}));
+        QVERIFY(QDir(temporary.path()).mkdir(QStringLiteral("blocked.json")));
+        QVERIFY(!audit.record(QStringLiteral("blocked"), QVariantMap{}));
+        QVERIFY(QDir(temporary.path()).mkdir(QStringLiteral("blocked-image.png")));
+        QVERIFY(!audit.capture(window, QStringLiteral("blocked-image")));
+        QCOMPARE(audit.observe(window).value(QStringLiteral("artifactFailures")).toInt(), 3);
+        QVERIFY(QFile::exists(temporary.filePath(QStringLiteral("actions.jsonl"))));
+    }
+
+    void disabledPointerHandlerDoesNotCoverInput()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(R"(
+import QtQuick
+Window {
+    width: 900; height: 620; visible: true
+    property int clicks: 0
+    property bool handlerEnabled: true
+    property bool mouseCoverVisible: false
+    MouseArea {
+        objectName: "underneath"
+        x: 100; y: 100; width: 200; height: 100
+        onClicked: Window.window.clicks++
+    }
+    Item {
+        objectName: "handlerPlate"
+        property string label: "Player"
+        x: 100; y: 100; width: 200; height: 100
+        TapHandler { enabled: parent.Window.window.handlerEnabled }
+        HoverHandler { enabled: parent.Window.window.handlerEnabled }
+    }
+    MouseArea {
+        x: 100; y: 100; width: 200; height: 100
+        visible: Window.window.mouseCoverVisible
+        TapHandler { enabled: false }
+    }
+    Item {
+        anchors.fill: parent
+        PointHandler { acceptedButtons: Qt.AllButtons }
+    }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.activate());
+        QVERIFY(!audit.find(window, QStringLiteral("underneath")));
+        window->setProperty("handlerEnabled", false);
+        // Window input proves that disabled handlers allow the click through.
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+        QCOMPARE(window->property("clicks").toInt(), 1);
+        auto *target = audit.find(window, QStringLiteral("underneath"));
+        QVERIFY2(target, qPrintable(audit.lastError()));
+        QVERIFY(audit.click(target));
+        QCOMPARE(window->property("clicks").toInt(), 2);
+        window->setProperty("mouseCoverVisible", true);
+        QVERIFY(!audit.find(window, QStringLiteral("underneath")));
+        window->setProperty("mouseCoverVisible", false);
+        window->setProperty("handlerEnabled", true);
+        QVERIFY(!audit.find(window, QStringLiteral("underneath")));
+    }
+
+    void dropTargetAboveBackgroundStillRejectsForegroundCover()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(R"(
+import QtQuick
+Window {
+    id: window
+    width: 900; height: 620; visible: true
+    property int drops: 0
+    property bool coverVisible: false
+    property bool dropEnabled: true
+    MouseArea { anchors.fill: parent }
+    Rectangle {
+        objectName: "dropDestination"
+        x: 500; y: 100; width: 200; height: 160
+        DropArea {
+            anchors.fill: parent
+            enabled: window.dropEnabled
+            keys: ["review-card"]
+            onDropped: drop => { window.drops++; drop.acceptProposedAction() }
+        }
+    }
+    Rectangle {
+        id: source
+        objectName: "dragSource"
+        x: 100; y: 100; width: 100; height: 140
+        Drag.active: sourceDrag.drag.active
+        Drag.source: source
+        Drag.keys: ["review-card"]
+        Drag.hotSpot.x: width / 2
+        Drag.hotSpot.y: height / 2
+        MouseArea {
+            id: sourceDrag
+            anchors.fill: parent
+            drag.target: source
+            onReleased: source.Drag.drop()
+        }
+    }
+    MouseArea {
+        x: 500; y: 100; width: 200; height: 160
+        visible: window.coverVisible
+    }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.activate());
+        // A DropArea never grants click access through the background receiver.
+        QVERIFY(!audit.find(window, QStringLiteral("dropDestination")));
+        auto *target = audit.findDropTarget(window, QStringLiteral("dropDestination"));
+        QVERIFY2(target, qPrintable(audit.lastError()));
+        QVERIFY(!audit.click(target));
+        auto *source = audit.find(window, QStringLiteral("dragSource"));
+        QVERIFY2(source, qPrintable(audit.lastError()));
+        window->setProperty("coverVisible", true);
+        QVERIFY(!audit.findDropTarget(window, QStringLiteral("dropDestination")));
+        QVERIFY(!audit.drag(source, target));
+        QCOMPARE(window->property("drops").toInt(), 0);
+        window->setProperty("coverVisible", false);
+        window->setProperty("dropEnabled", false);
+        QVERIFY(!audit.findDropTarget(window, QStringLiteral("dropDestination")));
+        window->setProperty("dropEnabled", true);
+        QVERIFY(audit.findDropTarget(window, QStringLiteral("dropDestination")));
+        // Real window press/move/release delivers one drop to the named zone.
+        QVERIFY2(audit.drag(source, target), qPrintable(audit.lastError()));
+        QCOMPARE(window->property("drops").toInt(), 1);
+    }
+
+    void hoverOnlyOverlayDoesNotCoverInput_data()
+    {
+        QTest::addColumn<QString>("itemType");
+        QTest::newRow("item") << QStringLiteral("Item");
+        QTest::newRow("rectangle") << QStringLiteral("Rectangle");
+    }
+
+    void hoverOnlyOverlayDoesNotCoverInput()
+    {
+        QFETCH(QString, itemType);
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(QStringLiteral(R"(
+import QtQuick
+Window {
+    width: 900; height: 620; visible: true
+    property int clicks: 0
+    MouseArea {
+        objectName: "underneath"
+        x: 100; y: 100; width: 200; height: 100
+        onClicked: Window.window.clicks++
+    }
+    %1 {
+        objectName: "hoverPlate"
+        x: 100; y: 100; width: 200; height: 100
+        HoverHandler {}
+    }
+}
+)")
+                            .arg(itemType)
+                            .toUtf8());
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.activate());
+        QTest::mouseMove(window, QPoint(200, 150));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+        QCOMPARE(window->property("clicks").toInt(), 1);
+        auto *target = audit.find(window, QStringLiteral("underneath"));
+        QVERIFY2(target, qPrintable(audit.lastError()));
+        QVERIFY(audit.click(target));
+        QCOMPARE(window->property("clicks").toInt(), 2);
+    }
+
+    void passiveHoverAboveBackground_data()
+    {
+        QTest::addColumn<QString>("itemType");
+        QTest::newRow("item") << QStringLiteral("Item");
+        QTest::newRow("rectangle") << QStringLiteral("Rectangle");
+        QTest::newRow("text") << QStringLiteral("Text");
+    }
+
+    void passiveHoverAboveBackground()
+    {
+        QFETCH(QString, itemType);
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(QStringLiteral(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+Window {
+    width: 900; height: 620; visible: true
+    property int clicks: 0
+    property bool targetHovered: targetHover.hovered
+    MouseArea {
+        objectName: "background"
+        anchors.fill: parent
+        onClicked: Window.window.clicks++
+    }
+    %1 {
+        objectName: "passiveTarget"
+        x: 100; y: 100; width: 200; height: 100
+        HoverHandler { id: targetHover }
+        ToolTip {
+            objectName: "passiveTip"
+            visible: targetHover.hovered
+            text: "Full public name"
+            delay: 0
+        }
+    }
+}
+)")
+                            .arg(itemType)
+                            .toUtf8());
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.activate());
+        auto *target = window->findChild<QQuickItem *>(QStringLiteral("passiveTarget"));
+        auto *tip = window->findChild<QObject *>(QStringLiteral("passiveTip"));
+        QVERIFY(target);
+        QVERIFY(tip);
+        // Plain Item/Rectangle handlers have no independent button consumer.
+        // Text may retain button flags, so preserve its existing press result
+        // rather than asserting a different button contract in a hover fix.
+        const bool pressAllowed = audit.canInteract(target);
+        if (itemType != QStringLiteral("Text")) {
+            QVERIFY(!audit.find(window, QStringLiteral("passiveTarget")));
+            QVERIFY(!pressAllowed);
+            QVERIFY(!audit.click(target));
+            QVERIFY(!audit.rightClick(target));
+        }
+        QCOMPARE(window->property("clicks").toInt(), 0);
+
+        // Actual window delivery proves that the background click receiver
+        // does not obstruct passive hover or the resulting tooltip.
+        QTest::mouseMove(window, QPoint(400, 250));
+        QTest::mouseMove(window, QPoint(200, 150));
+        QTRY_VERIFY(window->property("targetHovered").toBool());
+        QTRY_VERIFY(tip->property("visible").toBool());
+        QTest::mouseMove(window, QPoint(400, 250));
+        QTRY_VERIFY(!window->property("targetHovered").toBool());
+        QTRY_VERIFY(!tip->property("visible").toBool());
+        QVERIFY2(audit.hover(target), qPrintable(audit.lastError()));
+        QTRY_VERIFY(window->property("targetHovered").toBool());
+        QTRY_VERIFY(tip->property("visible").toBool());
+        QCOMPARE(audit.canInteract(target), pressAllowed);
+        QCOMPARE(window->property("clicks").toInt(), 0);
+    }
+
+    void passiveHoverRejectsBlockedAndUnownedTargets()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+Window {
+    id: window
+    width: 900; height: 620; visible: true
+    property bool foregroundVisible: false
+    property bool hoverBlockerVisible: false
+    property bool hoverBlockerEnabled: true
+    property bool hoverBlocking: true
+    function openModal() { modalPopup.open() }
+    function closeModal() { modalPopup.close() }
+    function beginTransition() { navigation.push(nextPage) }
+    MouseArea { anchors.fill: parent }
+    Text {
+        objectName: "passiveTarget"
+        x: 100; y: 100; width: 200; height: 100
+        text: "Public name"
+        HoverHandler {}
+    }
+    MouseArea {
+        objectName: "foreground"
+        x: 100; y: 100; width: 200; height: 100
+        visible: window.foregroundVisible
+    }
+    Item {
+        x: 100; y: 100; width: 200; height: 100
+        visible: window.hoverBlockerVisible
+        HoverHandler { enabled: window.hoverBlockerEnabled; blocking: window.hoverBlocking }
+    }
+    Item {
+        x: 100; y: 300; width: 100; height: 100; clip: true
+        Text {
+            objectName: "clippedTarget"
+            y: 120; width: 80; height: 40
+            HoverHandler {}
+        }
+    }
+    StackView {
+        id: navigation
+        x: 400; y: 100; width: 200; height: 100
+        initialItem: Text {
+            objectName: "transitionTarget"
+            width: 200; height: 100
+            HoverHandler {}
+        }
+        pushEnter: Transition { NumberAnimation { property: "x"; from: 200; to: 0; duration: 400 } }
+    }
+    Component { id: nextPage; Item { width: 200; height: 100 } }
+    Popup {
+        id: modalPopup
+        x: 600; y: 400; width: 150; height: 150
+        modal: true; closePolicy: Popup.NoAutoClose
+    }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.activate());
+        auto *target = window->findChild<QQuickItem *>(QStringLiteral("passiveTarget"));
+        QVERIFY(target);
+        const bool pressAllowed = audit.canInteract(target);
+        QVERIFY2(audit.hover(target), qPrintable(audit.lastError()));
+        window->setProperty("foregroundVisible", true);
+        QVERIFY(!audit.hover(target));
+        QVERIFY(audit.lastError().contains(QStringLiteral("foreground")));
+        window->setProperty("foregroundVisible", false);
+        window->setProperty("hoverBlockerVisible", true);
+        QVERIFY(!audit.hover(target));
+        window->setProperty("hoverBlockerEnabled", false);
+        QVERIFY2(audit.hover(target), qPrintable(audit.lastError()));
+        window->setProperty("hoverBlockerEnabled", true);
+        window->setProperty("hoverBlocking", false);
+        QVERIFY2(audit.hover(target), qPrintable(audit.lastError()));
+        window->setProperty("hoverBlockerVisible", false);
+        QCOMPARE(audit.canInteract(target), pressAllowed);
+
+        QVERIFY(QMetaObject::invokeMethod(window, "openModal"));
+        QTest::qWait(150);
+        QVERIFY(!audit.hover(target));
+        QVERIFY(QMetaObject::invokeMethod(window, "closeModal"));
+        QTRY_VERIFY(audit.hover(target));
+        target->setVisible(false);
+        QVERIFY(!audit.hover(target));
+        target->setVisible(true);
+        target->setEnabled(false);
+        QVERIFY(!audit.hover(target));
+        target->setEnabled(true);
+        target->setX(window->width() + 10);
+        QVERIFY(!audit.hover(target));
+        target->setX(100);
+        target->setOpacity(0);
+        QVERIFY(!audit.hover(target));
+        target->setOpacity(1);
+        QVERIFY(!audit.hover(window->findChild<QQuickItem *>(QStringLiteral("clippedTarget"))));
+        auto *transition = window->findChild<QQuickItem *>(QStringLiteral("transitionTarget"));
+        QVERIFY(transition);
+        QVERIFY(QMetaObject::invokeMethod(window, "beginTransition"));
+        QVERIFY(!audit.hover(transition));
+        QVERIFY(audit.lastError().contains(QStringLiteral("transition")));
+
+        QQuickWindow foreign;
+        QQuickItem foreignItem(foreign.contentItem());
+        foreignItem.setSize(QSizeF(100, 100));
+        QVERIFY(!audit.hover(&foreignItem));
+        QVERIFY(audit.lastError().contains(QStringLiteral("audit window")));
+        window->hide();
+        QVERIFY(!audit.hover(target));
+        QVERIFY(!audit.hover(nullptr));
+    }
+
+    void sensitiveTextIsExcludedFromEvidence_data()
+    {
+        QTest::addColumn<int>("echoMode");
+        QTest::addColumn<int>("inputHints");
+        QTest::newRow("no-echo") << 1 << 0;
+        QTest::newRow("password") << 2 << 0;
+        QTest::newRow("password-while-editing") << 3 << 0;
+        QTest::newRow("normal-with-sensitive-hint") << 0 << int(Qt::ImhSensitiveData);
+        QTest::newRow("normal-with-hidden-hint") << 0 << int(Qt::ImhHiddenText);
+    }
+
+    void sensitiveTextIsExcludedFromEvidence()
+    {
+        QFETCH(int, echoMode);
+        QFETCH(int, inputHints);
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        qputenv("HEXPROOF_AUDIT_OUTPUT", temporary.path().toUtf8());
+        qputenv("HEXPROOF_AUDIT_WIDTH", "900");
+        qputenv("HEXPROOF_AUDIT_HEIGHT", "620");
+        QFile driver(temporary.filePath(QStringLiteral("driver.qml")));
+        QVERIFY(driver.open(QIODevice::WriteOnly));
+        driver.write("import QtQml\nQtObject {}\n");
+        driver.close();
+        qputenv("HEXPROOF_AUDIT_DRIVER", driver.fileName().toUtf8());
+
+        QQmlApplicationEngine engine;
+        NativeAudit audit(&engine);
+        engine.loadData(R"(
+import QtQuick
+import QtQuick.Controls.Basic
+Window {
+    width: 900; height: 620; visible: true
+    property int testEchoMode: 0
+    property int testInputHints: 0
+    TextField {
+        objectName: "sensitiveInput"
+        x: 20; y: 20; width: 300; height: 50
+        echoMode: Window.window.testEchoMode
+        inputMethodHints: Window.window.testInputHints
+        Text { objectName: "sensitiveChild"; visible: false; text: parent.text }
+    }
+    TextField {
+        objectName: "ordinaryInput"
+        x: 20; y: 100; width: 300; height: 50
+        text: "public-value"
+    }
+}
+)");
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        window->setProperty("testEchoMode", echoMode);
+        window->setProperty("testInputHints", inputHints);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        QVERIFY(audit.activate());
+        auto *input = audit.find(window, QStringLiteral("sensitiveInput"));
+        QVERIFY(input);
+        QVERIFY(audit.click(input));
+        const QString secret = QStringLiteral("audit-only-sensitive-value");
+        QVERIFY(audit.type(secret));
+        QCOMPARE(input->property("text").toString(), secret);
+        // Clicking a populated password field must not serialize its real text.
+        QVERIFY(audit.click(input));
+        QVERIFY(audit.hover(input));
+        const QVariantMap observed = audit.observe(window);
+        int redacted = 0;
+        bool ordinary = false;
+        for (const auto &value : observed.value(QStringLiteral("items")).toList()) {
+            const auto item = value.toMap();
+            const auto name = item.value(QStringLiteral("objectName")).toString();
+            if (name == QStringLiteral("sensitiveInput") ||
+                name == QStringLiteral("sensitiveChild")) {
+                QCOMPARE(item.value(QStringLiteral("text")).toString(),
+                         QStringLiteral("[redacted]"));
+                ++redacted;
+            } else if (name == QStringLiteral("ordinaryInput")) {
+                QCOMPARE(item.value(QStringLiteral("text")).toString(),
+                         QStringLiteral("public-value"));
+                ordinary = true;
+            }
+        }
+        QCOMPARE(redacted, 2);
+        QVERIFY(ordinary);
+        QVERIFY(audit.record(QStringLiteral("sensitive-observation"), observed));
+        for (const auto &name :
+             {QStringLiteral("sensitive-observation.json"), QStringLiteral("actions.jsonl")}) {
+            QFile evidence(temporary.filePath(name));
+            QVERIFY(evidence.open(QIODevice::ReadOnly));
+            const auto bytes = evidence.readAll();
+            QVERIFY(bytes.contains("[redacted]"));
+            QVERIFY(!bytes.contains(secret.toUtf8()));
+        }
+    }
+};
+
+QTEST_MAIN(NativeAuditTest)
+#include "native_audit_test.moc"

@@ -1,0 +1,335 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+import QtQuick
+import QtQuick.Controls.Basic
+import QtTest
+import "../../qml/components"
+
+TestCase {
+    id: testCase
+    name: "TableGameLogRail"
+    width: 640
+    height: 520
+    when: windowShown
+
+    ApplicationWindow {
+        id: testWindow
+        width: 640
+        height: 520
+        visible: true
+    }
+
+    QtObject {
+        id: fakeActions
+        property int submitCalls: 0
+        function submitChatMessage() { ++submitCalls; return true }
+    }
+
+    QtObject {
+        id: fakeCatalog
+        property string language: "en"
+        property int imageRevision: 0
+        property var names: ({"Lightning Bolt": "闪电击"})
+        signal catalogChanged()
+        function cardDisplayName(name) {
+            return language === "zh" ? names[name] || name : name
+        }
+    }
+
+    QtObject {
+        id: fakeGameTable
+        property var seats: [{seat: 0, displayName: "Alice: %2"}]
+    }
+
+    Item {
+        id: fakeTable
+        property var cardActions: fakeActions
+        property var cardCatalogModel: fakeCatalog
+        property var gameTableModel: fakeGameTable
+        property var tableGameLog: []
+        property bool showGameLogRail: true
+        property real gameLogRailWidth: 200
+        property bool canChat: true
+        property bool sideboarding: false
+        function setGameLogVisible(show) { showGameLogRail = show }
+    }
+
+    TableGameLogRail {
+        id: rail
+        parent: testWindow.contentItem
+        width: 160
+        height: 500
+        tableController: fakeTable
+    }
+
+    function init() {
+        testTranslations.setLanguage("en")
+        fakeCatalog.language = "en"
+        fakeCatalog.names = {"Lightning Bolt": "闪电击"}
+        fakeTable.showGameLogRail = true
+        fakeTable.canChat = true
+        fakeActions.submitCalls = 0
+        rail.chatInput.clear()
+        fakeTable.tableGameLog = [
+            {"id": 1, "text": "Alice joined", "kind": "system"},
+            {"id": 2, "text": "Hello", "kind": "chat"}
+        ]
+    }
+
+    function cleanup() {
+        wait(0)
+        testTranslations.setLanguage("en")
+        rail.floating = false
+        rail.resetFloatingPosition()
+        rail.width = 160
+        rail.height = 500
+        fakeTable.showGameLogRail = true
+        fakeTable.canChat = true
+    }
+
+    function longEntries(count) {
+        const entries = []
+        for (let index = 0; index < count; ++index) {
+            entries.push({
+                "id": index + 1,
+                "text": "Long game log entry " + index,
+                "kind": "system",
+                "seat": index % 2
+            })
+        }
+        return entries
+    }
+
+    function test_exposesChatInputAndLog() {
+        verify(rail.visible)
+        compare(rail.chatInput.objectName, "gameChatInput")
+        compare(findChild(rail, "gameLog").count, 2)
+        compare(rail.width, 160)
+    }
+
+    function test_tracksDirectTableLogReplacement() {
+        const log = findChild(rail, "gameLog")
+        verify(log !== null)
+
+        fakeTable.tableGameLog = [{
+            "id": 3, "text": "Replacement", "kind": "system"
+        }]
+
+        tryCompare(log, "count", 1)
+        tryVerify(() => log.itemAtIndex(0) !== null
+                         && log.itemAtIndex(0).text === "Replacement")
+        compare(log.itemAtIndex(0).text, "Replacement")
+    }
+
+    function test_appendsWithoutReplacingMatchingDelegates() {
+        const log = findChild(rail, "gameLog")
+        verify(log !== null)
+        tryVerify(() => log.itemAtIndex(0) !== null)
+        const firstDelegate = log.itemAtIndex(0)
+
+        fakeTable.tableGameLog = fakeTable.tableGameLog.concat([{
+            "id": 3, "text": "Appended", "kind": "system", "seat": 0
+        }])
+
+        tryCompare(log, "count", 3)
+        compare(log.itemAtIndex(0), firstDelegate)
+    }
+
+    function test_translatesDirectTableLogEntries() {
+        const log = findChild(rail, "gameLog")
+        verify(log !== null)
+
+        testTranslations.setLanguage("zh")
+        fakeTable.tableGameLog = [{
+            "id": 3,
+            "text": "Alice advanced to the Attackers step.",
+            "kind": "system"
+        }]
+
+        tryCompare(log, "count", 1)
+        tryVerify(() => log.itemAtIndex(0) !== null
+                         && log.itemAtIndex(0).text
+                            === "Alice 推进到宣攻阶段。")
+        compare(log.itemAtIndex(0).text, "Alice 推进到宣攻阶段。")
+    }
+
+    function test_existingEntriesFollowInterfaceAndCardLanguagesIndependently() {
+        const source = "Alice moved Lightning Bolt from hand to graveyard."
+        fakeTable.tableGameLog = [
+            {id: 3, kind: "move_card", seat: 0, text: source},
+            {id: 4, kind: "chat", seat: 0, text: source}
+        ]
+        const log = findChild(rail, "gameLog")
+        tryVerify(() => log.itemAtIndex(0) !== null && log.itemAtIndex(1) !== null)
+        const entry = log.itemAtIndex(0)
+        compare(entry.text, source)
+        fakeCatalog.language = "zh"
+        tryCompare(entry, "text", "Alice moved 闪电击 from hand to graveyard.")
+        testTranslations.setLanguage("zh")
+        tryCompare(entry, "text", "Alice 将 闪电击 从手牌移至墓地。")
+        testTranslations.setLanguage("en")
+        tryCompare(entry, "text", "Alice moved 闪电击 from hand to graveyard.")
+        fakeCatalog.language = "en"
+        tryCompare(entry, "text", source)
+        compare(log.itemAtIndex(0), entry)
+        compare(log.itemAtIndex(1).text, source)
+        compare(fakeTable.tableGameLog[0].text, source)
+    }
+
+    function test_refreshesLocalNamesWhenCatalogOrCacheChanges() {
+        testTranslations.setLanguage("zh")
+        fakeCatalog.language = "zh"
+        fakeCatalog.names = {}
+        fakeTable.tableGameLog = [{
+            id: 3, kind: "rules_card", seat: 0,
+            text: "Alice: %2: Lightning Bolt in battlefield."
+        }]
+        const log = findChild(rail, "gameLog")
+        tryVerify(() => log.itemAtIndex(0) !== null)
+        const entry = log.itemAtIndex(0)
+        compare(entry.text, "Alice: %2: Lightning Bolt 位于战场。")
+        fakeCatalog.names["Lightning Bolt"] = "闪电击"
+        fakeCatalog.catalogChanged()
+        tryCompare(entry, "text", "Alice: %2: 闪电击 位于战场。")
+        delete fakeCatalog.names["Lightning Bolt"]
+        ++fakeCatalog.imageRevision
+        tryCompare(entry, "text", "Alice: %2: Lightning Bolt 位于战场。")
+    }
+
+    function test_forwardsChatActions() {
+        rail.chatInput.text = "hello"
+        rail.chatInput.accepted()
+        compare(fakeActions.submitCalls, 1)
+    }
+
+    function test_translatesRulesButKeepsIdenticalChatLiteral() {
+        testTranslations.setLanguage("zh")
+        fakeTable.tableGameLog = [
+            {id: 10, kind: "rules_life", text: "Alice: life 20 → 17."},
+            {id: 11, kind: "chat", text: "Alice: life 20 → 17."}
+        ]
+        const log = findChild(rail, "gameLog")
+        tryCompare(log, "count", 2)
+        tryVerify(() => log.itemAtIndex(0) !== null && log.itemAtIndex(1) !== null)
+        compare(log.itemAtIndex(0).text, "Alice：生命 20 → 17。")
+        compare(log.itemAtIndex(1).text, "Alice: life 20 → 17.")
+    }
+
+    function test_showsInteractiveScrollBarForOverflowingLog() {
+        const scrollBar = findChild(rail, "gameLogScrollBar")
+        verify(scrollBar !== null)
+        compare(scrollBar.policy, ScrollBar.AsNeeded)
+        verify(scrollBar.interactive)
+
+        const entries = fakeTable.tableGameLog.slice()
+        for (let index = 0; index < 80; ++index) {
+            entries.push({
+                "id": index + 3,
+                "text": "Long game log entry " + index,
+                "kind": "system"
+            })
+        }
+        fakeTable.tableGameLog = entries
+        tryVerify(() => scrollBar.visible && scrollBar.size < 1)
+    }
+
+    function test_appendStaysPutWhenReadingOlderEntries() {
+        const log = findChild(rail, "gameLog")
+        fakeTable.tableGameLog = longEntries(80)
+        tryVerify(() => log.contentHeight > log.height)
+        wait(0)
+        log.positionViewAtIndex(20, ListView.Beginning)
+        wait(0)
+        const previousContentY = log.contentY
+
+        fakeTable.tableGameLog = fakeTable.tableGameLog.concat([{
+            "id": 81, "text": "Newest entry", "kind": "system", "seat": 0
+        }])
+        wait(1)
+
+        verify(Math.abs(log.contentY - previousContentY) < 2)
+    }
+
+    function test_appendFollowsWhenPinnedToEnd() {
+        const log = findChild(rail, "gameLog")
+        fakeTable.tableGameLog = longEntries(80)
+        tryVerify(() => log.contentHeight > log.height)
+        wait(0)
+        log.positionViewAtEnd()
+        wait(0)
+
+        fakeTable.tableGameLog = fakeTable.tableGameLog.concat([{
+            "id": 81, "text": "Newest entry", "kind": "system", "seat": 0
+        }])
+
+        tryVerify(() => log.contentY
+                         >= log.originY + log.contentHeight - log.height - 2)
+    }
+
+    function test_prefixCorrectionPreservesUsefulVisibleIndex() {
+        const log = findChild(rail, "gameLog")
+        fakeTable.tableGameLog = longEntries(80)
+        tryVerify(() => log.contentHeight > log.height)
+        wait(0)
+        log.positionViewAtIndex(25, ListView.Beginning)
+        wait(0)
+        const previousIndex = log.indexAt(1, log.contentY + 1)
+        verify(previousIndex >= 24 && previousIndex <= 26)
+
+        const corrected = longEntries(60)
+        corrected[0].text = "Corrected first entry"
+        fakeTable.tableGameLog = corrected
+        wait(1)
+
+        const visibleIndex = log.indexAt(1, log.contentY + 1)
+        verify(Math.abs(visibleIndex - previousIndex) <= 1)
+        verify(log.contentY
+               < log.originY + log.contentHeight - log.height - 2)
+    }
+
+    function test_tracksVisibilityAndChatAvailability() {
+        fakeTable.showGameLogRail = false
+        verify(!rail.visible)
+        fakeTable.showGameLogRail = true
+        fakeTable.canChat = false
+        verify(!rail.chatInput.enabled)
+    }
+
+    function test_floatingPanelCanBeDraggedResetAndClosed() {
+        rail.floating = true
+        tryVerify(() => rail.visible && rail.floating)
+        tryVerify(() => rail.x > testWindow.width / 2)
+        verify(!findChild(rail, "gameLogColumnDivider").visible)
+        const handle = findChild(rail, "gameLogDragHandle")
+        const close = findChild(rail, "closeGameLogButton")
+        const list = findChild(rail, "gameLog")
+        verify(handle !== null && close !== null && list !== null)
+        tryVerify(() => handle.mapToItem(rail, 0, 0).y < 16
+                         && close.mapToItem(rail, 0, 0).y < 16)
+        verify(list.mapToItem(rail, 0, 0).y
+               >= handle.mapToItem(rail, 0, 0).y + 20)
+        const defaultX = rail.x
+        const defaultY = rail.y
+        const defaultW = rail.width
+        const defaultH = rail.height
+        verify(rail.x + rail.width <= testWindow.width)
+        verify(rail.y + rail.height <= testWindow.height)
+        verify(findChild(rail, "gameLogResizeHandle").visible)
+        rail.storedNX = 0.15
+        rail.storedNY = 0.85
+        rail.storedNW = 0.55
+        rail.storedNH = 0.7
+        tryVerify(() => rail.x < defaultX - 40
+                         && rail.width > defaultW + 20
+                         && rail.height !== defaultH)
+        mouseClick(handle, 8, 8, Qt.RightButton)
+        tryVerify(() => Math.abs(rail.x - defaultX) < 2
+                         && Math.abs(rail.y - defaultY) < 2
+                         && Math.abs(rail.width - defaultW) < 2
+                         && Math.abs(rail.height - defaultH) < 2)
+        mouseClick(close)
+        verify(!rail.visible)
+        verify(!fakeTable.showGameLogRail)
+    }
+}

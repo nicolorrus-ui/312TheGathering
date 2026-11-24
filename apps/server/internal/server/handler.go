@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+package server
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"hexproof/server/internal/accounts"
+	"hexproof/server/internal/cluster"
+	"hexproof/server/internal/forgehost"
+	"hexproof/server/internal/peerlink"
+	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/syncutil"
+)
+
+// Lock order for room mutations:
+//  1. tournament opMu, when a tournament command also mutates a pairing room
+//  2. room operation lock (opMu)
+//  3. Hub.mu for registry lookup (released before reducing)
+//  4. room state lock (entry.mu)
+//
+// Hub.mu may be taken again after opMu for membership snapshots (membersOf).
+// Grant mutexes (zoneDumpMu, publicZoneMoveMu) may be held with opMu during
+// consent flows. resumeMu is a leaf: it may be taken while opMu is held (see
+// restoreResumeHold and removeRoom), but no room lock may be acquired while it
+// is held, so expireResumeHold releases it before calling lockRoomOperation and
+// must itself be called only after any room opMu is released.
+//
+// Pairing-room deletion is two-phase so it cannot invert that order:
+// removeRoom may run while room opMu is held and only drops the hub entry plus
+// room-scoped transients. commitPairingRoomCleanup then takes tournament opMu
+// after room opMu is released. Callers that already hold tournament opMu must
+// not call commitPairingRoomCleanup.
+// Handler session/rate-limit registries must not be held while reducing.
+
+const (
+	zoneDumpDecisionTTL = 90 * time.Second
+	zoneDumpGrantTTL    = 2 * time.Minute
+	websocketPingEvery  = 25 * time.Second
+	websocketPingWait   = 10 * time.Second
+	websocketWriteWait  = 10 * time.Second
+)
+
+// Handler is the HTTP handler that upgrades to WebSocket and runs a session.
+type Handler struct {
+	control                 controlMetrics
+	clusterAgent            *cluster.Agent
+	clusterRouteLimiter     *fixedWindowLimiter
+	clusterAPI              http.Handler
+	accounts                accounts.Service
+	accountStore            *accounts.Store
+	accountAPI              http.Handler
+	accountLimiter          *fixedWindowLimiter
+	accountCreateLimiter    *fixedWindowLimiter
+	accountLocks            syncutil.KeyedGate
+	accountConnectionsMu    sync.Mutex
+	accountConnections      map[string]*Session
+	hub                     *Hub
+	config                  Config
+	retention               *retentionStore
+	forgeReplays            *forgeReplayStore
+	forgeCrashes            *forgeCrashStore
+	trustedProxies          []*net.IPNet
+	connSeq                 uint64 // for connection ids
+	activeConnections       int64
+	sessionsMu              sync.RWMutex
+	sessions                map[string]*Session
+	zoneDumpMu              sync.Mutex
+	zoneDumpRequests        map[string]zoneDumpRequest
+	zoneDumpSeq             uint64
+	publicZoneMoveMu        sync.Mutex
+	publicZoneMoveRequests  map[string]publicZoneMoveRequest
+	publicZoneMoveSeq       uint64
+	resumeMu                sync.Mutex
+	resumeHolds             map[string]resumeHold
+	sideboardTimerMu        sync.Mutex
+	sideboardTimers         map[string]*time.Timer
+	actionClockMu           sync.Mutex
+	actionClockTimers       map[string]*actionClockTimer
+	actionClockClosed       bool
+	priorityMu              sync.Mutex
+	priorityPrefs           map[string]map[int]priorityPreference
+	roomCreateLimiter       *fixedWindowLimiter
+	tournamentCreateLimiter *fixedWindowLimiter
+	tournamentChatLimiter   *fixedWindowLimiter
+	passwordJoinLimiter     *fixedWindowLimiter
+	replayRequestLimiter    *fixedWindowLimiter
+	tournaments             *tournamentRegistry
+	playerHosts             map[string]*forgehost.Link
+	playerBackups           map[string]*playerBackup
+	playerPeers             map[string]*playerPeerState
+	playerHostStateMu       sync.Mutex
+	modelMu                 sync.Mutex
+	modelWorkers            map[string]*modelWorker
+	forgeGames              map[string]forgeRoomGame
+	forgePromptSequence     atomic.Int64
+	forge                   *forgeRuntimeLifecycle
+	closeOnce               sync.Once
+	closeErr                error
+	// marshalEnvelope, when set, replaces Envelope.Marshal for send/fan-out tests.
+	marshalEnvelope func(protocol.Envelope) ([]byte, error)
+}
+
+// NewHandler creates a WebSocket handler backed by a fresh hub.
+func NewHandler() *Handler {
+	handler, err := NewHandlerWithConfig(DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
+	return handler
+}
+
+// NewHandlerWithConfig creates a bounded handler and optional retention store.
+func NewHandlerWithConfig(config Config) (*Handler, error) {
+	config = normalizeConfig(config)
+	if config.ClubMode && (config.ForgeRuntime == nil || config.Cluster != nil || config.AllowPlayerHosting) {
+		return nil, fmt.Errorf("club mode requires a dedicated server-managed Forge runtime")
+	}
+	if err := peerlink.ValidateSTUNServers(config.PeerSTUNServers); err != nil {
+		return nil, fmt.Errorf("configure peer STUN servers: %w", err)
+	}
+	if config.ForgeGamesPerJVM < 1 || config.ForgeGamesPerJVM > 4 {
+		return nil, fmt.Errorf("Forge games per JVM must be between 1 and 4")
+	}
+	trustedProxies, err := parseTrustedProxies(config.TrustedProxyCIDRs)
+	if err != nil {
+		return nil, err
+	}
+	retention, err := newRetentionStore(
+		config.RetentionDir, config.RetentionTTL,
+		config.RetentionMaxFiles, config.RetentionMaxBytes, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	accountService, accountStore, accountAPI, err := configureAccounts(config)
+	if err != nil {
+		return nil, err
+	}
+	accountConfigured := false
+	defer func() {
+		if !accountConfigured && accountStore != nil {
+			_ = accountStore.Close()
+		}
+	}()
+	runtimeLifecycle, err := newForgeRuntimeLifecycle(config)
+	if err != nil {
+		return nil, err
+	}
+	accountConfigured = true
+	h := &Handler{
+		accounts: accountService, accountStore: accountStore, accountAPI: accountAPI,
+		accountLimiter:       newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		accountCreateLimiter: newFixedWindowLimiter(time.Hour, maxRateLimitKeys),
+		accountConnections:   make(map[string]*Session),
+		clusterRouteLimiter:  newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		hub: NewHubWithLimits(
+			config.MaxRooms, config.MaxConcurrentPasswordChecks),
+		config:                  config,
+		retention:               retention,
+		forgeReplays:            newForgeReplayStore(config),
+		forgeCrashes:            newForgeCrashStore(config.RetentionDir),
+		trustedProxies:          trustedProxies,
+		sessions:                make(map[string]*Session),
+		zoneDumpRequests:        make(map[string]zoneDumpRequest),
+		publicZoneMoveRequests:  make(map[string]publicZoneMoveRequest),
+		resumeHolds:             make(map[string]resumeHold),
+		sideboardTimers:         make(map[string]*time.Timer),
+		actionClockTimers:       make(map[string]*actionClockTimer),
+		roomCreateLimiter:       newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		tournamentCreateLimiter: newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		tournamentChatLimiter:   newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		passwordJoinLimiter:     newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		replayRequestLimiter:    newFixedWindowLimiter(time.Minute, maxRateLimitKeys),
+		tournaments:             newTournamentRegistry(config.MaxTournaments),
+		playerHosts:             make(map[string]*forgehost.Link),
+		playerBackups:           make(map[string]*playerBackup),
+		playerPeers:             make(map[string]*playerPeerState),
+		modelWorkers:            make(map[string]*modelWorker),
+		forge:                   runtimeLifecycle,
+		forgeGames:              make(map[string]forgeRoomGame),
+	}
+	if err := h.configureCluster(); err != nil {
+		_ = h.Close()
+		return nil, fmt.Errorf("configure official cluster: %w", err)
+	}
+	return h, nil
+}
+
+func (h *Handler) forgeRulesAvailable() bool {
+	rules, _, _ := h.forge.capabilities()
+	return rules
+}
+
+func (h *Handler) forgeAIAvailable() bool {
+	_, ai, _ := h.forge.capabilities()
+	return ai
+}
+
+func (h *Handler) forgeDuelAIAvailable() bool {
+	_, _, duelAI := h.forge.capabilities()
+	return duelAI
+}

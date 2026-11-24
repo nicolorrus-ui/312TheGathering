@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+"""Exercise verification orchestration without compiling or opening any GUI."""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+SCRIPT = Path(__file__).resolve().parents[1] / "verify.sh"
+SHELL_LINT_SCRIPT = SCRIPT.with_name("check-shell-scripts.sh")
+SHARED_SCRIPT = SCRIPT.with_name("check-shared.sh")
+
+
+class VerificationScriptTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.write("apps/client-qt/CMakeLists.txt", 'set(HEXPROOF_VERSION "1.2.3")\n')
+        self.write("tools/tests/test_fixture.py", "# Selected-test fixture\n")
+        (self.root / "apps/server").mkdir(parents=True)
+        self.script = self.write("tools/verify.sh", SCRIPT.read_text(encoding="utf-8"))
+        self.shared_script = self.write("tools/check-shared.sh", SHARED_SCRIPT.read_text(encoding="utf-8"),
+                                        executable=True)
+        self.write("tools/check-shell-scripts.sh", SHELL_LINT_SCRIPT.read_text(encoding="utf-8"),
+                   executable=True)
+        self.write("tools/card-database-builder/build-latest.sh", "#!/usr/bin/env bash\nexit 0\n")
+        for name in ("check-license-headers.sh", "check-qml-text-safety.sh", "first.sh", "second.sh"):
+            self.write(f"tools/{name}", '#!/usr/bin/env bash\n'
+                       'printf \'["%s"]\\n\' "$0" >> "$VERIFY_TEST_LOG"\n', executable=True)
+        dispatcher = f"#!{sys.executable}\n" + '''
+import json
+import os
+from pathlib import Path
+import sys
+name = Path(sys.argv[0]).name
+args = sys.argv[1:]
+with open(os.environ["VERIFY_TEST_LOG"], "a") as log:
+    log.write(json.dumps([name, *args]) + "\\n")
+if name == os.environ.get("VERIFY_TEST_FAIL_TOOL"):
+    sys.exit(13)
+if name == "go" and Path.cwd() != Path(os.environ["VERIFY_TEST_ROOT"]) / "apps/server":
+    sys.exit("Go checks must run from the server module")
+if (name == "python3" and args[:3] == ["-m", "unittest", "discover"]
+    and "-p" in args
+    and args[args.index("-p") + 1] == os.environ.get("VERIFY_TEST_FAIL_PATTERN")):
+    sys.exit(13)
+if name == "python3" and args[:1] == ["-c"]:
+    os.execv(sys.executable, [sys.executable, *args])
+if name == "cmake" and "--target" in args:
+    for target in args[args.index("--target") + 1:]:
+        if target == os.environ.get("VERIFY_TEST_FAIL_BUILD_TARGET"):
+            sys.exit(13)
+        if target == "hexproof_card_database_builder":
+            (Path(os.environ["HEXPROOF_CLIENT_BUILD_DIR"]) / target).touch()
+if name == "ctest":
+    selected = json.loads(os.environ.get("VERIFY_TEST_SELECTED_TESTS", '[{"name":"qml_fixture"}]'))
+    if "--show-only=json-v1" in args:
+        print(os.environ.get("VERIFY_TEST_CTEST_JSON", json.dumps({"tests": selected})))
+        sys.exit(0)
+    needs_catalog = "-R" not in args or any(test["name"] == "limited-catalog-builder" for test in selected)
+    if needs_catalog and not (
+        Path(os.environ["HEXPROOF_CLIENT_BUILD_DIR"]) / "hexproof_card_database_builder"
+    ).exists():
+        print("CTest catalog builder dependency is missing", file=sys.stderr)
+        sys.exit(14)
+if name == "git" and args[:1] == ["clang-format"]:
+    print("no modified files to format")
+elif name == "git" and args[:2] == ["ls-files", "-co"]:
+    sys.stdout.write("tools/first.sh\\0tools/second.sh\\0")
+elif name == "hexproof-server":
+    print("hexproof-server " + os.environ.get("VERIFY_TEST_SERVER_VERSION", "1.2.3"))
+elif name == "hexproof":
+    print("Hexproof " + os.environ.get("VERIFY_TEST_CLIENT_VERSION", "1.2.3"))
+'''
+        for name in ("cmake", "ctest", "git", "go", "gofmt", "ninja", "python3", "rg",
+                     "clang-format", "git-clang-format", "shellcheck"):
+            self.write(f"bin/{name}", dispatcher, executable=True)
+        self.write("build/client-qt/hexproof", dispatcher, executable=True)
+        self.write("build/server/hexproof-server", dispatcher, executable=True)
+        self.log = self.root / "commands.jsonl"
+        self.env = {**os.environ, "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}",
+                    "VERIFY_TEST_LOG": str(self.log),
+                    "VERIFY_TEST_ROOT": str(self.root),
+                    "HEXPROOF_CLIENT_BUILD_DIR": str(self.root / "build/client-qt"),
+                    "HEXPROOF_SERVER_BINARY_PATH": str(self.root / "build/server/hexproof-server")}
+
+    def write(self, relative, content, executable=False):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        if executable:
+            path.chmod(0o755)
+        return path
+
+    def run_script(self, *args, succeeds=True, script=None):
+        result = subprocess.run([shutil.which("bash"), str(script or self.script), *args],
+                                cwd=self.root, env=self.env, text=True,
+                                capture_output=True, timeout=15)
+        if succeeds:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        else:
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+        return result, calls
+
+    def test_static_never_builds_or_runs_application_tests(self):
+        _, calls = self.run_script("--scope", "static")
+        self.assertFalse({call[0] for call in calls} & {"go", "gofmt", "cmake", "ctest", "hexproof"})
+        self.assertIn(["python3", "-m", "unittest", "discover", "-s", "tools/tests"], calls)
+        self.assertIn(["shellcheck", "tools/card-database-builder/build-latest.sh",
+                       "tools/check-shared.sh"], calls)
+        self.assertTrue(any(call[:5] == ["git", "clang-format", "--diff", "--extensions", "c,cpp,h"]
+                            for call in calls))
+
+    def test_scoped_application_checks_do_not_repeat_unrelated_tool_suite(self):
+        for scope in ("client", "server"):
+            with self.subTest(scope=scope):
+                self.log.unlink(missing_ok=True)
+                _, calls = self.run_script("--scope", scope)
+                self.assertFalse(any(call[:3] == ["python3", "-m", "unittest"] for call in calls))
+
+    def test_selected_tool_tests_and_per_file_qml_are_forwarded(self):
+        self.write("tools/tests/test_another_fixture.py", "# Second selected-test fixture\n")
+        _, calls = self.run_script("--scope", "client", "--qml-per-file",
+                                   "--tool-tests", "test_fixture.py",
+                                   "--tool-tests", "test_another*.py")
+        self.assertEqual(
+            [call for call in calls if call[:3] == ["python3", "-m", "unittest"]],
+            [["python3", "-m", "unittest", "discover", "-s", "tools/tests", "-p", pattern]
+             for pattern in ("test_fixture.py", "test_another*.py")])
+        self.assertTrue(any(call[0] == "cmake" and "-DHEXPROOF_QML_TESTS_PER_FILE=ON" in call
+                            for call in calls))
+
+    def test_selected_tool_test_failure_stops_before_application_checks(self):
+        self.write("tools/tests/test_failing_fixture.py", "# Failing selected-test fixture\n")
+        self.env["VERIFY_TEST_FAIL_PATTERN"] = "test_failing_fixture.py"
+        result, calls = self.run_script("--scope", "server",
+                                        "--tool-tests", "test_fixture.py",
+                                        "--tool-tests", "test_failing_fixture.py", succeeds=False)
+        self.assertEqual(result.returncode, 13)
+        self.assertEqual(
+            [call[-1] for call in calls if call[:3] == ["python3", "-m", "unittest"]],
+            ["test_fixture.py", "test_failing_fixture.py"])
+        self.assertFalse({call[0] for call in calls} & {"go", "gofmt", "cmake", "ctest"})
+
+    def test_missing_tool_selection_and_narrowed_full_scope_fail_before_work(self):
+        for args in (("--scope", "static", "--tool-tests", "test_missing.py"),
+                     ("--tool-tests", "test_fixture.py"),
+                     ("--scope", "static", "--tool-tests", "../test_fixture.py")):
+            with self.subTest(args=args):
+                _, calls = self.run_script(*args, succeeds=False)
+                self.assertEqual(calls, [])
+
+    def test_shell_lint_includes_available_private_deployment_scripts(self):
+        scripts = ("deploy/deploy-release-server.sh", "deploy/deploy-forge-runtime.sh",
+                   "deploy/deploy-test-server.sh")
+        for script in scripts:
+            self.write(script, "#!/usr/bin/env bash\nexit 0\n")
+        _, calls = self.run_script("--scope", "static")
+        self.assertIn(["shellcheck", "tools/card-database-builder/build-latest.sh",
+                       "tools/check-shared.sh", *scripts], calls)
+
+    def test_shared_static_checks_do_not_run_tool_suite_or_applications(self):
+        _, calls = self.run_script("static", script=self.shared_script)
+        self.assertIn(["./tools/check-license-headers.sh"], calls)
+        self.assertIn(["./tools/check-qml-text-safety.sh"], calls)
+        self.assertEqual([call for call in calls if call[0] == "python3"], [
+            ["python3", "tools/check-qml-resources.py"],
+            ["python3", "tools/check-protocol-parity.py"],
+            ["python3", "tools/check-i18n.py", "--strict"],
+            ["python3", "tools/check-module-size.py"],
+        ])
+        self.assertFalse({call[0] for call in calls} & {"go", "gofmt", "cmake", "ctest"})
+
+    def test_shared_static_failure_stops_before_later_checks(self):
+        self.env["VERIFY_TEST_FAIL_TOOL"] = "shellcheck"
+        result, calls = self.run_script("static", script=self.shared_script, succeeds=False)
+        self.assertEqual(result.returncode, 13)
+        self.assertFalse(any(call[0] == "python3" for call in calls))
+
+    def test_shared_race_checks_keep_packages_and_forward_uncached_flag(self):
+        _, calls = self.run_script("race", "-count=1", script=self.shared_script)
+        self.assertEqual(calls, [["go", "test", "-count=1", "-race",
+            "./internal/room", "./internal/server", "./internal/tournament",
+            "./internal/forgehost", "./internal/runtimepkg", "./internal/peerlink",
+            "./internal/homenode", "./internal/accounts", "./internal/cluster",
+            "./internal/syncutil", "./internal/feedback"]])
+
+    def test_shared_checks_reject_invalid_scope_before_work(self):
+        for args in ((), ("unknown",), ("static", "--quick")):
+            with self.subTest(args=args):
+                result, calls = self.run_script(*args, script=self.shared_script, succeeds=False)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(calls, [])
+
+    def test_shell_lint_failure_stops_verification_before_builds(self):
+        self.env["VERIFY_TEST_FAIL_TOOL"] = "shellcheck"
+        result, calls = self.run_script(succeeds=False)
+        self.assertEqual(result.returncode, 13)
+        self.assertFalse({call[0] for call in calls} & {"go", "cmake", "ctest", "python3"})
+
+    def test_missing_shellcheck_is_an_error(self):
+        (self.root / "bin/shellcheck").unlink()
+        # Use a closed PATH so the workstation's ShellCheck cannot mask absence.
+        for name in ("bash", "dirname", "sed"):
+            (self.root / "bin" / name).symlink_to(shutil.which(name))
+        self.env["PATH"] = str(self.root / "bin")
+        result, calls = self.run_script("--scope", "static", succeeds=False)
+        self.assertEqual(result.returncode, 127)
+        self.assertIn("Required command not found: shellcheck", result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_server_does_not_need_qt_but_keeps_race_tests(self):
+        _, calls = self.run_script("--scope", "server")
+        self.assertFalse({call[0] for call in calls} & {"cmake", "ctest", "hexproof"})
+        self.assertIn(["go", "vet", "./..."], calls)
+        self.assertTrue(any(call[:3] == ["go", "test", "-race"] for call in calls))
+        self.assertIn(["hexproof-server", "-version"], calls)
+
+    def test_client_builds_matching_integration_server_without_go_test_suite(self):
+        _, calls = self.run_script("--scope", "client")
+        self.assertTrue(any(call[:2] == ["go", "build"] for call in calls))
+        self.assertFalse(any(call[:2] in (["go", "test"], ["go", "vet"]) for call in calls))
+        self.assertTrue(any(call[0] == "ctest" for call in calls))
+
+    def test_quick_client_skips_go_and_ctest(self):
+        _, calls = self.run_script("--scope", "client", "--quick")
+        self.assertFalse({call[0] for call in calls} & {"go", "gofmt", "ctest"})
+        self.assertEqual([call for call in calls if call[:2] == ["cmake", "--build"]],
+                         [["cmake", "--build", self.env["HEXPROOF_CLIENT_BUILD_DIR"],
+                           "--target", "hexproof"]])
+        self.assertFalse((self.root / "build/client-qt/hexproof_card_database_builder").exists())
+
+    def test_focused_client_builds_only_explicit_targets_and_runs_selected_tests(self):
+        self.env["VERIFY_TEST_SELECTED_TESTS"] = json.dumps([
+            {"name": "qml_fixture"}, {"name": "appupdate"}])
+        regex = "^(qml_fixture|appupdate)$"
+        result, calls = self.run_script("--scope", "client", "--qml-per-file",
+                                        "--target", "hexproof_qml_test", "--tests", regex,
+                                        "--target", "hexproof_appupdate_test")
+        self.assertEqual([call for call in calls if call[:2] == ["cmake", "--build"]],
+                         [["cmake", "--build", self.env["HEXPROOF_CLIENT_BUILD_DIR"],
+                           "--target", "hexproof_qml_test", "hexproof_appupdate_test"]])
+        self.assertIn(["ctest", "--test-dir", self.env["HEXPROOF_CLIENT_BUILD_DIR"],
+                       "--show-only=json-v1", "-R", regex], calls)
+        self.assertIn(["ctest", "--test-dir", self.env["HEXPROOF_CLIENT_BUILD_DIR"],
+                       "--output-on-failure", "--no-tests=error", "-R", regex], calls)
+        self.assertFalse({call[0] for call in calls} & {"go", "gofmt", "hexproof"})
+        self.assertIn("Focused CTest selection: qml_fixture, appupdate", result.stderr)
+        self.assertIn("Focused client checks only", result.stdout)
+
+    def test_focused_integration_uses_labels_instead_of_regex_to_build_server(self):
+        self.env["VERIFY_TEST_SELECTED_TESTS"] = json.dumps([
+            {"name": "unrelated-name", "properties": [{"name": "LABELS", "value": ["integration"]}]}])
+        _, calls = self.run_script("--scope", "client", "--target", "hexproof_localtestsession_test",
+                                   "--tests", "unrelated-name")
+        server_build = next(call for call in calls if call[:2] == ["go", "build"])
+        client_build = next(call for call in calls if call[:2] == ["cmake", "--build"])
+        self.assertLess(calls.index(server_build), calls.index(client_build))
+        self.assertIn(["hexproof-server", "-version"], calls)
+        self.assertFalse(any(call[:2] in (["go", "test"], ["go", "vet"]) for call in calls))
+
+    def test_focused_catalog_selection_builds_its_dependency_once(self):
+        self.env["VERIFY_TEST_SELECTED_TESTS"] = json.dumps([{"name": "limited-catalog-builder"}])
+        for target in ("hexproof_card_database_builder", "hexproof_cardcatalog_test"):
+            with self.subTest(target=target):
+                self.log.unlink(missing_ok=True)
+                (self.root / "build/client-qt/hexproof_card_database_builder").unlink(missing_ok=True)
+                _, calls = self.run_script("--scope", "client", "--target", target,
+                                           "--tests", "^limited-catalog-builder$")
+                builds = [call for call in calls if call[:2] == ["cmake", "--build"]]
+                self.assertEqual(len(builds), 1)
+                self.assertEqual(builds[0].count("hexproof_card_database_builder"), 1)
+                self.assertFalse(any(call[:2] == ["go", "build"] for call in calls))
+
+    def test_focused_selection_failures_stop_before_any_build(self):
+        for metadata in ('{"tests":[]}', 'not-json'):
+            with self.subTest(metadata=metadata):
+                self.log.unlink(missing_ok=True)
+                self.env["VERIFY_TEST_CTEST_JSON"] = metadata
+                _, calls = self.run_script("--scope", "client", "--target", "hexproof_qml_test",
+                                           "--tests", "^missing$", succeeds=False)
+                self.assertFalse(any(call[:2] in (["cmake", "--build"], ["go", "build"])
+                                     for call in calls))
+                self.assertFalse(any(call[0] == "ctest" and "--show-only=json-v1" not in call
+                                     for call in calls))
+
+    def test_invalid_focused_options_fail_before_work(self):
+        selection = ("--target", "hexproof_qml_test", "--tests", "^qml$")
+        cases = [selection, ("--scope", "server", *selection),
+                 ("--scope", "static", *selection), ("--scope", "client", "--quick", *selection),
+                 ("--scope", "client", "--target", "hexproof_qml_test"),
+                 ("--scope", "client", "--tests", "^qml$"),
+                 ("--scope", "client", "--target", "--clean-first", "--tests", "^qml$"),
+                 ("--scope", "client", *selection, "--tests", "^other$"),
+                 ("--scope", "client", "--target"), ("--scope", "client", "--tests", "")]
+        for args in cases:
+            with self.subTest(args=args):
+                _, calls = self.run_script(*args, succeeds=False)
+                self.assertEqual(calls, [])
+
+    def test_focused_build_failure_stops_before_test_execution(self):
+        self.env["VERIFY_TEST_FAIL_BUILD_TARGET"] = "hexproof_qml_test"
+        result, calls = self.run_script("--scope", "client", "--target", "hexproof_qml_test",
+                                        "--tests", "^qml_fixture$", succeeds=False)
+        self.assertEqual(result.returncode, 13)
+        self.assertFalse(any(call[0] == "ctest" and "--show-only=json-v1" not in call for call in calls))
+
+    def test_focused_application_target_keeps_version_check(self):
+        self.env["VERIFY_TEST_CLIENT_VERSION"] = "0.0.0"
+        result, calls = self.run_script("--scope", "client", "--target", "hexproof",
+                                        "--tests", "^qml_fixture$", succeeds=False)
+        self.assertIn("Client build version does not match", result.stderr)
+        self.assertIn(["hexproof", "--version"], calls)
+
+    def test_default_is_complete_but_incremental(self):
+        _, calls = self.run_script()
+        self.assertIn(["go", "test", "./..."], calls)
+        self.assertTrue(any(call[:3] == ["go", "test", "-race"] for call in calls))
+        self.assertTrue(any(call[0] == "ctest" for call in calls))
+        for call in calls:
+            self.assertNotIn("--clean-first", call)
+            self.assertNotIn("-a", call)
+            self.assertNotIn("-count=1", call)
+
+    def test_clean_rebuilds_are_explicit(self):
+        _, calls = self.run_script("--clean")
+        self.assertTrue(any(call[:3] == ["go", "build", "-a"] for call in calls))
+        self.assertTrue(any(call[:3] == ["go", "test", "-count=1"] for call in calls))
+        self.assertTrue(any(call[0] == "cmake" and "--clean-first" in call for call in calls))
+
+    def test_all_shell_scripts_are_syntax_checked(self):
+        self.write("tools/second.sh", 'if true; then\necho "unclosed if"\n')
+        result, calls = self.run_script("--scope", "static", succeeds=False)
+        self.assertIn("tools/second.sh", result.stderr)
+        self.assertFalse(any(call[0] in ("go", "cmake") for call in calls))
+
+    def test_invalid_scope_fails_before_work(self):
+        result, calls = self.run_script("--scope", "typo", succeeds=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(calls, [])
+
+    def test_missing_scope_value_is_an_error(self):
+        result, calls = self.run_script("--scope", succeeds=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(calls, [])
+
+    def test_build_failure_is_not_hidden(self):
+        self.env["VERIFY_TEST_FAIL_TOOL"] = "cmake"
+        result, calls = self.run_script("--scope", "client", "--quick", succeeds=False)
+        self.assertEqual(result.returncode, 13)
+        self.assertFalse(any(call[0] == "hexproof" for call in calls))
+
+    def test_ctest_dependency_build_failure_stops_before_tests(self):
+        self.env["VERIFY_TEST_FAIL_BUILD_TARGET"] = "hexproof_card_database_builder"
+        result, calls = self.run_script("--scope", "client", succeeds=False)
+        self.assertEqual(result.returncode, 13)
+        self.assertFalse(any(call[0] == "ctest" for call in calls))
+
+    def test_version_parity_is_still_enforced(self):
+        self.env["VERIFY_TEST_SERVER_VERSION"] = "1.2.2"
+        result, _ = self.run_script("--scope", "server", succeeds=False)
+        self.assertIn("does not match source version", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

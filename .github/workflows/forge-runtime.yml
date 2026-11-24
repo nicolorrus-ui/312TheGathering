@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+name: Forge runtime (optional)
+
+# Deliberately independent of ordinary CI, releases and deployment. Dispatching
+# this workflow creates test artifacts only, never a release or remote service.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: Build and exercise Forge (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            machine: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            machine: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      MAVEN_OPTS: -Xmx2g
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+      - name: Verify native runner and build tools
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: |
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          . /etc/os-release
+          test "$ID" = ubuntu
+          sudo apt-get update
+          sudo apt-get install -y openjdk-21-jdk-headless maven
+          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME/bin/java" -version
+          python3 --version
+      - name: Test packaging helpers
+        run: |
+          python3 -m unittest discover -s tools/tests -p test_forge_source_package.py
+          python3 -m unittest discover -s tools/tests -p test_native_forge_builder.py
+          if test -f tools/tests/test_deploy_script.py; then
+            python3 -m unittest discover -s tools/tests -p test_deploy_script.py
+          fi
+      - name: Build paired runtime and source archives
+        run: ./third_party/forge-runtime/build.sh
+      - name: Verify source package rebuild and archive checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_dir="$PWD/build/forge-runtime"
+          package_identity="$(python3 -c 'import json; p=json.load(open("third_party/forge-runtime/native-host/upstream.json")); print(str(p["revision"])+"-adapter"+str(p["adapterRevision"]))')"
+          runtime_name="hexproof-forge-runtime-${package_identity}.tar.gz"
+          source_name="hexproof-forge-source-${package_identity}.tar.gz"
+          checksum="hexproof-forge-${package_identity}.sha256"
+          (cd "$package_dir" && sha256sum -c "$checksum")
+          python3 third_party/forge-runtime/source-package.py verify-release \
+            --runtime "$package_dir/$runtime_name" --source "$package_dir/$source_name"
+          mkdir -p build/forge-source-check
+          tar -xzf "$package_dir/$source_name" -C build/forge-source-check
+          source_root="$PWD/build/forge-source-check/hexproof-forge-source"
+          # This rebuild uses only the bundled source; it must not fetch Forge.
+          GIT_ALLOW_PROTOCOL=file bash "$source_root/hexproof-build/build.sh" --from-source "$source_root" \
+            --output "$PWD/build/forge-rebuilt"
+          cmp "$package_dir/$source_name" "build/forge-rebuilt/$source_name"
+          python3 third_party/forge-runtime/source-package.py verify-release \
+            --runtime "build/forge-rebuilt/$runtime_name" \
+            --source "build/forge-rebuilt/$source_name"
+          mkdir -p build/forge-runtime-check
+          tar -xzf "build/forge-rebuilt/$runtime_name" -C build/forge-runtime-check
+          echo "HEXPROOF_REAL_FORGE_ROOT=$PWD/build/forge-runtime-check/hexproof-forge-runtime" >> "$GITHUB_ENV"
+      - name: Run native Go-to-Java real-game conformance
+        working-directory: apps/server
+        # The aggregate includes AI, BO1/BO3 and 32 concurrent-room cases.
+        # Individual matches retain their three-minute progress deadline.
+        run: >-
+          go test -p 1 -race -tags engineintegration -count=1 -timeout 20m
+          ./internal/rulesengine/forge ./internal/server -run '^TestLiveForge' -v
+      - name: Retain paired development artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hexproof-forge-linux-${{ matrix.arch }}
+          path: |
+            build/forge-runtime/*.tar.gz
+            build/forge-runtime/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

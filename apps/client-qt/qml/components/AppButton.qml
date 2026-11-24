@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+import QtQuick
+import QtQuick.Controls.Basic
+
+Button {
+    id: control
+
+    property string variant: "secondary"
+    property string leadingText: ""
+    property string accessibleName: ""
+    property string disabledReason: ""
+    property bool compact: false
+    readonly property bool glassVariant: variant === "secondary"
+                                         || variant === "ghost"
+                                         || variant === "highlight"
+
+    onPressed: Theme.finishMotion()
+    Accessible.role: Accessible.Button
+    Accessible.name: accessibleName.length > 0
+                     ? accessibleName
+                     : (text.length > 0 ? text : leadingText)
+    Accessible.description: !enabled ? disabledReason : ""
+    ToolTip.text: disabledReason
+    ToolTip.visible: !enabled && disabledReason.length > 0 && hovered
+    ToolTip.delay: 350
+
+    readonly property color foregroundColor: {
+        if (!enabled)
+            return Theme.textDisabled
+        if (variant === "primary")
+            return Theme.primaryInk
+        if (variant === "danger")
+            return Theme.error
+        return Theme.text
+    }
+
+    readonly property color backgroundColor: {
+        if (!enabled && variant === "highlight")
+            return Theme.primaryMuted
+        if (!enabled)
+            return variant === "ghost" ? "transparent" : Theme.disabled
+        if (variant === "primary")
+            return down ? Theme.primaryStrong : (hovered ? Theme.primaryHover : Theme.primary)
+        if (variant === "highlight")
+            return down ? Theme.highlightPressed
+                        : (hovered ? Theme.highlightHover : Theme.primaryMuted)
+        if (variant === "danger")
+            return down || hovered ? Theme.errorHover : Theme.errorMuted
+        if (variant === "ghost")
+            return down || hovered ? Theme.surfaceHover : "transparent"
+        return down || hovered ? Theme.surfaceHover : Theme.surfaceElevated
+    }
+
+    hoverEnabled: true
+    focusPolicy: Qt.StrongFocus
+    implicitHeight: compact ? Theme.size(38) : Theme.controlHeight
+    implicitWidth: Math.max(Theme.size(compact ? 88 : 112),
+                            buttonContent.implicitWidth + Theme.size(compact ? 24 : 34))
+    leftPadding: Theme.size(compact ? 12 : 17)
+    rightPadding: leftPadding
+    topPadding: 0
+    bottomPadding: 0
+    font.pixelSize: Theme.fontSize(compact ? 13 : 14)
+    font.weight: Font.DemiBold
+
+    contentItem: Row {
+        id: buttonContent
+        spacing: Theme.size(8)
+        anchors.centerIn: parent
+
+        Text {
+            textFormat: Text.PlainText
+            visible: control.leadingText.length > 0
+            text: control.leadingText
+            color: control.foregroundColor
+            font.pixelSize: Theme.fontSize(control.compact ? 14 : 16)
+            font.weight: Font.DemiBold
+            anchors.verticalCenter: parent.verticalCenter
+        }
+
+        Text {
+            textFormat: Text.PlainText
+            visible: control.text.length > 0
+            text: control.text
+            color: control.foregroundColor
+            font: control.font
+            anchors.verticalCenter: parent.verticalCenter
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+    }
+
+    background: Item {
+        implicitHeight: control.implicitHeight
+        implicitWidth: control.implicitWidth
+
+        LiquidGlass {
+            anchors.fill: parent
+            radius: height / 2
+            compact: true
+            elevated: control.hovered || control.down || control.activeFocus
+            visible: Theme.useGlass && control.enabled && control.glassVariant
+                     && !control.compact
+                     && (control.variant !== "ghost"
+                         || control.hovered || control.down || control.activeFocus)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: Theme.useGlass ? height / 2 : Theme.radiusMedium
+            antialiasing: true
+            visible: !Theme.useGlass || !control.glassVariant || !control.enabled
+                     || control.compact
+            color: control.backgroundColor
+
+            Behavior on color { ColorAnimation { duration: Theme.motionFast } }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: Theme.useGlass || control.compact ? height / 2 : Theme.radiusMedium
+            antialiasing: true
+            visible: control.activeFocus
+            color: "transparent"
+            border.width: Theme.size(2)
+            border.color: Theme.primary
+        }
+    }
+}

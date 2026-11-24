@@ -1,0 +1,373 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+pragma ComponentBehavior: Bound
+pragma Translator: "Table"
+
+import QtQuick
+
+Item {
+    id: root
+
+    required property var tableController
+    anchors.fill: parent
+    property alias librarySearchPopup: librarySearchPopup
+    property alias shuffleLibraryReminder: shuffleReminder
+    property alias publicZoneBrowser: publicZoneBrowser
+    property alias lifeEditor: lifeEditor
+    property alias drawCardsEditor: drawCardsEditor
+    property alias libraryTopCountEditor: libraryTopCountEditor
+    property alias libraryMoveCardsEditor: libraryMoveCardsEditor
+    property alias counterLabelEditor: counterLabelEditor
+    property alias playerCounterValueEditor: playerCounterValueEditor
+    property alias cardCounterEditor: cardCounterEditor
+    property alias cardFacePicker: cardFacePicker
+    property alias libraryPositionEditor: libraryPositionEditor
+    property alias handLibraryPositionEditor: handLibraryPositionEditor
+    property alias tokenPicker: tokenPicker
+    property alias emblemBrowser: emblemBrowser
+    property alias commanderDamagePopup: commanderDamagePopup
+    property var pendingLibraryPlacement: null
+
+    function submitLibrarySearch(request) {
+        root.tableController.wsModel.searchLibraryCards(
+                    request.cardIds, request.destination, request.reveal,
+                    request.randomize, request.position, request.sourceSeat,
+                    request.approvalId, request.destinationSeat,
+                    request.faceDown, request.topCard)
+    }
+
+    function completePendingLibraryPlacement(shuffleFirst) {
+        const request = pendingLibraryPlacement
+        pendingLibraryPlacement = null
+        if (!request || !root.tableController.canAct)
+            return
+        if (shuffleFirst)
+            root.tableController.wsModel.shuffleLibrary()
+        submitLibrarySearch(request)
+    }
+
+    function libraryCardsForIds(cardIds, faceDown) {
+        const requested = cardIds ? cardIds : []
+        const available = librarySearchPopup.cards
+                          ? librarySearchPopup.cards : []
+        const result = []
+        for (let idIndex = 0; idIndex < requested.length; ++idIndex) {
+            for (let cardIndex = 0; cardIndex < available.length;
+                 ++cardIndex) {
+                if (available[cardIndex].id !== requested[idIndex])
+                    continue
+                result.push(faceDown === true
+                            ? Object.assign(
+                                  {}, available[cardIndex],
+                                  {"faceDown": true})
+                            : available[cardIndex])
+                break
+            }
+        }
+        return result
+    }
+
+    function libraryBattlefieldCardsForAssignments(assignments) {
+        const requested = assignments ? assignments : []
+        const available = librarySearchPopup.cards
+                          ? librarySearchPopup.cards : []
+        const result = []
+        for (let assignmentIndex = 0;
+             assignmentIndex < requested.length; ++assignmentIndex) {
+            const assignment = requested[assignmentIndex]
+            if (assignment.toZone !== "battlefield")
+                continue
+            for (let cardIndex = 0; cardIndex < available.length;
+                 ++cardIndex) {
+                if (available[cardIndex].id !== assignment.cardId)
+                    continue
+                result.push(assignment.faceDown === true
+                            ? Object.assign({}, available[cardIndex],
+                                            {"faceDown": true})
+                            : available[cardIndex])
+                break
+            }
+        }
+        return result
+    }
+
+    LibrarySearchPopup {
+        id: librarySearchPopup
+        objectName: "librarySearchPopup"
+        cardCatalogModel: root.tableController.cardCatalogModel
+        onSearchRequested: function(cardIds, destination, reveal, randomize,
+                                    position, sourceSeat, approvalId,
+                                    destinationSeat, faceDown) {
+            const resolvedPosition = destination === "battlefield"
+                                     ? root.tableController.cardMoveCommands.smartBattlefieldAnchor(
+                                           destinationSeat,
+                                           root.libraryCardsForIds(
+                                               cardIds, faceDown))
+                                     : position
+            const request = {
+                "cardIds": cardIds,
+                "destination": destination,
+                "reveal": reveal,
+                "randomize": randomize,
+                "position": resolvedPosition,
+                "sourceSeat": sourceSeat,
+                "approvalId": approvalId,
+                "destinationSeat": destinationSeat,
+                "faceDown": faceDown,
+                "topCard": librarySearchPopup.topCardMode
+            }
+            const placementNeedsShuffleDecision =
+                librarySearchPopup.offerShuffleOnClose
+                && sourceSeat === root.tableController.roomSession.seatIndex
+                && (destination === "library_top"
+                    || destination === "library_bottom")
+            if (!placementNeedsShuffleDecision) {
+                root.submitLibrarySearch(request)
+                return
+            }
+
+            // Defer placement until the owner chooses whether to shuffle,
+            // then preserve shuffle-before-placement order on this socket.
+            librarySearchPopup.offerShuffleOnClose = false
+            root.pendingLibraryPlacement = request
+            Qt.callLater(function() {
+                if (root.pendingLibraryPlacement
+                    && root.tableController.canAct) {
+                    shuffleReminder.open()
+                } else {
+                    root.pendingLibraryPlacement = null
+                }
+            })
+        }
+        onResolveAssignmentsRequested: function(assignments, randomizeTop,
+                                                randomizeBottom, position,
+                                                sourceSeat, approvalId) {
+            const battlefieldCards =
+                root.libraryBattlefieldCardsForAssignments(assignments)
+            const resolvedPosition = battlefieldCards.length > 0
+                                     ? root.tableController.cardMoveCommands.smartBattlefieldAnchor(
+                                           root.tableController.roomSession.seatIndex,
+                                           battlefieldCards)
+                                     : position
+            root.tableController.wsModel.resolveLibraryViewAssignments(
+                        assignments, randomizeTop, randomizeBottom,
+                        resolvedPosition, sourceSeat, approvalId)
+        }
+        onShuffleReminderRequested: {
+            root.pendingLibraryPlacement = null
+            Qt.callLater(function() {
+                if (root.tableController.canAct)
+                    shuffleReminder.open()
+            })
+        }
+    }
+
+    ConfirmDialog {
+        id: shuffleReminder
+        objectName: "shuffleLibraryReminder"
+        titleText: root.pendingLibraryPlacement
+                   ? qsTranslate("Table", "Shuffle before placing cards?")
+                   : qsTranslate("Table", "Shuffle your library?")
+        message: root.pendingLibraryPlacement
+                 ? qsTranslate("Table", "The selected cards will be placed at the chosen end of the library after the shuffle. Cancel to place them without shuffling.")
+                 : qsTranslate("Table", "Searching a library does not shuffle it automatically. Shuffle now if the card effect requires it.")
+        confirmText: root.pendingLibraryPlacement
+                     ? qsTranslate("Table", "Shuffle, then place") : qsTranslate("Table", "Shuffle")
+        onConfirmed: {
+            if (root.pendingLibraryPlacement) {
+                root.completePendingLibraryPlacement(true)
+                return
+            }
+            root.tableController.wsModel.shuffleLibrary()
+        }
+        onCancelled: {
+            if (root.pendingLibraryPlacement)
+                root.completePendingLibraryPlacement(false)
+        }
+    }
+
+    ZoneBrowserPopup {
+        id: publicZoneBrowser
+        objectName: "publicZoneBrowserPopup"
+        cardCatalogModel: root.tableController.cardCatalogModel
+        canMoveCards: root.tableController.canAct
+        localSeatIndex: root.tableController.roomSession.seatIndex
+        cards: root.tableController.zoneState.zoneCardsForSeat(seatIndex, zoneKey)
+        onMoveRequested: function(cardId, fromZone, fromSeat,
+                                  toZone, toSeat) {
+            root.tableController.cardMoveCommands.movePublicZoneCard(cardId, fromZone, fromSeat,
+                                    toZone, toSeat)
+        }
+        onMovesRequested: function(cardIds, fromZone, fromSeat,
+                                   toZone, toSeat, libraryPlacement, randomize) {
+            root.tableController.cardMoveCommands.movePublicZoneCards(cardIds, fromZone, fromSeat,
+                                     toZone, toSeat, libraryPlacement, randomize)
+        }
+        onCastCommanderRequested: commanderId =>
+            root.tableController.wsModel.castCommander(commanderId)
+    }
+
+    LifeEditorPopup {
+        id: lifeEditor
+        objectName: "lifeEditorPopup"
+        onLifeRequested: value => root.tableController.gameValues.setLife(value)
+    }
+
+    CommanderDamagePopup {
+        id: commanderDamagePopup
+        objectName: "commanderDamagePopup"
+        tableController: root.tableController
+    }
+
+    NumberInputPopup {
+        id: drawCardsEditor
+        objectName: "drawCardsPopup"
+        titleText: qsTranslate("Table", "Draw multiple cards")
+        message: qsTranslate("Table", "Enter how many cards to draw from your library.")
+        placeholderText: qsTranslate("Table", "Number of cards")
+        confirmText: qsTranslate("Table", "Draw")
+        minimumValue: 1
+        maximumValue: Math.max(1, Math.min(
+                                   1000, root.tableController.ownSeatData.libraryCount))
+        onValueRequested: value => root.tableController.wsModel.drawCards(value)
+    }
+
+    NumberInputPopup {
+        id: libraryTopCountEditor
+        objectName: "libraryTopCountPopup"
+        property int sourceSeat: -1
+        property int sourceLibraryCount: 0
+
+        function showForLibrary(seat, count, value) {
+            sourceSeat = seat
+            sourceLibraryCount = count
+            showFor(value)
+        }
+
+        titleText: qsTranslate("Table", "View top cards")
+        message: qsTranslate("Table", "Enter how many cards to view.")
+        placeholderText: qsTranslate("Table", "Number of cards")
+        confirmText: qsTranslate("Table", "View")
+        minimumValue: 1
+        maximumValue: Math.max(1, Math.min(
+                                   1000, sourceLibraryCount))
+        onValueRequested: value =>
+            root.tableController.wsModel.dumpLibrary(sourceSeat, value)
+    }
+
+    NumberInputPopup {
+        id: libraryMoveCardsEditor
+        objectName: "libraryMoveCardsPopup"
+        titleText: root.tableController.libraryMoveDestination === "exile"
+                   ? qsTranslate("Table", "Put cards into exile")
+                   : qsTranslate("Table", "Put cards into graveyard")
+        message: qsTranslate("Table", "Enter how many cards to move from the top of your library.")
+        placeholderText: qsTranslate("Table", "Number of cards")
+        confirmText: qsTranslate("Table", "Move")
+        minimumValue: 1
+        maximumValue: Math.max(1, Math.min(
+                                   1000, root.tableController.ownSeatData.libraryCount))
+        onValueRequested: value => {
+            root.tableController.wsModel.moveLibraryCards(value,
+                                          root.tableController.libraryMoveDestination)
+            root.tableController.transientState.clearLibraryMoveDestination()
+        }
+        onClosed: root.tableController.transientState.clearLibraryMoveDestination()
+    }
+
+    CounterLabelPopup {
+        id: counterLabelEditor
+        objectName: "counterLabelPopup"
+        onLabelRequested: (counterKey, label) =>
+            root.tableController.wsModel.renameCounter(counterKey, label)
+    }
+
+    NumberInputPopup {
+        id: playerCounterValueEditor
+        objectName: "playerCounterValuePopup"
+        titleText: qsTranslate("Table", "Set counter value")
+        message: qsTranslate("Table", "Enter an exact number for the selected counter.")
+        placeholderText: qsTranslate("Table", "Counter value")
+        confirmText: qsTranslate("Table", "Set")
+        minimumValue: -2147483648
+        maximumValue: 2147483647
+        onValueRequested: value =>
+            root.tableController.gameValues.setCounter(root.tableController.selectedCounterKey, value)
+    }
+
+    CardCounterEditor {
+        id: cardCounterEditor
+        objectName: "cardCounterEditor"
+        onCounterRequested: function(counterId, kind, label, value) {
+            root.tableController.wsModel.setCardCounter(
+                        root.tableController.selectedBattlefieldCardId,
+                        {
+                            "counterId": counterId,
+                            "kind": kind,
+                            "label": label,
+                            "value": value
+                        })
+        }
+    }
+
+    CardFacePicker {
+        id: cardFacePicker
+        objectName: "cardFacePicker"
+        cardCatalogModel: root.tableController.cardCatalogModel
+        onFaceSelected: faceName => root.tableController.cardMoveCommands.finishCardFaceSelection(faceName)
+    }
+
+    LibraryPositionPopup {
+        id: libraryPositionEditor
+        objectName: "libraryPositionEditor"
+        onPositionRequested: function(position) {
+            root.tableController.cardMoveCommands.moveSelectedBattlefieldToLibrary("index", position - 1)
+        }
+    }
+
+    LibraryPositionPopup {
+        id: handLibraryPositionEditor
+        objectName: "handLibraryPositionEditor"
+        onPositionRequested: function(position) {
+            root.tableController.cardMoveCommands.moveSelectedHandToLibrary("index", position - 1)
+        }
+    }
+
+    TokenPicker {
+        id: tokenPicker
+        objectName: "tokenPicker"
+        catalogModel: root.tableController.cardCatalogModel
+        environmentSetCodes: {
+            const room = root.tableController.roomSession
+            const limited = root.tableController.wsModel.limitedSession
+            const product = limited && limited.product ? limited.product : ({})
+            return (room.deckFormat === "limited" || room.deckFormat === "commander_limited")
+                    && product.setCode ? [product.setCode] : []
+        }
+        preferredTokens: root.tableController.deckLibraryModel
+                         ? root.tableController.deckLibraryModel.activeMatchTokens : []
+        allowEmblemRecipient: true
+        defaultRecipientSeat: root.tableController.roomSession.seatIndex
+        players: (root.tableController.battlefieldSeats || [])
+                 .filter(seat => !seat.eliminated)
+                 .map(seat => ({seat: seat.seat, label: seat.displayName || qsTr("Seat %1").arg(seat.seat + 1)}))
+        onEmblemSelected: function(emblem, seat) {
+            if (root.tableController.canAct)
+                root.tableController.wsModel.createEmblem(seat, emblem)
+        }
+        onTokenSelected: function(token) {
+            const seat = root.tableController.roomSession.seatIndex
+            root.tableController.wsModel.createToken(
+                        token,
+                        root.tableController.cardMoveCommands.smartBattlefieldPosition(
+                            seat, token, ""))
+        }
+    }
+
+    EmblemBrowser {
+        id: emblemBrowser
+        objectName: "emblemBrowser"
+        tableController: root.tableController
+    }
+}

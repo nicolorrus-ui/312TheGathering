@@ -1,0 +1,2141 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#include "wsclient_test.h"
+
+#include "models/GameTableModel.h"
+
+#include <QAbstractItemModelTester>
+#include <QJsonDocument>
+#include <QPersistentModelIndex>
+#include <QScopeGuard>
+
+void TestWsClient::destroysParserWorkersDeterministically() const
+{
+    for (int iteration = 0; iteration < 25; ++iteration) {
+        WsClient client;
+        QCOMPARE(client.connectionState(), WsClient::Disconnected);
+    }
+}
+
+void TestWsClient::limitedSessionRestoresPrivateDeckSelection() const
+{
+    LimitedSessionState state;
+    state.applySnapshot(QJsonObject{
+        {u"tournamentId"_s, u"ABC123"_s},
+        {u"eventType"_s, u"set_sealed"_s},
+        {u"stage"_s, u"deck_building"_s},
+        {u"product"_s, QJsonObject{{u"id"_s, u"fdn-play"_s}}},
+        {u"plan"_s, QJsonObject{{u"planHash"_s, u"locked-plan"_s}}},
+        {u"receivedPacks"_s,
+         QJsonArray{QJsonObject{{u"packId"_s, u"pack-1"_s},
+                                {u"productId"_s, u"fdn-play"_s},
+                                {u"instanceIds"_s, QJsonArray{u"limited-1"_s, u"limited-2"_s}}}}},
+        {u"packRound"_s, 0},
+        {u"direction"_s, 1},
+        {u"currentPack"_s, QJsonArray{}},
+        {u"pool"_s, QJsonArray{}},
+        {u"mainboardInstanceIds"_s, QJsonArray{u"limited-1"_s, u"limited-2"_s}},
+        {u"basicLands"_s, QJsonArray{QJsonObject{{u"name"_s, u"Island"_s}, {u"count"_s, 17}}}},
+        {u"participants"_s, QJsonArray{}},
+        {u"deckSubmitted"_s, true},
+        {u"allDecksSubmitted"_s, false},
+    });
+
+    QCOMPARE(state.mainboardInstanceIds(), QVariantList({u"limited-1"_s, u"limited-2"_s}));
+    QCOMPARE(state.basicLands().size(), 1);
+    QCOMPARE(state.basicLands().first().toMap().value(u"count"_s).toInt(), 17);
+    QCOMPARE(state.receivedPacks().size(), 1);
+    QCOMPARE(state.plan().value(u"planHash"_s).toString(), u"locked-plan"_s);
+    // A role replacement omits owner fields, even within the same event.
+    state.applySnapshot(QJsonObject{{u"tournamentId"_s, u"ABC123"_s},
+                                    {u"plan"_s, QJsonObject{{u"planHash"_s, u"locked-plan"_s}}}});
+    QVERIFY(state.receivedPacks().isEmpty());
+    QVERIFY(state.pool().isEmpty());
+    QVERIFY(state.mainboardInstanceIds().isEmpty());
+    QCOMPARE(state.plan().value(u"planHash"_s).toString(), u"locked-plan"_s);
+    state.clear();
+    QVERIFY(state.plan().isEmpty());
+    QVERIFY(state.mainboardInstanceIds().isEmpty());
+    QVERIFY(state.basicLands().isEmpty());
+}
+
+void TestWsClient::correlatesCommandOutcomes() const
+{
+    QWebSocketServer server(u"Hexproof command correlation server"_s,
+                            QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-correlation"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    QSignalSpy outbound(peer, &QWebSocket::textMessageReceived);
+    QSignalSpy queued(&client, &WsClient::commandQueued);
+    QSignalSpy succeeded(&client, &WsClient::commandSucceeded);
+    QSignalSpy failed(&client, &WsClient::commandFailed);
+
+    client.setCardTapped(u"card-a"_s, true);
+    QTRY_COMPARE_WITH_TIMEOUT(queued.count(), 1, 1000);
+    QCOMPARE(queued.at(0).at(1).toString(), hexproof::protocol::kTypeGameSetTapped);
+    QCOMPARE(queued.at(0).at(2).toMap().value(u"cardId"_s).toString(), u"card-a"_s);
+    QTRY_COMPARE_WITH_TIMEOUT(outbound.count(), 1, 1000);
+    bool ok = false;
+    const Envelope tappedRequest =
+        hexproof::protocol::parse(outbound.takeFirst().first().toString().toUtf8(), &ok);
+    QVERIFY(ok);
+
+    Envelope tapped;
+    tapped.type = hexproof::protocol::kTypeGameTappedSet;
+    tapped.id = tappedRequest.id;
+    sendEnvelope(peer, tapped);
+    QTRY_COMPARE_WITH_TIMEOUT(succeeded.count(), 1, 1000);
+    QCOMPARE(succeeded.at(0).at(0).toString(), tappedRequest.id);
+    QCOMPARE(succeeded.at(0).at(1).toString(), hexproof::protocol::kTypeGameSetTapped);
+
+    client.setCounter(u"life"_s, 19);
+    QTRY_COMPARE_WITH_TIMEOUT(outbound.count(), 1, 1000);
+    const Envelope counterRequest =
+        hexproof::protocol::parse(outbound.takeFirst().first().toString().toUtf8(), &ok);
+    QVERIFY(ok);
+    Envelope rejected;
+    rejected.type = hexproof::protocol::kTypeError;
+    rejected.id = counterRequest.id;
+    rejected.payload = QJsonObject{
+        {u"code"_s, u"invalid_counter"_s},
+        {u"message"_s, u"invalid counter"_s},
+    };
+    sendEnvelope(peer, rejected);
+    QTRY_COMPARE_WITH_TIMEOUT(failed.count(), 1, 1000);
+    QCOMPARE(failed.at(0).at(0).toString(), counterRequest.id);
+    QCOMPARE(failed.at(0).at(1).toString(), hexproof::protocol::kTypeGameSetCounter);
+    QCOMPARE(failed.at(0).at(2).toMap().value(u"counter"_s).toString(), u"life"_s);
+
+    rejected.id = u"unrelated"_s;
+    sendEnvelope(peer, rejected);
+    QTest::qWait(50);
+    QCOMPARE(failed.count(), 1);
+}
+
+void TestWsClient::announcesOnlyCurrentRoomRestartBroadcast() const
+{
+    QWebSocketServer server(u"Hexproof restart broadcast server"_s,
+                            QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.payload = {{u"v"_s, hexproof::protocol::kProtocolVersion},
+                       {u"connectionId"_s, u"restart-client"_s},
+                       {u"serverVersion"_s, buildVersion()}};
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+    Envelope created;
+    created.type = hexproof::protocol::kTypeRoomCreated;
+    created.payload = {{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, created);
+    sendEnvelope(peer, roomSnapshot(u"Restart room"_s));
+    QTRY_VERIFY_WITH_TIMEOUT(client.inRoom(), 1000);
+    QSignalSpy restarted(&client, &WsClient::gameRestarted);
+    Envelope notification;
+    notification.type = hexproof::protocol::kTypeGameRestarted;
+    notification.payload = {
+        {u"roomId"_s, u"ABCDEF"_s}, {u"gameNumber"_s, 1}, {u"startingSeat"_s, 0}};
+    notification.id = u"request-reply"_s;
+    sendEnvelope(peer, notification);
+    notification.id.clear();
+    notification.payload.insert(u"roomId"_s, u"OTHER1"_s);
+    sendEnvelope(peer, notification);
+    notification.payload.insert(u"roomId"_s, u"ABCDEF"_s);
+    sendEnvelope(peer, notification);
+    QTRY_COMPARE_WITH_TIMEOUT(restarted.count(), 1, 1000);
+    QTest::qWait(20);
+    QCOMPARE(restarted.count(), 1);
+}
+
+void TestWsClient::rollsBackPendingCommandsBeforeRoomIdentityClears() const
+{
+    QWebSocketServer server(u"Hexproof room teardown server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-room-teardown"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    Envelope created;
+    created.type = hexproof::protocol::kTypeRoomCreated;
+    created.id = u"2"_s;
+    created.payload = QJsonObject{{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, created);
+    sendEnvelope(peer, roomSnapshot(u"Room before teardown"_s));
+    QTRY_VERIFY_WITH_TIMEOUT(client.inRoom(), 1000);
+    QCOMPARE(client.seatIndex(), 0);
+
+    QSignalSpy outbound(peer, &QWebSocket::textMessageReceived);
+    int seatAtFailure = -2;
+    connect(&client, &WsClient::commandFailed, &client,
+            [&](const QString &, const QString &commandType, const QVariantMap &, const QString &) {
+                if (commandType == hexproof::protocol::kTypeGameSetCounter)
+                    seatAtFailure = client.seatIndex();
+            });
+
+    client.setCounter(hexproof::protocol::kPlayerCounterLife, 19);
+    QTRY_COMPARE_WITH_TIMEOUT(outbound.count(), 1, 1000);
+
+    Envelope left;
+    left.type = hexproof::protocol::kTypeRoomLeft;
+    left.payload = QJsonObject{{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, left);
+
+    QTRY_COMPARE_WITH_TIMEOUT(seatAtFailure, 0, 1000);
+    QCOMPARE(client.seatIndex(), -1);
+    QVERIFY(!client.inRoom());
+}
+
+void TestWsClient::handlesP7DiscoveryAndTableCommands() const
+{
+    QWebSocketServer server(u"Hexproof test server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-p7"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    QSignalSpy outbound(peer, &QWebSocket::textMessageReceived);
+    auto nextOutbound = [&]() {
+        if (outbound.isEmpty())
+            outbound.wait(1000);
+        if (outbound.isEmpty())
+            return Envelope{};
+        bool ok = false;
+        const Envelope envelope =
+            hexproof::protocol::parse(outbound.takeFirst().first().toString().toUtf8(), &ok);
+        return ok ? envelope : Envelope{};
+    };
+
+    client.requestRoomList();
+    QCOMPARE(nextOutbound().type, hexproof::protocol::kTypeRoomList);
+    QSignalSpy roomListSpy(&client, &WsClient::roomListChanged);
+    Envelope rooms;
+    rooms.type = hexproof::protocol::kTypeRoomListed;
+    rooms.payload = QJsonObject{{u"rooms"_s, QJsonArray{QJsonObject{
+                                                 {u"roomId"_s, u"ABCDEF"_s},
+                                                 {u"name"_s, u"Friday Modern"_s},
+                                                 {u"format"_s, u"modern"_s},
+                                                 {u"playerCount"_s, 1},
+                                                 {u"maxSeats"_s, 2},
+                                                 {u"playerJoinable"_s, true},
+                                             }}}};
+    sendEnvelope(peer, rooms);
+    QTRY_COMPARE_WITH_TIMEOUT(roomListSpy.count(), 1, 1000);
+    QCOMPARE(client.roomList().size(), 1);
+    QCOMPARE(client.roomList().first().toMap().value(u"roomId"_s).toString(), u"ABCDEF"_s);
+
+    Envelope game;
+    game.type = hexproof::protocol::kTypeGameSnapshot;
+    game.payload = QJsonObject{
+        {u"seats"_s, QJsonArray{}},
+        {u"stack"_s, QJsonArray{}},
+        {u"revealed"_s, QJsonArray{}},
+        {u"arrows"_s, QJsonArray{QJsonObject{
+                          {u"seat"_s, 0},
+                          {u"sourceCardId"_s, u"s0-c1"_s},
+                          {u"kind"_s, u"target"_s},
+                          {u"targetCardId"_s, u"s1-c1"_s},
+                      }}},
+        {u"attachments"_s, QJsonArray{QJsonObject{
+                               {u"ownerSeat"_s, 0},
+                               {u"sourceCardId"_s, u"s0-c2"_s},
+                               {u"targetCardId"_s, u"s1-c1"_s},
+                           }}},
+        {u"log"_s, QJsonArray{}},
+        {u"score"_s, QJsonArray{}},
+    };
+    sendEnvelope(peer, game);
+    QTRY_COMPARE_WITH_TIMEOUT(client.gameArrows().size(), 1, 1000);
+    QCOMPARE(client.gameAttachments().size(), 1);
+
+    client.shuffleLibrary();
+    QCOMPARE(nextOutbound().type, hexproof::protocol::kTypeGameShuffleLibrary);
+    client.setCardCounter(
+        u"s0-c1"_s,
+        QVariantMap{{u"kind"_s, u"ability"_s}, {u"label"_s, u"Flying"_s}, {u"value"_s, 1}});
+    Envelope request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameSetCardCounter);
+    QCOMPARE(request.payload.value(u"cardId"_s).toString(), u"s0-c1"_s);
+    QCOMPARE(request.payload.value(u"label"_s).toString(), u"Flying"_s);
+    client.arrangeBattlefield(QVariantList{QVariantMap{
+        {u"cardId"_s, u"s0-c1"_s},
+        {u"position"_s, QVariantMap{{u"x"_s, 0.1}, {u"y"_s, 0.9}}},
+    }});
+    request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameArrangeBattlefield);
+    const QJsonArray placements = request.payload.value(u"cards"_s).toArray();
+    QCOMPARE(placements.size(), 1);
+    QCOMPARE(placements.first().toObject().value(u"cardId"_s).toString(), u"s0-c1"_s);
+    QCOMPARE(placements.first().toObject().value(u"position"_s).toObject().value(u"y"_s).toDouble(),
+             0.9);
+    client.setCombatArrows(QVariantList{u"s0-c1"_s}, u"attack"_s, {}, 1, QVariantList{u"s0-c1"_s});
+    request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameSetArrow);
+    QCOMPARE(request.payload.value(u"sourceCardIds"_s).toArray().size(), 1);
+    QCOMPARE(request.payload.value(u"kind"_s).toString(), u"attack"_s);
+    QCOMPARE(request.payload.value(u"targetSeat"_s).toInt(), 1);
+    QCOMPARE(request.payload.value(u"tappedSourceCardIds"_s).toArray().size(), 1);
+    client.clearArrow();
+    request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameSetArrow);
+    QVERIFY(request.payload.isEmpty());
+    client.setAttachment(u"s0-c2"_s, u"s1-c1"_s);
+    request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameSetAttachment);
+    QCOMPARE(request.payload.value(u"targetCardId"_s).toString(), u"s1-c1"_s);
+    client.setAttachment(u"s0-c2"_s);
+    request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameSetAttachment);
+    QVERIFY(!request.payload.contains(u"targetCardId"_s));
+    client.castCommander(u"s0-commander"_s);
+    request = nextOutbound();
+    QCOMPARE(request.type, hexproof::protocol::kTypeGameCastCommander);
+    QCOMPARE(request.payload.value(u"commanderId"_s).toString(), u"s0-commander"_s);
+}
+
+void TestWsClient::handlesTournamentCommandsAndSnapshots() const
+{
+    QWebSocketServer server(u"Hexproof tournament client server"_s,
+                            QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-tournament"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    QSignalSpy outbound(peer, &QWebSocket::textMessageReceived);
+    auto nextOutbound = [&]() {
+        if (outbound.isEmpty())
+            outbound.wait(1000);
+        if (outbound.isEmpty())
+            return Envelope{};
+        bool ok = false;
+        const Envelope envelope =
+            hexproof::protocol::parse(outbound.takeFirst().first().toString().toUtf8(), &ok);
+        return ok ? envelope : Envelope{};
+    };
+
+    const QVariantMap cubeProduct{{u"id"_s, u"cube-1"_s},         {u"name"_s, u"Test Cube"_s},
+                                  {u"productType"_s, u"cube"_s},  {u"authentic"_s, false},
+                                  {u"cardsPerPack"_s, 0},         {u"sheets"_s, QVariantList{}},
+                                  {u"variants"_s, QVariantList{}}};
+    client.createCasualLimitedEvent(u"Cube night"_s, hexproof::protocol::kLimitedEventCubeDraft,
+                                    u"bo1"_s, 8, cubeProduct);
+    const Envelope createCasual = nextOutbound();
+    QCOMPARE(createCasual.type, hexproof::protocol::kTypeTournamentCreate);
+    QCOMPARE(createCasual.payload.value(u"eventType"_s).toString(),
+             hexproof::protocol::kLimitedEventCubeDraft);
+    QCOMPARE(createCasual.payload.value(u"format"_s).toString(), u"Cube"_s);
+    QCOMPARE(createCasual.payload.value(u"coordinator"_s).toString(),
+             hexproof::protocol::kLimitedCoordinatorCasual);
+    QVERIFY(!createCasual.payload.contains(u"cardsPerPlayer"_s));
+
+    client.createLimitedTournament(u"Ranked Cube"_s, hexproof::protocol::kLimitedEventCubeDraft,
+                                   u"bo1"_s, 50, 8, cubeProduct);
+    const Envelope createSwissCube = nextOutbound();
+    QCOMPARE(createSwissCube.type, hexproof::protocol::kTypeTournamentCreate);
+    QCOMPARE(createSwissCube.payload.value(u"eventType"_s).toString(),
+             hexproof::protocol::kLimitedEventCubeDraft);
+    QCOMPARE(createSwissCube.payload.value(u"format"_s).toString(), u"Cube"_s);
+    QVERIFY(!createSwissCube.payload.contains(u"coordinator"_s));
+    QVERIFY(!createSwissCube.payload.contains(u"plannedRounds"_s));
+
+    client.createTournament(u"Swiss"_s, u"Modern"_s, u"bo3"_s, 75, 16);
+    const Envelope createConstructed = nextOutbound();
+    QCOMPARE(createConstructed.type, hexproof::protocol::kTypeTournamentCreate);
+    QCOMPARE(createConstructed.payload.value(u"roundMinutes"_s).toInt(), 75);
+    QVERIFY(!createConstructed.payload.contains(u"plannedRounds"_s));
+
+    client.requestTournamentList();
+    QCOMPARE(nextOutbound().type, hexproof::protocol::kTypeTournamentList);
+    Envelope listed;
+    listed.type = hexproof::protocol::kTypeTournamentListed;
+    listed.payload = QJsonObject{
+        {u"tournaments"_s,
+         QJsonArray{
+             QJsonObject{
+                 {u"tournamentId"_s, u"ABCDEFGH"_s},
+                 {u"name"_s, u"Saturday Swiss"_s},
+                 {u"format"_s, u"Pioneer"_s},
+                 {u"coordinator"_s, u"swiss"_s},
+                 {u"matchMode"_s, u"bo3"_s},
+                 {u"status"_s, u"registration"_s},
+                 {u"registered"_s, 4},
+             },
+             QJsonObject{{u"tournamentId"_s, u"RUNNING1"_s}, {u"status"_s, u"running"_s}},
+             QJsonObject{{u"tournamentId"_s, u"FINISHED"_s}, {u"status"_s, u"completed"_s}},
+             QJsonObject{{u"tournamentId"_s, u"CANCELLD"_s}, {u"status"_s, u"cancelled"_s}},
+         }}};
+    sendEnvelope(peer, listed);
+    QTRY_COMPARE_WITH_TIMEOUT(client.tournamentSession()->tournamentList().size(), 4, 1000);
+    QCOMPARE(client.tournamentSession()->activeTournamentList().size(), 2);
+    QCOMPARE(client.tournamentSession()->historicalTournamentList().size(), 2);
+    QCOMPARE(client.tournamentSession()
+                 ->activeTournamentList()
+                 .at(1)
+                 .toMap()
+                 .value(u"status"_s)
+                 .toString(),
+             u"running"_s);
+    QCOMPARE(client.tournamentSession()
+                 ->historicalTournamentList()
+                 .at(0)
+                 .toMap()
+                 .value(u"status"_s)
+                 .toString(),
+             u"completed"_s);
+
+    client.enterTournament(u"abcdefgh"_s);
+    const Envelope enterRequest = nextOutbound();
+    QCOMPARE(enterRequest.type, hexproof::protocol::kTypeTournamentEnter);
+    QCOMPARE(enterRequest.payload.value(u"tournamentId"_s).toString(), u"ABCDEFGH"_s);
+
+    Envelope entered;
+    entered.type = hexproof::protocol::kTypeTournamentEntered;
+    entered.payload = QJsonObject{
+        {u"tournamentId"_s, u"ABCDEFGH"_s},
+        {u"role"_s, u"participant"_s},
+        {u"participantId"_s, u"p-1"_s},
+    };
+    sendEnvelope(peer, entered);
+
+    QTRY_COMPARE_WITH_TIMEOUT(client.tournamentSession()->tournamentId(), u"ABCDEFGH"_s, 1000);
+    const QString chatId = client.sendTournamentChat(u" Hello event "_s);
+    const Envelope chatRequest = nextOutbound();
+    QCOMPARE(chatRequest.type, hexproof::protocol::kTypeTournamentChatSend);
+    QCOMPARE(chatRequest.id, chatId);
+    QCOMPARE(chatRequest.payload.value(u"tournamentId"_s).toString(), u"ABCDEFGH"_s);
+    QCOMPARE(chatRequest.payload.value(u"text"_s).toString(), u"Hello event"_s);
+    Envelope chatMessage;
+    chatMessage.type = hexproof::protocol::kTypeTournamentChatMessage;
+    chatMessage.id = chatId;
+    chatMessage.payload = QJsonObject{{u"tournamentId"_s, u"ABCDEFGH"_s},
+                                      {u"sequence"_s, 1},
+                                      {u"displayName"_s, u"Judge"_s},
+                                      {u"text"_s, u"Hello event"_s},
+                                      {u"sentAt"_s, u"2026-09-08T10:00:00Z"_s}};
+    sendEnvelope(peer, chatMessage);
+    QTRY_COMPARE_WITH_TIMEOUT(client.tournamentSession()->chatMessages().size(), 1, 1000);
+
+    Envelope snapshot;
+    snapshot.type = hexproof::protocol::kTypeTournamentSnapshot;
+    snapshot.payload = QJsonObject{
+        {u"tournamentId"_s, u"ABCDEFGH"_s},
+        {u"name"_s, u"Saturday Swiss"_s},
+        {u"format"_s, u"Pioneer"_s},
+        {u"coordinator"_s, u"casual"_s},
+        {u"matchMode"_s, u"bo3"_s},
+        {u"status"_s, u"running"_s},
+        {u"role"_s, u"participant"_s},
+        {u"participantId"_s, u"p-1"_s},
+        {u"organizerName"_s, u"Judge"_s},
+        {u"roundMinutes"_s, 50},
+        {u"roundStartedAt"_s, u"2026-08-08T12:00:00Z"_s},
+        {u"maxPlayers"_s, 32},
+        {u"minimumPlayers"_s, 4},
+        {u"plannedRounds"_s, 3},
+        {u"currentRound"_s, 1},
+        {u"registered"_s, 4},
+        {u"checkedIn"_s, 4},
+        {u"roundComplete"_s, false},
+        {u"canRegister"_s, false},
+        {u"product"_s, QJsonObject{{u"id"_s, u"fdn-play"_s},
+                                   {u"name"_s, u"Foundations Play Booster"_s},
+                                   {u"setCode"_s, u"FDN"_s},
+                                   {u"productType"_s, u"official"_s},
+                                   {u"authentic"_s, true},
+                                   {u"cardsPerPack"_s, 14},
+                                   {u"cardCount"_s, 271},
+                                   {u"productHash"_s, QString(64, u'a')}}},
+        {u"participants"_s, QJsonArray{}},
+        {u"pairings"_s, QJsonArray{}},
+        {u"standings"_s, QJsonArray{}},
+    };
+    sendEnvelope(peer, snapshot);
+    QTRY_COMPARE_WITH_TIMEOUT(client.tournamentSession()->name(), u"Saturday Swiss"_s, 1000);
+    QCOMPARE(client.tournamentSession()->currentRound(), 1);
+    QCOMPARE(client.tournamentSession()->roundStartedAt(), u"2026-08-08T12:00:00Z"_s);
+    QCOMPARE(client.tournamentSession()->participantId(), u"p-1"_s);
+    QCOMPARE(client.tournamentSession()->coordinator(), u"casual"_s);
+    QCOMPARE(client.tournamentSession()->maxPlayers(), 32);
+    QCOMPARE(client.tournamentSession()->minimumPlayers(), 4);
+    QCOMPARE(client.tournamentSession()->product().value(u"id"_s).toString(), u"fdn-play"_s);
+
+    client.createLimitedCasualMatch(u"p-1"_s, u"p-2"_s);
+    const Envelope casualMatch = nextOutbound();
+    QCOMPARE(casualMatch.type, hexproof::protocol::kTypeLimitedCreateCasualMatch);
+    QCOMPARE(casualMatch.payload.value(u"playerAId"_s).toString(), u"p-1"_s);
+    QCOMPARE(casualMatch.payload.value(u"playerBId"_s).toString(), u"p-2"_s);
+
+    client.reportTournamentResult(u"pair-1"_s, 2, 1, 0);
+    const Envelope report = nextOutbound();
+    QCOMPARE(report.type, hexproof::protocol::kTypeTournamentReportResult);
+    QCOMPARE(report.payload.value(u"playerAWins"_s).toInt(), 2);
+    QCOMPARE(report.payload.value(u"playerBWins"_s).toInt(), 1);
+
+    snapshot.payload.insert(u"status"_s, u"registration"_s);
+    snapshot.payload.insert(u"role"_s, u"viewer"_s);
+    snapshot.payload.insert(u"canRegister"_s, true);
+    snapshot.payload.remove(u"participantId"_s);
+    sendEnvelope(peer, snapshot);
+    QTRY_VERIFY_WITH_TIMEOUT(client.tournamentSession()->participantId().isEmpty(), 1000);
+    QCOMPARE(client.tournamentSession()->role(), u"viewer"_s);
+    QVERIFY(client.tournamentSession()->canRegister());
+}
+
+void TestWsClient::initTestCase()
+{
+    QVERIFY(m_settingsDir.isValid());
+    m_hadForgeRuntime = qEnvironmentVariableIsSet("HEXPROOF_FORGE_HOST_RUNTIME_DIR");
+    m_previousForgeRuntime = qgetenv("HEXPROOF_FORGE_HOST_RUNTIME_DIR");
+    m_hadForgeDiagnostics = qEnvironmentVariableIsSet("HEXPROOF_FORGE_DIAGNOSTICS_DIR");
+    m_previousForgeDiagnostics = qgetenv("HEXPROOF_FORGE_DIAGNOSTICS_DIR");
+    qputenv("HEXPROOF_FORGE_DIAGNOSTICS_DIR",
+            m_settingsDir.filePath(u"forge-diagnostics"_s).toUtf8());
+    qputenv("HEXPROOF_FORGE_HOST_RUNTIME_DIR", m_settingsDir.filePath(u"forge-runtime"_s).toUtf8());
+    QCoreApplication::setOrganizationName(u"HexproofTests"_s);
+    QCoreApplication::setApplicationName(u"WsClientTest"_s);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
+}
+
+void TestWsClient::cleanupTestCase()
+{
+    if (m_hadForgeRuntime)
+        qputenv("HEXPROOF_FORGE_HOST_RUNTIME_DIR", m_previousForgeRuntime);
+    else
+        qunsetenv("HEXPROOF_FORGE_HOST_RUNTIME_DIR");
+    if (m_hadForgeDiagnostics)
+        qputenv("HEXPROOF_FORGE_DIAGNOSTICS_DIR", m_previousForgeDiagnostics);
+    else
+        qunsetenv("HEXPROOF_FORGE_DIAGNOSTICS_DIR");
+}
+
+void TestWsClient::cleanup()
+{
+    qunsetenv("HEXPROOF_SERVER_DIRECTORY_FILE");
+    QSettings settings;
+    settings.clear();
+    settings.sync();
+}
+
+void TestWsClient::processesFinalMessageBeforeDisconnect() const
+{
+    QWebSocketServer server(u"Hexproof ordering test server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-ordering"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    QStringList events;
+    connect(&client, &WsClient::roomListChanged, &client, [&]() { events.append(u"message"_s); });
+    connect(&client, &WsClient::connectionStateChanged, &client, [&]() {
+        if (client.connectionState() == WsClient::Disconnected)
+            events.append(u"disconnect"_s);
+    });
+
+    Envelope rooms;
+    rooms.type = hexproof::protocol::kTypeRoomListed;
+    rooms.payload = QJsonObject{{u"rooms"_s, QJsonArray{QJsonObject{
+                                                 {u"roomId"_s, u"ABCDEF"_s},
+                                                 {u"name"_s, u"Last visible room"_s},
+                                                 {u"format"_s, u"modern"_s},
+                                                 {u"playerCount"_s, 1},
+                                                 {u"maxSeats"_s, 2},
+                                                 {u"playerJoinable"_s, true},
+                                             }}}};
+    sendEnvelope(peer, rooms);
+    peer->close();
+
+    QTRY_COMPARE_WITH_TIMEOUT(events.size(), 2, 1000);
+    QCOMPARE(events, QStringList({u"message"_s, u"disconnect"_s}));
+    QCOMPARE(client.roomList().first().toMap().value(u"name"_s).toString(), u"Last visible room"_s);
+}
+
+void TestWsClient::distinguishesHostKickReplyFromKickedPush() const
+{
+    QWebSocketServer server(u"Hexproof test server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-1"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    Envelope created;
+    created.type = hexproof::protocol::kTypeRoomCreated;
+    created.id = u"2"_s;
+    created.payload = QJsonObject{{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, created);
+    sendEnvelope(peer, roomSnapshot(u"Room before kick"_s));
+    QTRY_VERIFY_WITH_TIMEOUT(client.inRoom(), 1000);
+    QVERIFY(client.youAreHost());
+    QCOMPARE(client.seatIndex(), 0);
+    QCOMPARE(client.matchMode(), hexproof::protocol::kMatchBO3);
+    QCOMPARE(client.cardLoadMode(), hexproof::protocol::kCardLoadPreload);
+
+    QSignalSpy kickedSpy(&client, &WsClient::kicked);
+
+    Envelope error;
+    error.type = hexproof::protocol::kTypeError;
+    error.id = u"stale"_s;
+    error.payload = QJsonObject{
+        {u"code"_s, u"invalid_target"_s},
+        {u"message"_s, u"invalid target"_s},
+    };
+    sendEnvelope(peer, error);
+    QTRY_VERIFY_WITH_TIMEOUT(!client.lastError().isEmpty(), 1000);
+    client.kickSeat(1);
+    QVERIFY(client.lastError().isEmpty());
+
+    // Correlated success reply to the host: remain in the room. The following
+    // snapshot acts as an ordering barrier so the reply has been dispatched.
+    Envelope hostReply;
+    hostReply.type = hexproof::protocol::kTypeRoomKicked;
+    hostReply.id = u"3"_s;
+    hostReply.payload = QJsonObject{{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, hostReply);
+    sendEnvelope(peer, roomSnapshot(u"Room after kick"_s));
+    QTRY_COMPARE_WITH_TIMEOUT(client.roomName(), u"Room after kick"_s, 1000);
+    QVERIFY(client.inRoom());
+    QVERIFY(client.youAreHost());
+    QCOMPARE(client.roomRole(), u"player"_s);
+    QCOMPARE(kickedSpy.count(), 0);
+
+    // Uncorrelated server push to the target: leave the room but stay connected
+    // to the hub and notify the UI exactly once.
+    Envelope kickedPush;
+    kickedPush.type = hexproof::protocol::kTypeRoomKicked;
+    kickedPush.payload = QJsonObject{{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, kickedPush);
+    QTRY_COMPARE_WITH_TIMEOUT(kickedSpy.count(), 1, 1000);
+    QVERIFY(!client.inRoom());
+    QVERIFY(client.connected());
+    QVERIFY(!client.youAreHost());
+    QVERIFY(client.roomId().isEmpty());
+    QVERIFY(client.roomRole().isEmpty());
+}
+
+void TestWsClient::exposesJoinedRoomRole() const
+{
+    QWebSocketServer server(u"Hexproof test server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Observer"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-2"_s},
+        {u"serverVersion"_s, buildVersion()},
+        {u"resumeToken"_s, u"spectator-resume-secret"_s},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    Envelope joined;
+    joined.type = hexproof::protocol::kTypeRoomJoined;
+    joined.id = u"2"_s;
+    joined.payload = QJsonObject{
+        {u"roomId"_s, u"ABCDEF"_s},
+        {u"role"_s, u"spectator"_s},
+    };
+    sendEnvelope(peer, joined);
+    sendEnvelope(peer, roomSnapshot(u"Observed room"_s));
+
+    QTRY_VERIFY_WITH_TIMEOUT(client.inRoom(), 1000);
+    QVERIFY(!client.youAreHost());
+    QCOMPARE(client.roomRole(), u"spectator"_s);
+    QCOMPARE(client.seatIndex(), -1);
+    QCOMPARE(client.roomSession()->role(), u"spectator"_s);
+    QCOMPARE(client.roomSession()->seatIndex(), -1);
+    QVERIFY(!client.roomSession()->host());
+
+    QSettings settings;
+    QVERIFY(!settings.contains(u"network/resumeRoomRole"_s));
+    QVERIFY(!settings.contains(u"network/resumeToken"_s));
+}
+
+void TestWsClient::roomSessionStateExposesQmlBindableIdentity() const
+{
+    RoomSessionState session;
+    session.enter(u"ABCDEF"_s, u"player"_s, 1, true);
+    session.rememberPendingDeck(u"req-1"_s, u"Burn"_s);
+    session.takePendingDeck(u"req-1"_s);
+
+    QCOMPARE(session.property("roomId").toString(), u"ABCDEF"_s);
+    QCOMPARE(session.property("role").toString(), u"player"_s);
+    QCOMPARE(session.property("seatIndex").toInt(), 1);
+    QCOMPARE(session.property("host").toBool(), true);
+    QCOMPARE(session.property("selectedDeckName").toString(), u"Burn"_s);
+}
+
+void TestWsClient::roomSessionStateExposesQmlBindableSnapshot() const
+{
+    RoomSessionState session;
+    QJsonObject snapshot = roomSnapshot(u"Friday Night"_s).payload;
+    snapshot.insert(u"playtest"_s, true);
+    snapshot.insert(u"allowSpectators"_s, true);
+    snapshot.insert(u"spectatorsSeeHands"_s, true);
+    snapshot.insert(u"spectators"_s, QJsonArray{QJsonObject{{u"displayName"_s, u"Judge"_s}}});
+    session.applySnapshot(snapshot);
+
+    QCOMPARE(session.property("roomName").toString(), u"Friday Night"_s);
+    QCOMPARE(session.property("format").toString(), u"modern"_s);
+    QCOMPARE(session.property("playtest").toBool(), true);
+    QCOMPARE(session.property("allowSpectators").toBool(), false);
+    QCOMPARE(session.property("spectatorsSeeHands").toBool(), false);
+    QCOMPARE(session.property("matchMode").toString(), u"bo3"_s);
+    QCOMPARE(session.property("cardLoadMode").toString(), u"preload"_s);
+    QCOMPARE(session.property("maxSeats").toInt(), 2);
+    QCOMPARE(session.property("phase").toString(), u"waiting"_s);
+    QCOMPARE(session.property("seats").toList().size(), 2);
+    QCOMPARE(session.property("spectators").toList().size(), 1);
+
+    snapshot.insert(u"playtest"_s, false);
+    session.applySnapshot(snapshot);
+    QCOMPARE(session.property("allowSpectators").toBool(), true);
+    QCOMPARE(session.property("spectatorsSeeHands").toBool(), true);
+}
+
+void TestWsClient::roomSessionStateRestoresOnlyCurrentOwnersDeckName() const
+{
+    RoomSessionState fresh;
+    fresh.enter(u"ROUND2"_s, u"player"_s, 1, false);
+    QJsonObject snapshot = roomSnapshot(u"Round two"_s).payload;
+    snapshot.insert(u"roomId"_s, u"ROUND2"_s);
+    snapshot.insert(u"ownDeckName"_s, u"<b>Own registered deck</b>"_s);
+    snapshot.insert(u"seats"_s,
+                    QJsonArray{QJsonObject{{u"occupied"_s, true}, {u"deckSelected"_s, true}},
+                               QJsonObject{{u"occupied"_s, true},
+                                           {u"deckSelected"_s, true},
+                                           {u"deckLocked"_s, true}}});
+    QSignalSpy names(&fresh, &RoomSessionState::selectedDeckNameChanged);
+    fresh.applySnapshot(snapshot);
+    QCOMPARE(fresh.selectedDeckName(), u"<b>Own registered deck</b>"_s);
+    QCOMPARE(names.count(), 1);
+    fresh.applySnapshot(snapshot);
+    QCOMPARE(names.count(), 1);
+    fresh.enter(u"ROUND2"_s, u"player"_s, 1, false);
+    QCOMPARE(fresh.selectedDeckName(), u"<b>Own registered deck</b>"_s);
+
+    fresh.rememberPendingDeck(u"old-ack"_s, u"Wrong next-room deck"_s);
+    fresh.enter(u"ROUND3"_s, u"player"_s, 0, false);
+    QVERIFY(fresh.selectedDeckName().isEmpty());
+    QVERIFY(fresh.takePendingDeck(u"old-ack"_s).isEmpty());
+    snapshot.insert(u"roomId"_s, u"ROUND3"_s);
+    snapshot.insert(u"ownDeckName"_s, u"Own registered deck"_s);
+    fresh.applySnapshot(snapshot);
+    QCOMPARE(fresh.selectedDeckName(), u"Own registered deck"_s);
+
+    for (const QString &invalid : {u"vacant"_s, u"ai"_s, u"unselected"_s}) {
+        QJsonObject own{{u"occupied"_s, invalid != u"vacant"_s},
+                        {u"deckSelected"_s, invalid != u"unselected"_s}};
+        if (invalid == u"ai"_s)
+            own.insert(u"controller"_s, u"forge_ai"_s);
+        snapshot.insert(u"seats"_s, QJsonArray{own});
+        fresh.applySnapshot(snapshot);
+        QVERIFY2(fresh.selectedDeckName().isEmpty(), qPrintable(invalid));
+    }
+    fresh.enter(u"ROUND3"_s, u"spectator"_s, -1, false);
+    fresh.applySnapshot(snapshot);
+    QVERIFY(fresh.selectedDeckName().isEmpty());
+    fresh.clear();
+    QVERIFY(fresh.selectedDeckName().isEmpty());
+}
+
+void TestWsClient::sendsActionClockConfiguration() const
+{
+    QWebSocketServer server(u"Hexproof action clock configuration"_s,
+                            QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.payload = {{u"v"_s, hexproof::protocol::kProtocolVersion},
+                       {u"connectionId"_s, u"action-clock"_s},
+                       {u"serverVersion"_s, buildVersion()},
+                       {u"forgeRulesAvailable"_s, true}};
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+    QSignalSpy outbound(peer, &QWebSocket::textMessageReceived);
+    auto nextEnabled = [&]() {
+        if (outbound.isEmpty())
+            outbound.wait(1000);
+        if (outbound.isEmpty())
+            return QVariant{};
+        bool ok = false;
+        const Envelope envelope =
+            hexproof::protocol::parse(outbound.takeFirst().first().toString().toUtf8(), &ok);
+        return ok ? envelope.payload.value(u"actionClockEnabled"_s).toVariant() : QVariant{};
+    };
+
+    struct RoomCase
+    {
+        QString format;
+        QString rulesMode;
+        bool playtest;
+        bool enabled;
+        bool expected;
+    };
+    const QList<RoomCase> cases{{u"modern"_s, u"forge"_s, false, true, true},
+                                {u"duel"_s, u"forge"_s, false, true, true},
+                                {u"modern"_s, u"forge"_s, false, false, false},
+                                {u"modern"_s, u"manual"_s, false, true, false},
+                                {u"edh"_s, u"forge"_s, false, true, false},
+                                {u"modern"_s, u"forge"_s, true, true, false}};
+    for (const RoomCase &test : cases) {
+        client.createRoom(u"Clock room"_s, test.format, test.format, false, false, u"bo1"_s,
+                          u"preload"_s, {}, test.playtest, test.rulesMode, {}, {}, {},
+                          test.enabled);
+        QCOMPARE(nextEnabled(), QVariant(test.expected));
+    }
+    client.createRoom(u"AI clock"_s, u"modern"_s, u"modern"_s, false, false, u"bo1"_s, u"preload"_s,
+                      {}, false, u"forge"_s, u"player"_s, u"normal"_s, u"forge"_s, true);
+    QCOMPARE(nextEnabled(), QVariant(true));
+    client.createRoom(u"Untimed room"_s, u"modern"_s, u"modern"_s, false, false, u"bo1"_s,
+                      u"preload"_s, {}, false, u"forge"_s);
+    QCOMPARE(nextEnabled(), QVariant(false));
+
+    client.createTournament(u"Swiss"_s, u"Modern"_s, u"bo3"_s, 50, 16, u"forge"_s);
+    QCOMPARE(nextEnabled(), QVariant(true));
+    client.createTournament(u"Untimed Swiss"_s, u"Modern"_s, u"bo3"_s, 50, 16, u"forge"_s, false);
+    QCOMPARE(nextEnabled(), QVariant(false));
+    client.createTournament(u"Manual Swiss"_s, u"Modern"_s, u"bo3"_s, 50, 16, u"manual"_s, true);
+    QCOMPARE(nextEnabled(), QVariant(false));
+    client.createLimitedTournament(u"Limited"_s, u"set_draft"_s, u"bo3"_s, 50, 8, {}, u"forge"_s);
+    QCOMPARE(nextEnabled(), QVariant(false));
+    client.createLimitedTournament(u"Timed Limited"_s, u"set_sealed"_s, u"bo3"_s, 50, 8, {},
+                                   u"forge"_s, true);
+    QCOMPARE(nextEnabled(), QVariant(true));
+    client.createCasualLimitedEvent(u"Cube"_s, u"cube_draft"_s, u"bo3"_s, 4, {}, {}, u"forge"_s);
+    QCOMPARE(nextEnabled(), QVariant(false));
+    client.createCasualLimitedEvent(u"Timed Cube"_s, u"cube_draft"_s, u"bo3"_s, 4, {}, {},
+                                    u"forge"_s, true);
+    QCOMPARE(nextEnabled(), QVariant(true));
+    client.createCasualLimitedEvent(u"Commander Cube"_s, u"commander_cube"_s, u"bo1"_s, 4, {}, {},
+                                    u"forge"_s, true);
+    QCOMPARE(nextEnabled(), QVariant(false));
+}
+
+void TestWsClient::sessionStatesRestoreAndClearActionClockConfiguration() const
+{
+    RoomSessionState room;
+    QJsonObject snapshot = roomSnapshot(u"Timed room"_s).payload;
+    snapshot.insert(u"rulesMode"_s, u"forge"_s);
+    snapshot.insert(u"actionClockEnabled"_s, true);
+    room.applySnapshot(snapshot);
+    QVERIFY(room.property("actionClockEnabled").toBool());
+    snapshot.insert(u"actionClockMs"_s, QJsonArray{1500000, 1499000});
+    snapshot.insert(u"actionClockRunning"_s, 1);
+    room.applySnapshot(snapshot);
+    QCOMPARE(room.actionClockMs(), QVariantList({1500000LL, 1499000LL}));
+    QCOMPARE(room.actionClockRunning(), 1);
+    snapshot.remove(u"actionClockEnabled"_s);
+    room.applySnapshot(snapshot);
+    QVERIFY(room.actionClockEnabled());
+    snapshot.insert(u"actionClockEnabled"_s, false);
+    room.applySnapshot(snapshot);
+    QVERIFY(!room.actionClockEnabled());
+    snapshot.remove(u"actionClockMs"_s);
+    snapshot.remove(u"actionClockRunning"_s);
+    snapshot.remove(u"actionClockEnabled"_s);
+    room.applySnapshot(snapshot);
+    QVERIFY(!room.actionClockEnabled());
+    QVERIFY(room.actionClockMs().isEmpty());
+    QCOMPARE(room.actionClockRunning(), -1);
+    snapshot.insert(u"actionClockEnabled"_s, true);
+    room.applySnapshot(snapshot);
+    room.clear();
+    QVERIFY(!room.actionClockEnabled());
+
+    hexproof::client::TournamentSessionState tournament;
+    QJsonObject event{{u"rulesMode"_s, u"forge"_s}, {u"eventType"_s, u"constructed"_s}};
+    tournament.applySnapshot(event);
+    QVERIFY(tournament.property("actionClockEnabled").toBool());
+    event.insert(u"actionClockEnabled"_s, false);
+    tournament.applySnapshot(event);
+    QVERIFY(!tournament.actionClockEnabled());
+    event.insert(u"eventType"_s, u"set_draft"_s);
+    event.remove(u"actionClockEnabled"_s);
+    tournament.applySnapshot(event);
+    QVERIFY(!tournament.actionClockEnabled());
+    event.insert(u"actionClockEnabled"_s, true);
+    tournament.applySnapshot(event);
+    QVERIFY(tournament.actionClockEnabled());
+    tournament.clear();
+    QVERIFY(!tournament.actionClockEnabled());
+}
+
+void TestWsClient::gameSessionStateExposesQmlBindableSnapshot() const
+{
+    GameSessionState session;
+    session.applySnapshot({
+        {u"gameNumber"_s, 2},
+        {u"startingSeat"_s, 1},
+        {u"turnOrder"_s, QVariantList{1, 0}},
+        {u"activeSeat"_s, 0},
+        {u"currentPhase"_s, u"declare_attackers"_s},
+        {u"score"_s, QVariantList{1, 0}},
+        {u"drawnGames"_s, 1},
+        {u"result"_s, QVariantMap{{u"winnerSeat"_s, 0}}},
+        {u"sideboard"_s, QVariantMap{{u"deadlineMs"_s, 15000}}},
+    });
+
+    QCOMPARE(session.property("gameNumber").toInt(), 2);
+    QCOMPARE(session.property("startingSeat").toInt(), 1);
+    QCOMPARE(session.property("turnOrder").toList(), QVariantList({1, 0}));
+    QCOMPARE(session.property("activeSeat").toInt(), 0);
+    QCOMPARE(session.property("currentPhase").toString(), u"declare_attackers"_s);
+    QCOMPARE(session.property("score").toList().size(), 2);
+    QCOMPARE(session.property("drawnGames").toInt(), 1);
+    QCOMPARE(session.property("result").toMap().value(u"winnerSeat"_s).toInt(), 0);
+    QCOMPARE(session.property("finished").toBool(), true);
+    QCOMPARE(session.property("sideboarding").toBool(), true);
+}
+
+void TestWsClient::gameSnapshotCompletionFollowsTypedAndScalarUpdates() const
+{
+    WsClient client;
+    auto *session = client.gameSession();
+    hexproof::client::GameTableModel table;
+    QStringList notifications;
+    int boundGameNumber = -1;
+    QVariantList boundTurnOrder;
+    connect(&client, &WsClient::gameSnapshotDataChanged, &table,
+            &hexproof::client::GameTableModel::applySnapshot);
+    connect(&table, &hexproof::client::GameTableModel::snapshotChanged, &client,
+            [&]() { notifications.append(u"typed"_s); });
+    // Like QML property bindings, this observer is installed after WsClient's
+    // facade forwarding connection and must run before its completion signal.
+    connect(session, &GameSessionState::snapshotChanged, &client, [&]() {
+        boundGameNumber = session->gameNumber();
+        boundTurnOrder = session->turnOrder();
+        notifications.append(u"scalar"_s);
+    });
+    connect(&client, &WsClient::gameSnapshotChanged, &client, [&]() {
+        QCOMPARE(boundGameNumber, session->gameNumber());
+        QCOMPARE(boundTurnOrder, session->turnOrder());
+        QCOMPARE(table.hasSnapshot(), session->gameNumber() != 0);
+        notifications.append(u"committed"_s);
+    });
+    const QVariantMap snapshot{
+        {u"gameNumber"_s, 1},
+        {u"turnOrder"_s, QVariantList{1, 0}},
+        {u"seats"_s, QVariantList{QVariantMap{{u"seat"_s, 0}, {u"life"_s, 20}}}},
+        {u"sideboard"_s, QVariantMap{{u"deadlineMs"_s, 15000}}},
+    };
+    session->applySnapshot(snapshot);
+    QCOMPARE(notifications, QStringList({u"typed"_s, u"scalar"_s, u"committed"_s}));
+    notifications.clear();
+    session->applySnapshot(snapshot);
+    QCOMPARE(notifications, QStringList({u"scalar"_s, u"committed"_s}));
+    notifications.clear();
+    session->clearSideboard();
+    QCOMPARE(notifications, QStringList({u"scalar"_s, u"committed"_s}));
+    QVERIFY(!session->sideboarding());
+    notifications.clear();
+    session->clearSideboard();
+    QVERIFY(notifications.isEmpty());
+    session->clear();
+    QCOMPARE(notifications, QStringList({u"typed"_s, u"scalar"_s, u"committed"_s}));
+    QVERIFY(session->currentPhase().isEmpty());
+}
+
+void TestWsClient::gameSnapshotPublicationSerializesReentrantUpdates_data()
+{
+    QTest::addColumn<QString>("phase");
+    QTest::addColumn<QString>("operation");
+    for (const auto &phase : {u"data"_s, u"scalar"_s, u"commit"_s}) {
+        for (const auto &operation : {u"snapshot"_s, u"clear"_s, u"sideboard"_s}) {
+            QTest::newRow(qPrintable(phase + u'-' + operation)) << phase << operation;
+        }
+    }
+}
+
+void TestWsClient::gameSnapshotPublicationSerializesReentrantUpdates() const
+{
+    QFETCH(QString, phase);
+    QFETCH(QString, operation);
+    GameSessionState session;
+    hexproof::client::GameTableModel table;
+    const QVariantMap first{
+        {u"gameNumber"_s, 1},
+        {u"seats"_s, QVariantList{QVariantMap{{u"seat"_s, 0}, {u"life"_s, 20}}}},
+        {u"sideboard"_s, QVariantMap{{u"deadlineMs"_s, 15000}}},
+    };
+    const QVariantMap second{
+        {u"gameNumber"_s, 2},
+        {u"seats"_s, QVariantList{QVariantMap{{u"seat"_s, 0}, {u"life"_s, 40}}}},
+    };
+    bool requested = false;
+    auto requestUpdate = [&]() {
+        if (requested)
+            return;
+        requested = true;
+        if (operation == u"snapshot"_s)
+            session.applySnapshot(second);
+        else if (operation == u"clear"_s)
+            session.clear();
+        else
+            session.clearSideboard();
+        // Nested calls return before publication; the current cycle remains
+        // stable for every later direct slot, regardless of connection order.
+        QCOMPARE(session.gameNumber(), 1);
+        QVERIFY(session.sideboarding());
+    };
+    if (phase == u"data"_s)
+        connect(&session, &GameSessionState::snapshotDataChanged, &session, requestUpdate);
+    else if (phase == u"scalar"_s)
+        connect(&session, &GameSessionState::snapshotChanged, &session, requestUpdate);
+    else
+        connect(&session, &GameSessionState::snapshotCommitted, &session, requestUpdate);
+    // Deliberately register the typed consumer after the reentrant data slot.
+    connect(&session, &GameSessionState::snapshotDataChanged, &table,
+            &hexproof::client::GameTableModel::applySnapshot);
+    QList<int> committedGames;
+    QList<int> committedLife;
+    QList<bool> committedSideboard;
+    connect(&session, &GameSessionState::snapshotCommitted, &session, [&]() {
+        committedGames.append(session.gameNumber());
+        committedLife.append(table.seatData(0).value(u"life"_s).toInt());
+        committedSideboard.append(session.sideboarding());
+    });
+    session.applySnapshot(first);
+    QVERIFY(requested);
+    const int nextGame = operation == u"clear"_s ? 0 : operation == u"snapshot"_s ? 2 : 1;
+    const int nextLife = operation == u"clear"_s ? 0 : operation == u"snapshot"_s ? 40 : 20;
+    QCOMPARE(committedGames, QList<int>({1, nextGame}));
+    QCOMPARE(committedLife, QList<int>({20, nextLife}));
+    QCOMPARE(committedSideboard, QList<bool>({true, false}));
+    QCOMPARE(session.gameNumber(), nextGame);
+    QCOMPARE(table.seatData(0).value(u"life"_s).toInt(), nextLife);
+}
+
+void TestWsClient::rulesCombatHonorsNativeMultipleBlockCapacity() const
+{
+    bool ok = false;
+    const Envelope fixture = sharedFixture(u"rules-prompt-multiple-blocks.json"_s, &ok);
+    QVERIFY(ok);
+    RulesSessionState session;
+    QVERIFY(session.applyPrompt(fixture.payload));
+    const auto maximumRole =
+        session.promptCombat()->roleNames().key(QByteArrayLiteral("maxAssignments"));
+    QCOMPARE(session.promptCombat()->data(session.promptCombat()->index(0), maximumRole).toInt(),
+             2);
+    const QVariantMap twoBlocks{
+        {u"combat-source:0"_s, QVariantList{u"combat-target:0"_s, u"combat-target:1"_s}}};
+    QVERIFY(session.promptCombat()->validAssignments(twoBlocks));
+    QVERIFY(session.promptCombat()->validAssignments({}));
+    QVERIFY(!session.promptCombat()->validAssignments(
+        {{u"combat-source:0"_s, QVariantList{u"combat-target:0"_s, u"combat-target:0"_s}}}));
+    QVERIFY(!session.promptCombat()->validAssignments(
+        {{u"combat-source:0"_s, QVariantList{u"combat-target:0"_s, u"card-attacker-1"_s}}}));
+    QVERIFY(!session.promptCombat()->validAssignments(
+        {{u"card-guard"_s, QVariantList{u"combat-target:0"_s}}}));
+
+    auto withMaximum = [&fixture](const QJsonValue &maximum) {
+        QJsonObject prompt = fixture.payload;
+        QJsonArray sources = prompt.value(u"combatSources"_s).toArray();
+        QJsonObject source = sources.first().toObject();
+        source.insert(u"maxAssignments"_s, maximum);
+        sources.replace(0, source);
+        prompt.insert(u"combatSources"_s, sources);
+        return prompt;
+    };
+    QVERIFY(session.applyPrompt(withMaximum(1)));
+    QVERIFY(!session.promptCombat()->validAssignments(twoBlocks));
+    QVERIFY(
+        session.promptCombat()->validAssignments({{u"combat-source:0"_s, u"combat-target:0"_s}}));
+    QVERIFY(session.applyPrompt(withMaximum(0)));
+    QVERIFY(
+        !session.promptCombat()->validAssignments({{u"combat-source:0"_s, u"combat-target:0"_s}}));
+    QVERIFY(session.promptCombat()->validAssignments({}));
+    QVERIFY(session.applyPrompt(withMaximum(QJsonValue::Undefined)));
+    QCOMPARE(session.promptCombat()->data(session.promptCombat()->index(0), maximumRole).toInt(),
+             1);
+    QVERIFY(!session.promptCombat()->validAssignments(twoBlocks));
+    for (const QJsonValue &maximum : {QJsonValue(-1), QJsonValue(513), QJsonValue(1.5),
+                                      QJsonValue(u"2"_s), QJsonValue(QJsonValue::Null)}) {
+        QVERIFY(!session.applyPrompt(withMaximum(maximum)));
+    }
+    QJsonObject attackers = fixture.payload;
+    attackers.insert(u"kind"_s, u"chooseAttackers"_s);
+    QVERIFY(!session.applyPrompt(attackers));
+}
+
+void TestWsClient::rulesCardActionsUseCurrentNativeCardChoices() const
+{
+    bool ok = false;
+    QJsonObject prompt = sharedFixture(u"rules-prompt.json"_s, &ok).payload;
+    QVERIFY(ok);
+    const auto action = [](const QString &response, const QString &kind, const QString &cardId) {
+        return QJsonObject{{u"responseId"_s, response},
+                           {u"kind"_s, kind},
+                           {u"label"_s, response},
+                           {u"cardId"_s, cardId}};
+    };
+    prompt.insert(u"options"_s,
+                  QJsonArray{action(u"action:0"_s, u"playLand"_s, u"land"_s),
+                             action(u"action:1"_s, u"cast"_s, u"spell"_s),
+                             action(u"action:2"_s, u"cast"_s, u"spell"_s),
+                             action(u"action:3"_s, u"activateAbility"_s, u"permanent"_s),
+                             action(u"action:4"_s, u"activateAbility"_s, QString()),
+                             action(u"$pass"_s, u"pass"_s, u"permanent"_s),
+                             action(u"action:5"_s, u"unknown"_s, u"permanent"_s)});
+    RulesSessionState session;
+    QVERIFY(session.applyPrompt(prompt));
+    const auto actionIds = [](const QVariantList &actions) {
+        QStringList ids;
+        for (const QVariant &value : actions)
+            ids.append(value.toMap().value(u"responseId"_s).toString());
+        return ids;
+    };
+    QCOMPARE(actionIds(session.cardActionsForCard(u"land"_s)), QStringList{u"action:0"_s});
+    QCOMPARE(actionIds(session.castActionsForCard(u"land"_s)), QStringList{u"action:0"_s});
+    QCOMPARE(actionIds(session.cardActionsForCard(u"spell"_s)),
+             QStringList({u"action:1"_s, u"action:2"_s}));
+    QCOMPARE(actionIds(session.cardActionsForCard(u"permanent"_s)), QStringList{u"action:3"_s});
+    QVERIFY(session.castActionsForCard(u"permanent"_s).isEmpty());
+    QVERIFY(session.cardActionsForCard(QString()).isEmpty());
+    QVERIFY(session.cardActionsForCard(u"missing"_s).isEmpty());
+
+    // Payment replaces the actions of the same prompt id. A previous card's
+    // opaque response must never survive the new native choice set.
+    prompt.insert(u"kind"_s, u"payManaCost"_s);
+    prompt.insert(u"options"_s,
+                  QJsonArray{action(u"action:9"_s, u"activateAbility"_s, u"land"_s),
+                             action(u"action:10"_s, u"activateAbility"_s, QString())});
+    QVERIFY(session.applyPrompt(prompt));
+    QCOMPARE(actionIds(session.cardActionsForCard(u"land"_s)), QStringList{u"action:9"_s});
+    QVERIFY(session.cardActionsForCard(u"spell"_s).isEmpty());
+    QVERIFY(session.castActionsForCard(u"land"_s).isEmpty());
+
+    prompt.insert(u"supported"_s, false);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(session.cardActionsForCard(u"land"_s).isEmpty());
+    prompt.insert(u"supported"_s, true);
+    prompt.insert(u"kind"_s, u"mulligan"_s);
+    // Mulligans can offer Serum Powder's native ability, but other action
+    // kinds and abilities without a card binding do not become card actions.
+    prompt.insert(u"options"_s,
+                  QJsonArray{action(u"action:9"_s, u"activateAbility"_s, u"land"_s),
+                             action(u"action:11"_s, u"cast"_s, u"land"_s),
+                             action(u"action:12"_s, u"playLand"_s, u"land"_s),
+                             action(u"$pass"_s, u"pass"_s, u"land"_s),
+                             action(u"action:13"_s, u"activateAbility"_s, QString())});
+    QVERIFY(session.applyPrompt(prompt));
+    QCOMPARE(actionIds(session.cardActionsForCard(u"land"_s)), QStringList{u"action:9"_s});
+    QVERIFY(session.castActionsForCard(u"land"_s).isEmpty());
+    QVERIFY(session.cardActionsForCard(QString()).isEmpty());
+    prompt.insert(u"options"_s, QJsonArray{action(u"$keep"_s, u"keep"_s, QString()),
+                                           action(u"$mulligan"_s, u"mulligan"_s, QString())});
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(session.cardActionsForCard(u"land"_s).isEmpty());
+    prompt.insert(u"kind"_s, u"payManaCost"_s);
+    prompt.insert(u"pending"_s, false);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(session.cardActionsForCard(u"land"_s).isEmpty());
+    session.clear();
+    QVERIFY(session.cardActionsForCard(u"land"_s).isEmpty());
+}
+
+void TestWsClient::rulesBoardTargetsUseTypedObjectsAndOptionalSeats() const
+{
+    bool ok = false;
+    QJsonObject prompt = sharedFixture(u"rules-prompt-board-targets.json"_s, &ok).payload;
+    QVERIFY(ok);
+    RulesSessionState session;
+    QVERIFY(session.applyPrompt(prompt));
+    QCOMPARE(session.targetResponseIdsForObject(u"card"_s, u"visible-object"_s),
+             QStringList{u"target:1"_s});
+    QCOMPARE(session.targetResponseIdsForObject(u"spell"_s, u"visible-object"_s),
+             QStringList{u"target:2"_s});
+    QCOMPARE(session.targetResponseIdsForSeat(0), QStringList{u"target:0"_s});
+    QCOMPARE(session.targetResponseIdsForSeat(2), QStringList{u"target:3"_s});
+    QVERIFY(session.targetResponseIdsForSeat(-1).isEmpty());
+    QVERIFY(session.targetResponseIdsForSeat(1).isEmpty());
+    QVERIFY(session.targetResponseIdsForObject(u"player"_s, u"visible-object"_s).isEmpty());
+    QVERIFY(session.targetResponseIdsForObject(u"card"_s, QString()).isEmpty());
+    const QVariantList candidates = session.boardTargetCandidates();
+    QCOMPARE(candidates.size(), 4);
+    QCOMPARE(candidates.at(0).toMap().value(u"seat"_s).toInt(), 0);
+    QCOMPARE(candidates.at(1).toMap().value(u"seat"_s).toInt(), -1);
+    QCOMPARE(candidates.at(1).toMap().value(u"name"_s).toString(), u"Grizzly Bears"_s);
+    QVERIFY(candidates.at(1).toMap().value(u"nativeSelected"_s).toBool());
+    QVERIFY(!candidates.at(0).toMap().value(u"nativeSelected"_s).toBool());
+    auto *targets = session.promptTargets();
+    const int selectedRole = targets->roleNames().key(QByteArrayLiteral("nativeSelected"));
+    QVERIFY(selectedRole > Qt::UserRole);
+    QVERIFY(targets->data(targets->index(1), selectedRole).toBool());
+    const int seatRole = targets->roleNames().key(QByteArrayLiteral("seat"));
+    QVERIFY(seatRole > Qt::UserRole);
+    QCOMPARE(targets->data(targets->index(3), seatRole).toInt(), 2);
+
+    QJsonObject malformed = prompt;
+    QJsonArray malformedTargets = malformed.value(u"targets"_s).toArray();
+    QJsonObject malformedTarget = malformedTargets.at(1).toObject();
+    malformedTarget.insert(u"selected"_s, u"true"_s);
+    malformedTargets[1] = malformedTarget;
+    malformed.insert(u"targets"_s, malformedTargets);
+    QVERIFY(!session.applyPrompt(malformed));
+    QVERIFY(session.applyPrompt(prompt));
+
+    QJsonArray legacyTargets = prompt.value(u"targets"_s).toArray();
+    QJsonObject legacyPlayer = legacyTargets.at(0).toObject();
+    legacyPlayer.remove(u"seat"_s);
+    legacyTargets[0] = legacyPlayer;
+    prompt.insert(u"targets"_s, legacyTargets);
+    QVERIFY(session.applyPrompt(prompt));
+    QCOMPARE(session.boardTargetCandidates().size(), 4);
+    QVERIFY(session.targetResponseIdsForSeat(0).isEmpty());
+    QCOMPARE(session.boardTargetCandidates().first().toMap().value(u"seat"_s).toInt(), -1);
+    QCOMPARE(session.targetResponseIdsForSeat(2), QStringList{u"target:3"_s});
+
+    // A private context target never becomes an interactive board candidate.
+    QJsonObject context = sharedFixture(u"rules-prompt-replacement.json"_s, &ok).payload;
+    QVERIFY(ok);
+    QVERIFY(session.applyPrompt(context));
+    QVERIFY(session.boardTargetCandidates().isEmpty());
+    QVERIFY(session.targetResponseIdsForSeat(0).isEmpty());
+    QCOMPARE(session.promptContextTargets()
+                 ->data(session.promptContextTargets()->index(1), seatRole)
+                 .toInt(),
+             0);
+
+    QVERIFY(session.applyPrompt(prompt));
+    prompt.insert(u"supported"_s, false);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(session.targetResponseIdsForObject(u"card"_s, u"visible-object"_s).isEmpty());
+    QVERIFY(session.targetResponseIdsForSeat(2).isEmpty());
+    QVERIFY(session.boardTargetCandidates().isEmpty());
+    prompt.insert(u"supported"_s, true);
+    prompt.insert(u"pending"_s, false);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(session.boardTargetCandidates().isEmpty());
+    session.clear();
+    QVERIFY(session.targetResponseIdsForSeat(2).isEmpty());
+}
+
+void TestWsClient::rulesBoardTargetsRejectInvalidSeatHints() const
+{
+    bool ok = false;
+    const QJsonObject original = sharedFixture(u"rules-prompt-board-targets.json"_s, &ok).payload;
+    QVERIFY(ok);
+    RulesSessionState session;
+    QVERIFY(session.applyPrompt(original));
+    for (const QJsonValue &seat : {QJsonValue(-1), QJsonValue(0.5), QJsonValue(u"0"_s),
+                                   QJsonValue(true), QJsonValue(QJsonValue::Null)}) {
+        QJsonObject prompt = original;
+        QJsonArray targets = prompt.value(u"targets"_s).toArray();
+        QJsonObject player = targets.at(0).toObject();
+        player.insert(u"seat"_s, seat);
+        targets[0] = player;
+        prompt.insert(u"targets"_s, targets);
+        QVERIFY(!session.applyPrompt(prompt));
+        QCOMPARE(session.targetResponseIdsForSeat(0), QStringList{u"target:0"_s});
+    }
+    QJsonObject prompt = original;
+    QJsonArray targets = prompt.value(u"targets"_s).toArray();
+    QJsonObject card = targets.at(1).toObject();
+    card.insert(u"seat"_s, 0);
+    targets[1] = card;
+    prompt.insert(u"targets"_s, targets);
+    QVERIFY(!session.applyPrompt(prompt));
+    card.remove(u"seat"_s);
+    card.insert(u"responseId"_s, u"target:0"_s);
+    targets[1] = card;
+    prompt.insert(u"targets"_s, targets);
+    QVERIFY(!session.applyPrompt(prompt));
+    QCOMPARE(session.targetResponseIdsForObject(u"card"_s, u"visible-object"_s),
+             QStringList{u"target:1"_s});
+}
+
+void TestWsClient::rulesPriorityHintsStayConservative() const
+{
+    bool ok = false;
+    QJsonObject prompt = sharedFixture(u"rules-prompt.json"_s, &ok).payload;
+    QVERIFY(ok);
+    RulesSessionState session;
+    QVERIFY(!session.promptAutoPassEligible());
+    QVERIFY(session.promptOptionItems().isEmpty());
+    QVERIFY(session.stackObjectIds().isEmpty());
+    const QJsonObject automatic = sharedFixture(u"rules-prompt-auto-pass.json"_s, &ok).payload;
+    QVERIFY(ok);
+    QVERIFY(session.applyPrompt(automatic));
+    QVERIFY(session.promptAutoPassEligible());
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(!session.promptAutoPassEligible());
+    const QVariantList original = session.promptOptionItems();
+    QCOMPARE(original.size(), 3);
+    QCOMPARE(original.at(0).toMap().value(u"cardId"_s).toString(), u"hand-2"_s);
+    QCOMPARE(original.at(1).toMap().value(u"responseId"_s).toString(), u"$pass"_s);
+    prompt.insert(u"autoPassEligible"_s, true);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(session.promptAutoPassEligible());
+    for (const QJsonValue &invalid :
+         {QJsonValue(u"true"_s), QJsonValue(1), QJsonValue(QJsonValue::Null)}) {
+        QJsonObject malformed = prompt;
+        malformed.insert(u"autoPassEligible"_s, invalid);
+        QVERIFY(!session.applyPrompt(malformed));
+        QVERIFY(session.promptAutoPassEligible());
+    }
+    prompt.insert(u"kind"_s, u"chooseBoolean"_s);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(!session.promptAutoPassEligible());
+    prompt.insert(u"kind"_s, u"chooseAction"_s);
+    prompt.insert(u"supported"_s, false);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(!session.promptAutoPassEligible());
+    QVERIFY(session.promptOptionItems().isEmpty());
+    prompt.insert(u"supported"_s, true);
+    prompt.insert(u"pending"_s, false);
+    QVERIFY(session.applyPrompt(prompt));
+    QVERIFY(!session.promptAutoPassEligible());
+    QVERIFY(session.promptOptionItems().isEmpty());
+    QCOMPARE(original.size(), 3);
+    session.clear();
+    QVERIFY(!session.promptAutoPassEligible());
+    QVERIFY(session.promptOptionItems().isEmpty());
+
+    QJsonObject snapshot = sharedFixture(u"rules-snapshot-owner.json"_s, &ok).payload;
+    QVERIFY(ok);
+    const QJsonObject identity{{u"name"_s, u"Lightning Bolt"_s},
+                               {u"setCode"_s, u"M11"_s},
+                               {u"collectorNumber"_s, u"146"_s}};
+    QJsonObject first{{u"id"_s, u"stack-a"_s},   {u"sourceId"_s, u"card-a"_s},
+                      {u"controllerSeat"_s, 0},  {u"ownerSeat"_s, 0},
+                      {u"identity"_s, identity}, {u"text"_s, u"Deal 3 damage."_s}};
+    QJsonObject second = first;
+    second.insert(u"id"_s, u"stack-b"_s);
+    snapshot.insert(u"stack"_s, QJsonArray{first, second});
+    QVERIFY(session.applySnapshot(snapshot));
+    QCOMPARE(session.stackObjectIds(), QStringList({u"stack-a"_s, u"stack-b"_s}));
+    snapshot.insert(u"stack"_s, QJsonArray{second});
+    QVERIFY(session.applySnapshot(snapshot));
+    QCOMPARE(session.stackObjectIds(), QStringList({u"stack-b"_s}));
+    session.clear();
+    QVERIFY(session.stackObjectIds().isEmpty());
+}
+
+void TestWsClient::rulesSeatBattlefieldsTrackControlAndPrivacy() const
+{
+    using namespace hexproof::client;
+    bool ok = false;
+    auto snapshot = sharedFixture(u"rules-snapshot-owner.json"_s, &ok).payload;
+    QVERIFY(ok);
+    QJsonArray cards;
+    for (int index = 0; index < 12; ++index) {
+        cards.append(QJsonObject{{u"id"_s, u"permanent-%1"_s.arg(index)},
+                                 {u"ownerSeat"_s, 0},
+                                 {u"controllerSeat"_s, index % 4},
+                                 {u"visible"_s, true},
+                                 {u"identity"_s, QJsonObject{{u"name"_s, u"Grizzly Bears"_s}}},
+                                 {u"power"_s, u"2"_s},
+                                 {u"toughness"_s, u"2"_s}});
+    }
+    auto zones = snapshot.value(u"zones"_s).toArray();
+    zones.append(QJsonObject{{u"zone"_s, u"battlefield"_s},
+                             {u"ownerSeat"_s, 0},
+                             {u"count"_s, cards.size()},
+                             {u"cards"_s, cards}});
+    snapshot.insert(u"zones"_s, zones);
+    RulesSessionState session;
+    auto *near = session.battlefieldCardsForSeat(0);
+    auto *opponent = session.battlefieldCardsForSeat(1);
+    auto *far = session.battlefieldCardsForSeat(3);
+    QAbstractItemModelTester nearTester(near,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+    QAbstractItemModelTester opponentTester(opponent,
+                                            QAbstractItemModelTester::FailureReportingMode::QtTest);
+    QAbstractItemModelTester farTester(far, QAbstractItemModelTester::FailureReportingMode::QtTest);
+    QVERIFY(session.applySnapshot(snapshot));
+    QCOMPARE(session.battlefieldCards()->rowCount(), 12);
+    for (int seat = 0; seat < 4; ++seat) {
+        auto *model = session.battlefieldCardsForSeat(seat);
+        QCOMPARE(model->rowCount(), 3);
+        QCOMPARE(model->roleNames(), session.battlefieldCards()->roleNames());
+        for (int row = 0; row < model->rowCount(); ++row)
+            QCOMPARE(model->index(row, 0).data(RulesCardModel::ControllerSeatRole).toInt(), seat);
+    }
+    QCOMPARE(session.battlefieldCardsForSeat(-1), nullptr);
+    QPersistentModelIndex stable(near->index(0, 0));
+    QSignalSpy resets(near, &QAbstractItemModel::modelReset);
+    auto stolen = cards[1].toObject();
+    stolen.insert(u"controllerSeat"_s, 3);
+    cards[1] = stolen;
+    auto hidden = cards[0].toObject();
+    hidden.insert(u"visible"_s, false);
+    hidden.insert(u"faceDown"_s, true);
+    cards[0] = hidden;
+    auto battlefield = zones.last().toObject();
+    battlefield.insert(u"cards"_s, cards);
+    zones[zones.size() - 1] = battlefield;
+    snapshot.insert(u"zones"_s, zones);
+    QVERIFY(session.applySnapshot(snapshot));
+    QCOMPARE(opponent->rowCount(), 2);
+    QCOMPARE(far->rowCount(), 4);
+    QCOMPARE(resets.count(), 0);
+    QVERIFY(stable.isValid());
+    QCOMPARE(stable.data(RulesCardModel::IdRole).toString(), u"permanent-0"_s);
+    QVERIFY(stable.data(RulesCardModel::NameRole).toString().isEmpty());
+    QVERIFY(stable.data(RulesCardModel::FaceDownRole).toBool());
+    session.clear();
+    QCOMPARE(near->rowCount(), 0);
+    QCOMPARE(opponent->rowCount(), 0);
+    QCOMPARE(far->rowCount(), 0);
+    QCOMPARE(session.battlefieldCardsForSeat(0), near);
+}
+
+void TestWsClient::rulesSnapshotModelsPreserveUnchangedRows() const
+{
+    using namespace hexproof::client;
+    const auto exercise = [](auto &model, const auto &first, const auto &second, const auto &third,
+                             const auto &changed, int role, const QVariant &expected) {
+        QAbstractItemModelTester tester(&model,
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        model.replace({first, second});
+        QPersistentModelIndex firstIndex(model.index(0));
+        QPersistentModelIndex secondIndex(model.index(1));
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy updates(&model, &QAbstractItemModel::dataChanged);
+        QSignalSpy inserts(&model, &QAbstractItemModel::rowsInserted);
+        QSignalSpy removals(&model, &QAbstractItemModel::rowsRemoved);
+        QSignalSpy moves(&model, &QAbstractItemModel::rowsMoved);
+
+        model.replace({first, second});
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(updates.count(), 0);
+        QCOMPARE(inserts.count(), 0);
+        QCOMPARE(removals.count(), 0);
+        QCOMPARE(moves.count(), 0);
+
+        model.replace({second, changed, third});
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(updates.count(), 1);
+        QCOMPARE(inserts.count(), 1);
+        QCOMPARE(moves.count(), 1);
+        QVERIFY(firstIndex.isValid());
+        QVERIFY(secondIndex.isValid());
+        QCOMPARE(firstIndex.row(), 1);
+        QCOMPARE(secondIndex.row(), 0);
+        QCOMPARE(firstIndex.data(role), expected);
+
+        model.replace({third, second});
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(removals.count(), 1);
+        QVERIFY(!firstIndex.isValid());
+        QCOMPARE(secondIndex.row(), 1);
+        model.clear();
+        QCOMPARE(model.rowCount(), 0);
+        QVERIFY(!secondIndex.isValid());
+        QCOMPARE(resets.count(), 0);
+
+        // Duplicate identities fall back to a full replacement, never stale rows.
+        model.replace({first, first});
+        QCOMPARE(resets.count(), 1);
+        QCOMPARE(model.rowCount(), 2);
+        model.replace({second});
+        QCOMPARE(resets.count(), 2);
+        QCOMPARE(model.rowCount(), 1);
+    };
+
+    RulesPlayerModel players;
+    RulesPlayerRow alice, bob, observer;
+    alice.seat = 0;
+    alice.life = 20;
+    bob.seat = 1;
+    observer.seat = 2;
+    auto hurt = alice;
+    hurt.life = 17;
+    exercise(players, alice, bob, observer, hurt, RulesPlayerModel::LifeRole, 17);
+
+    RulesZoneModel zones;
+    const RulesZoneRow hand{u"hand"_s, 0, 7}, library{u"library"_s, 0, 53},
+        otherHand{u"hand"_s, 1, 7};
+    auto drawn = hand;
+    drawn.count = 8;
+    exercise(zones, hand, library, otherHand, drawn, RulesZoneModel::CountRole, 8);
+
+    RulesCardModel cards;
+    RulesCardRow bear, land, newCard;
+    bear.id = u"bear"_s;
+    bear.visible = true;
+    bear.name = u"Grizzly Bears"_s;
+    bear.setCode = u"10E"_s;
+    bear.collectorNumber = u"268"_s;
+    land.id = u"land"_s;
+    newCard.id = u"drawn"_s;
+    auto hidden = bear;
+    hidden.visible = false;
+    hidden.name.clear();
+    hidden.setCode.clear();
+    hidden.collectorNumber.clear();
+    exercise(cards, bear, land, newCard, hidden, RulesCardModel::NameRole, QString{});
+    cards.replace({bear});
+    cards.replace({hidden});
+    QVERIFY(!cards.data(cards.index(0), RulesCardModel::VisibleRole).toBool());
+    QVERIFY(cards.data(cards.index(0), RulesCardModel::SetCodeRole).toString().isEmpty());
+    QVERIFY(cards.data(cards.index(0), RulesCardModel::CollectorNumberRole).toString().isEmpty());
+
+    RulesStackModel stack;
+    RulesStackRow spell, trigger, nextSpell;
+    spell.id = u"spell"_s;
+    trigger.id = u"trigger"_s;
+    nextSpell.id = u"next-spell"_s;
+    auto resolvedTarget = spell;
+    resolvedTarget.text = u"Deal 3 damage to Bob."_s;
+    exercise(stack, spell, trigger, nextSpell, resolvedTarget, RulesStackModel::TextRole,
+             resolvedTarget.text);
+}
+
+void TestWsClient::rulesSessionStateExposesCurrentPersistentChoices() const
+{
+    bool ok = false;
+    auto snapshot = sharedFixture(u"rules-snapshot-card-annotations.json"_s, &ok).payload;
+    QVERIFY(ok);
+    RulesSessionState session;
+    QVERIFY(session.applySnapshot(snapshot));
+    auto choice = [&session](const QString &id) {
+        return session.cardForInspection(id).value(u"annotations"_s).toList();
+    };
+    QCOMPARE(choice(u"needle-a"_s).first().toMap().value(u"value"_s).toString(),
+             u"Lightning Bolt"_s);
+    QCOMPARE(choice(u"needle-b"_s).first().toMap().value(u"value"_s).toString(), u"Counterspell"_s);
+    QCOMPARE(session.cardForInspection(u"labyrinth"_s).value(u"exiledCardIds"_s).toStringList(),
+             QStringList{u"ulamog"_s});
+    QCOMPARE(session.cardForInspection(u"bodyguard"_s).value(u"chosenCardIds"_s).toStringList(),
+             QStringList{u"bears"_s});
+    auto zones = snapshot.value(u"zones"_s).toArray();
+    auto battlefield = zones[0].toObject();
+    auto cards = battlefield.value(u"cards"_s).toArray();
+    for (qsizetype index = 0; index < cards.size(); ++index) {
+        auto card = cards[index].toObject();
+        const QString id = card.value(u"id"_s).toString();
+        if (id == u"needle-a"_s || id == u"bodyguard"_s)
+            card.insert(u"faceDown"_s, true);
+        else if (id == u"needle-b"_s)
+            card.remove(u"annotations"_s);
+        cards[index] = card;
+    }
+    battlefield.insert(u"cards"_s, cards);
+    zones[0] = battlefield;
+    snapshot.insert(u"zones"_s, zones);
+    QVERIFY(session.applySnapshot(snapshot));
+    QVERIFY(choice(u"needle-a"_s).isEmpty());
+    QVERIFY(choice(u"needle-b"_s).isEmpty());
+    QVERIFY(session.cardForInspection(u"bodyguard"_s)
+                .value(u"chosenCardIds"_s)
+                .toStringList()
+                .isEmpty());
+}
+
+void TestWsClient::rulesControlledTurnAndLibraryPermissions() const
+{
+    bool ok = false;
+    const auto controlled = sharedFixture(u"rules-snapshot-turn-control.json"_s, &ok);
+    QVERIFY(ok);
+    RulesSessionState session;
+    QVERIFY(session.applySnapshot(controlled.payload));
+    QCOMPARE(session.activeSeat(), 1);
+    QCOMPARE(session.controllingSeat(1), 0);
+    QCOMPARE(session.controllingSeat(0), 0);
+    QCOMPARE(session.topPublicZoneCard(1, u"library"_s).value(u"name"_s).toString(), u"Island"_s);
+    QCOMPARE(session.cardForInspection(u"controlled-hand"_s).value(u"zoneOwnerSeat"_s).toInt(), 1);
+    QVERIFY(session.cardForInspection(u"new-arrival"_s).value(u"enteredThisTurn"_s).toBool());
+    QVERIFY(session.cardForInspection(u"new-arrival"_s).value(u"summoningSick"_s).toBool());
+    QVERIFY(!session.cardForInspection(u"established"_s).value(u"enteredThisTurn"_s).toBool());
+    const auto ordinary = sharedFixture(u"rules-snapshot-owner.json"_s, &ok);
+    QVERIFY(ok);
+    QVERIFY(session.applySnapshot(ordinary.payload));
+    QCOMPARE(session.controllingSeat(1), 1);
+    QVERIFY(session.topPublicZoneCard(1, u"library"_s).isEmpty());
+    QVERIFY(session.cardForInspection(u"permitted-top"_s).isEmpty());
+    QVERIFY(session.cardForInspection(u"controlled-hand"_s).isEmpty());
+}
+
+void TestWsClient::rulesSessionStateExposesTypedSnapshot() const
+{
+    bool ok = false;
+    const Envelope snapshot = sharedFixture(u"rules-snapshot-owner.json"_s, &ok);
+    QVERIFY(ok);
+
+    RulesSessionState session;
+    QSignalSpy changed(&session, &RulesSessionState::snapshotChanged);
+    QCOMPARE(session.snapshotRevision(), quint64{0});
+    QVERIFY(session.applySnapshot(snapshot.payload));
+    QCOMPARE(session.snapshotRevision(), quint64{1});
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(session.roomId(), u"ABCDEF"_s);
+    QCOMPARE(session.gameId(), u"ABCDEF-1"_s);
+    QCOMPARE(session.turn(), 1);
+    QCOMPARE(session.step(), u"main1"_s);
+    QCOMPARE(session.activeSeat(), 0);
+    QCOMPARE(session.prioritySeat(), 0);
+    QVERIFY(!session.gameOver());
+    QVERIFY(!session.hasWinner());
+
+    auto *players = session.players();
+    QCOMPARE(players->rowCount(), 2);
+    const auto playerRoles = players->roleNames().key(QByteArrayLiteral("name"));
+    QCOMPARE(players->data(players->index(0), playerRoles).toString(), u"Alice"_s);
+    const auto lifeRole = players->roleNames().key(QByteArrayLiteral("life"));
+    QCOMPARE(players->data(players->index(0), lifeRole).toInt(), 20);
+    const auto commandersRole = players->roleNames().key(QByteArrayLiteral("commanders"));
+    const auto commander = players->data(players->index(0), commandersRole).toList().at(0).toMap();
+    QCOMPARE(commander.value(u"casts"_s).toInt(), 2);
+    QCOMPARE(commander.value(u"tax"_s).toInt(), 4);
+    QCOMPARE(commander.value(u"zone"_s).toString(), u"hidden"_s);
+    QVERIFY(commander.value(u"objectId"_s).toString().isEmpty());
+
+    auto *zones = session.zones();
+    QCOMPARE(zones->rowCount(), 2);
+    QCOMPARE(session.zoneCount(0, u"hand"_s), 1);
+    QCOMPARE(session.zoneCount(1, u"hand"_s), 1);
+    QCOMPARE(session.zoneCount(0, u"library"_s), 0);
+    auto *zoneCards = session.zoneCards();
+    QCOMPARE(zoneCards->rowCount(), 1);
+    const auto cardNameRole = zoneCards->roleNames().key(QByteArrayLiteral("name"));
+    QCOMPARE(zoneCards->data(zoneCards->index(0), cardNameRole).toString(), u"Lightning Bolt"_s);
+    const auto zoneOwnerRole = zoneCards->roleNames().key(QByteArrayLiteral("zoneOwnerSeat"));
+    QCOMPARE(zoneCards->data(zoneCards->index(0), zoneOwnerRole).toInt(), 0);
+    const auto topHand = session.topPublicZoneCard(0, u"hand"_s);
+    QCOMPARE(topHand.value(u"name"_s).toString(), u"Lightning Bolt"_s);
+    QVERIFY(session.topPublicZoneCard(0, u"library"_s).isEmpty());
+    QCOMPARE(session.battlefieldCards()->rowCount(), 0);
+    QCOMPARE(session.stack()->rowCount(), 0);
+
+    const Envelope prompt = sharedFixture(u"rules-prompt.json"_s, &ok);
+    QVERIFY(ok);
+    QSignalSpy promptChanged(&session, &RulesSessionState::promptChanged);
+    QVERIFY(session.applyPrompt(prompt.payload));
+    QCOMPARE(promptChanged.count(), 1);
+    QVERIFY(session.promptPending());
+    QVERIFY(session.promptSupported());
+    QCOMPARE(session.promptId(), 7);
+    QCOMPARE(session.promptKind(), u"chooseAction"_s);
+    QCOMPARE(session.promptOptions()->rowCount(), 3);
+    const auto responseIdRole =
+        session.promptOptions()->roleNames().key(QByteArrayLiteral("responseId"));
+    QCOMPARE(
+        session.promptOptions()->data(session.promptOptions()->index(0), responseIdRole).toString(),
+        u"action:0"_s);
+    const QVariantList castActions = session.castActionsForCard(u"hand-2"_s);
+    QCOMPARE(castActions.size(), 1);
+    QCOMPARE(castActions.first().toMap().value(u"responseId"_s).toString(), u"action:0"_s);
+    QVERIFY(session.castActionsForCard(u"missing-card"_s).isEmpty());
+
+    QJsonObject cardPrompt = prompt.payload;
+    cardPrompt.insert(u"promptId"_s, 10);
+    cardPrompt.insert(u"kind"_s, u"chooseCards"_s);
+    cardPrompt.insert(u"options"_s, QJsonArray{});
+    cardPrompt.insert(u"cards"_s, QJsonArray{QJsonObject{{u"id"_s, u"card-a"_s},
+                                                         {u"name"_s, u"Plains"_s},
+                                                         {u"setCode"_s, u"M21"_s},
+                                                         {u"collectorNumber"_s, u"309"_s}}});
+    cardPrompt.insert(u"minCardSelections"_s, 0);
+    cardPrompt.insert(u"maxCardSelections"_s, 1);
+    QVERIFY(session.applyPrompt(cardPrompt));
+    QCOMPARE(session.promptCards()->rowCount(), 1);
+    QCOMPARE(session.promptMinCardSelections(), 0);
+    QCOMPARE(session.promptMaxCardSelections(), 1);
+
+    const Envelope revealPrompt = sharedFixture(u"rules-prompt-reveal.json"_s, &ok);
+    QVERIFY(ok);
+    QVERIFY(session.applyPrompt(revealPrompt.payload));
+    QCOMPARE(session.promptId(), 71);
+    QCOMPARE(session.promptKind(), u"revealCards"_s);
+    QCOMPARE(session.promptCards()->rowCount(), 2);
+    const auto tokenRole = session.promptCards()->roleNames().key(QByteArrayLiteral("token"));
+    QVERIFY(session.promptCards()->data(session.promptCards()->index(1), tokenRole).toBool());
+    QCOMPARE(session.promptOptions()->rowCount(), 1);
+
+    const Envelope scryPrompt = sharedFixture(u"rules-prompt-scry.json"_s, &ok);
+    QVERIFY(ok);
+    QVERIFY(session.applyPrompt(scryPrompt.payload));
+    QCOMPARE(session.promptId(), 72);
+    QCOMPARE(session.promptKind(), u"scry"_s);
+    QCOMPARE(session.promptCards()->rowCount(), 2);
+    QCOMPARE(session.promptScryDestinations(), QStringList({u"libraryTop"_s, u"libraryBottom"_s}));
+    const QVariantList scryCards = session.promptCards()->items();
+    QCOMPARE(scryCards.at(1).toMap().value(u"cardId"_s).toString(), u"scry:1"_s);
+
+    QJsonObject orderPrompt = prompt.payload;
+    orderPrompt.insert(u"promptId"_s, 11);
+    orderPrompt.insert(u"kind"_s, u"reorder"_s);
+    orderPrompt.insert(u"options"_s, QJsonArray{});
+    orderPrompt.insert(u"orderItems"_s,
+                       QJsonArray{QJsonObject{{u"responseId"_s, u"order:0"_s},
+                                              {u"name"_s, u"Teval"_s},
+                                              {u"setCode"_s, u"DFT"_s},
+                                              {u"collectorNumber"_s, u"199"_s},
+                                              {u"oracle"_s, u"Create a token."_s}},
+                                  QJsonObject{{u"responseId"_s, u"order:1"_s},
+                                              {u"name"_s, u"Teval's Judgment"_s}}});
+    QVERIFY(session.applyPrompt(orderPrompt));
+    QCOMPARE(session.promptOrderItems()->rowCount(), 2);
+    const QVariantList orderItems = session.promptOrderItems()->items();
+    QCOMPARE(orderItems.at(0).toMap().value(u"responseId"_s).toString(), u"order:0"_s);
+    QCOMPARE(orderItems.at(0).toMap().value(u"oracle"_s).toString(), u"Create a token."_s);
+
+    QJsonObject choicePrompt = prompt.payload;
+    choicePrompt.insert(u"promptId"_s, 9);
+    choicePrompt.insert(u"kind"_s, u"chooseFromSelection"_s);
+    choicePrompt.insert(u"options"_s, QJsonArray{});
+    choicePrompt.insert(u"choices"_s, QJsonArray{QJsonObject{{u"responseId"_s, u"choice:0"_s},
+                                                             {u"label"_s, u"First mode"_s},
+                                                             {u"weight"_s, 2},
+                                                             {u"canRepeat"_s, true}}});
+    choicePrompt.insert(u"minChoiceTotal"_s, 2);
+    choicePrompt.insert(u"maxChoiceTotal"_s, 4);
+    QVERIFY(session.applyPrompt(choicePrompt));
+    QCOMPARE(session.promptChoices()->rowCount(), 1);
+    QCOMPARE(session.promptMinChoiceTotal(), 2);
+    QCOMPARE(session.promptMaxChoiceTotal(), 4);
+    const auto weightRole = session.promptChoices()->roleNames().key(QByteArrayLiteral("weight"));
+    QCOMPARE(session.promptChoices()->data(session.promptChoices()->index(0), weightRole).toInt(),
+             2);
+
+    QJsonObject combatPrompt = prompt.payload;
+    combatPrompt.insert(u"promptId"_s, 8);
+    combatPrompt.insert(u"kind"_s, u"chooseAttackers"_s);
+    combatPrompt.insert(u"options"_s, QJsonArray{});
+    combatPrompt.insert(u"combatTargets"_s,
+                        QJsonArray{QJsonObject{{u"responseId"_s, u"combat-target:0"_s},
+                                               {u"kind"_s, u"player"_s},
+                                               {u"label"_s, u"Bob · Seat 2"_s},
+                                               {u"minAssignments"_s, 0},
+                                               {u"maxAssignments"_s, 1},
+                                               {u"mustReceiveIfAble"_s, false}}});
+    combatPrompt.insert(
+        u"combatSources"_s,
+        QJsonArray{QJsonObject{{u"responseId"_s, u"combat-source:0"_s},
+                               {u"objectId"_s, u"card-a"_s},
+                               {u"label"_s, u"Goblin Guide"_s},
+                               {u"name"_s, u"Goblin Guide"_s},
+                               {u"setCode"_s, u"ZEN"_s},
+                               {u"collectorNumber"_s, u"126"_s},
+                               {u"validTargetIds"_s, QJsonArray{u"combat-target:0"_s}},
+                               {u"mustAssignIfAble"_s, true}}});
+    QVERIFY(session.applyPrompt(combatPrompt));
+    QCOMPARE(session.promptCombat()->rowCount(), 1);
+    QVERIFY(session.promptCombat()->validAssignments({}));
+    QVERIFY(
+        session.promptCombat()->validAssignments({{u"combat-source:0"_s, u"combat-target:0"_s}}));
+
+    QJsonObject inconsistent = snapshot.payload;
+    QJsonArray zonesWithHiddenIdentity = inconsistent.value(u"zones"_s).toArray();
+    QJsonObject hiddenHand = zonesWithHiddenIdentity.at(1).toObject();
+    hiddenHand.insert(u"cards"_s, QJsonArray{QJsonObject{
+                                      {u"id"_s, u"hidden-card"_s},
+                                      {u"visible"_s, false},
+                                      {u"identity"_s, QJsonObject{{u"name"_s, u"Secret card"_s}}},
+                                      {u"ownerSeat"_s, 1},
+                                      {u"controllerSeat"_s, 1},
+                                      {u"counters"_s, QJsonArray{}}}});
+    zonesWithHiddenIdentity.replace(1, hiddenHand);
+    inconsistent.insert(u"zones"_s, zonesWithHiddenIdentity);
+    QVERIFY(session.applySnapshot(inconsistent));
+    QCOMPARE(session.zoneCards()->rowCount(), 2);
+    const auto visibleRole = zoneCards->roleNames().key(QByteArrayLiteral("visibleIdentity"));
+    QVERIFY(!zoneCards->data(zoneCards->index(1), visibleRole).toBool());
+    QVERIFY(zoneCards->data(zoneCards->index(1), cardNameRole).toString().isEmpty());
+
+    const quint64 previousRevision = session.snapshotRevision();
+    QJsonObject zoneOnlySnapshot = snapshot.payload;
+    QJsonArray nextZones = zoneOnlySnapshot.value(u"zones"_s).toArray();
+    QJsonObject nextZone = nextZones.at(0).toObject();
+    nextZone.insert(u"count"_s, 7);
+    nextZones.replace(0, nextZone);
+    zoneOnlySnapshot.insert(u"zones"_s, nextZones);
+    QVERIFY(session.applySnapshot(zoneOnlySnapshot));
+    QCOMPARE(session.snapshotRevision(), previousRevision + 1);
+    QCOMPARE(session.zoneCount(0, u"hand"_s), 7);
+    QCOMPARE(session.turn(), 1);
+    QCOMPARE(session.players()->data(session.players()->index(0), lifeRole).toInt(), 20);
+    QVERIFY(!session.applySnapshot({}));
+    QCOMPARE(session.snapshotRevision(), previousRevision + 1);
+
+    session.clear();
+    QCOMPARE(session.snapshotRevision(), previousRevision + 2);
+    QVERIFY(!session.active());
+    QCOMPARE(session.players()->rowCount(), 0);
+    QCOMPARE(session.zones()->rowCount(), 0);
+    QCOMPARE(session.battlefieldCards()->rowCount(), 0);
+    QCOMPARE(session.zoneCards()->rowCount(), 0);
+    QVERIFY(!session.promptPending());
+    QCOMPARE(session.promptOptions()->rowCount(), 0);
+    QCOMPARE(session.promptChoices()->rowCount(), 0);
+    QCOMPARE(session.promptCombat()->rowCount(), 0);
+}
+
+void TestWsClient::dispatchesSharedSessionRoomAndGameFixtures() const
+{
+    QWebSocketServer server(u"Hexproof shared fixture server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Alice"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+
+    bool ok = false;
+    Envelope welcome = sharedFixture(u"session-welcome.json"_s, &ok);
+    QVERIFY(ok);
+    welcome.payload.insert(u"serverVersion"_s, buildVersion());
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    Envelope created = sharedFixture(u"room-created.json"_s, &ok);
+    QVERIFY(ok);
+    sendEnvelope(peer, created);
+    Envelope room = sharedFixture(u"room-snapshot-owner.json"_s, &ok);
+    QVERIFY(ok);
+    sendEnvelope(peer, room);
+    QTRY_VERIFY_WITH_TIMEOUT(client.inRoom(), 1000);
+    QCOMPARE(client.roomSession()->roomName(), u"Friday EDH"_s);
+    QCOMPARE(client.roomSession()->seatIndex(), 0);
+    QCOMPARE(client.roomSession()->seats().size(), 4);
+    QVERIFY(!client.roomSession()->seats().first().toMap().contains(u"deck"_s));
+
+    QSignalSpy gameSnapshots(client.gameSession(), &GameSessionState::snapshotChanged);
+    Envelope owner = sharedFixture(u"game-snapshot-owner.json"_s, &ok);
+    QVERIFY(ok);
+    sendEnvelope(peer, owner);
+    QTRY_COMPARE_WITH_TIMEOUT(gameSnapshots.count(), 1, 1000);
+    QVariantList seats = client.gameSession()->seats();
+    QCOMPARE(seats.size(), 2);
+    QCOMPARE(seats.at(0).toMap().value(u"hand"_s).toList().size(), 7);
+    QVERIFY(seats.at(1).toMap().value(u"hand"_s).toList().isEmpty());
+
+    Envelope opponent = sharedFixture(u"game-snapshot-opponent.json"_s, &ok);
+    QVERIFY(ok);
+    sendEnvelope(peer, opponent);
+    QTRY_COMPARE_WITH_TIMEOUT(gameSnapshots.count(), 2, 1000);
+    seats = client.gameSession()->seats();
+    QVERIFY(seats.at(0).toMap().value(u"hand"_s).toList().isEmpty());
+    QCOMPARE(seats.at(1).toMap().value(u"hand"_s).toList().size(), 7);
+    QCOMPARE(
+        seats.at(1).toMap().value(u"hand"_s).toList().first().toMap().value(u"name"_s).toString(),
+        u"Island"_s);
+
+    QSignalSpy rulesSnapshots(client.rulesSession(), &RulesSessionState::snapshotChanged);
+    Envelope rules = sharedFixture(u"rules-snapshot-owner.json"_s, &ok);
+    QVERIFY(ok);
+    sendEnvelope(peer, rules);
+    QTRY_COMPARE_WITH_TIMEOUT(rulesSnapshots.count(), 1, 1000);
+    QCOMPARE(client.rulesSession()->gameId(), u"ABCDEF-1"_s);
+    QCOMPARE(client.rulesSession()->players()->rowCount(), 2);
+    QCOMPARE(client.rulesSession()->zoneCards()->rowCount(), 1);
+
+    QSignalSpy rulesPrompts(client.rulesSession(), &RulesSessionState::promptChanged);
+    Envelope prompt = sharedFixture(u"rules-prompt.json"_s, &ok);
+    QVERIFY(ok);
+    sendEnvelope(peer, prompt);
+    QTRY_COMPARE_WITH_TIMEOUT(rulesPrompts.count(), 1, 1000);
+    QVERIFY(client.rulesSession()->promptPending());
+    QCOMPARE(client.rulesSession()->promptOptions()->rowCount(), 3);
+}
+
+void TestWsClient::exposesRoomGameAndRulesSessionsToQml() const
+{
+    WsClient client;
+    QVERIFY(client.metaObject()->indexOfProperty("roomSession") >= 0);
+    QVERIFY(client.metaObject()->indexOfProperty("gameSession") >= 0);
+    QVERIFY(client.metaObject()->indexOfProperty("rulesSession") >= 0);
+
+    auto *room = qvariant_cast<RoomSessionState *>(client.property("roomSession"));
+    auto *game = qvariant_cast<GameSessionState *>(client.property("gameSession"));
+    auto *rules = qvariant_cast<RulesSessionState *>(client.property("rulesSession"));
+    QVERIFY(room != nullptr);
+    QVERIFY(game != nullptr);
+    QVERIFY(rules != nullptr);
+    QCOMPARE(room, client.findChild<RoomSessionState *>());
+    QCOMPARE(game, client.findChild<GameSessionState *>());
+    QCOMPARE(rules, client.findChild<RulesSessionState *>());
+}
+
+void TestWsClient::hidesMirroredSessionPropertiesFromQml() const
+{
+    WsClient client;
+    const QMetaObject *meta = client.metaObject();
+    const QStringList mirrored = {
+        u"youAreHost"_s,      u"roomRole"_s,     u"seatIndex"_s,    u"selectedDeckName"_s,
+        u"roomId"_s,          u"roomName"_s,     u"format"_s,       u"playtest"_s,
+        u"matchMode"_s,       u"cardLoadMode"_s, u"maxSeats"_s,     u"roomPhase"_s,
+        u"loadId"_s,          u"seats"_s,        u"spectators"_s,   u"gameNumber"_s,
+        u"startingSeat"_s,    u"activeSeat"_s,   u"currentPhase"_s, u"gameArrows"_s,
+        u"gameAttachments"_s, u"gameLog"_s,      u"matchScore"_s,   u"gameResult"_s,
+        u"sideboardState"_s,  u"sideboarding"_s, u"gameFinished"_s,
+    };
+    for (const QString &name : mirrored)
+        QVERIFY2(meta->indexOfProperty(name.toUtf8().constData()) < 0,
+                 qPrintable(name + u" should not be a QML property on WsClient"_s));
+
+    QVERIFY(meta->indexOfProperty("inRoom") >= 0);
+    QVERIFY(meta->indexOfProperty("connected") >= 0);
+    QVERIFY(meta->indexOfProperty("lastError") >= 0);
+    QVERIFY(meta->indexOfProperty("roomList") >= 0);
+    QVERIFY(meta->indexOfProperty("replayList") < 0);
+    QVERIFY(meta->indexOfProperty("loadedReplay") < 0);
+    QVERIFY(meta->indexOfMethod("requestReplayList()") < 0);
+    QVERIFY(meta->indexOfMethod("loadReplay(QString)") < 0);
+    QVERIFY(meta->indexOfProperty("roomSession") >= 0);
+    QVERIFY(meta->indexOfProperty("gameSession") >= 0);
+    QVERIFY(meta->indexOfProperty("rulesSession") >= 0);
+    QCOMPARE(client.seatIndex(), -1);
+    QCOMPARE(client.youAreHost(), false);
+}
+
+void TestWsClient::updatesHostAuthorityFromRoomSnapshots() const
+{
+    QWebSocketServer server(u"Hexproof host transfer server"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server,
+            [&]() { peer = takeServerPeer(server); });
+
+    WsClient client;
+    client.connectTo(u"ws://127.0.0.1:"_s + QString::number(server.serverPort()), u"Bob"_s);
+    QTRY_VERIFY_WITH_TIMEOUT(peer != nullptr, 1000);
+
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = u"1"_s;
+    welcome.payload = QJsonObject{
+        {u"v"_s, hexproof::protocol::kProtocolVersion},
+        {u"connectionId"_s, u"conn-guest"_s},
+        {u"serverVersion"_s, buildVersion()},
+    };
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY_WITH_TIMEOUT(client.connected(), 1000);
+
+    Envelope joined;
+    joined.type = hexproof::protocol::kTypeRoomJoined;
+    joined.id = u"2"_s;
+    joined.payload = QJsonObject{
+        {u"roomId"_s, u"ABCDEF"_s},
+        {u"role"_s, hexproof::protocol::kRolePlayer},
+        {u"seat"_s, 1},
+    };
+    sendEnvelope(peer, joined);
+
+    Envelope snapshot = roomSnapshot(u"Transferred room"_s);
+    QJsonArray seats = snapshot.payload.value(u"seats"_s).toArray();
+    QJsonObject guestSeat{
+        {u"occupied"_s, true},
+        {u"displayName"_s, u"Bob"_s},
+        {u"host"_s, false},
+    };
+    seats.replace(1, guestSeat);
+    snapshot.payload.insert(u"seats"_s, seats);
+    sendEnvelope(peer, snapshot);
+    QTRY_VERIFY_WITH_TIMEOUT(client.inRoom(), 1000);
+    QVERIFY(!client.youAreHost());
+
+    seats[0] = QJsonObject{
+        {u"occupied"_s, false},
+        {u"host"_s, false},
+    };
+    guestSeat.insert(u"host"_s, true);
+    seats[1] = guestSeat;
+    snapshot.seq = 2;
+    snapshot.payload.insert(u"hostSeat"_s, 1);
+    snapshot.payload.insert(u"seats"_s, seats);
+    QSignalSpy hostChanged(&client, &WsClient::youAreHostChanged);
+    sendEnvelope(peer, snapshot);
+    QTRY_VERIFY_WITH_TIMEOUT(client.youAreHost(), 1000);
+    QCOMPARE(hostChanged.count(), 1);
+}
+
+QTEST_GUILESS_MAIN(TestWsClient)
+
+void TestWsClient::accountLoginAndTakeoverStayInsideTrustedRealm() const
+{
+    QWebSocketServer server(u"Account test"_s, QWebSocketServer::NonSecureMode);
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    const QString url = u"ws://127.0.0.1:%1/ws"_s.arg(server.serverPort());
+    QTemporaryDir directory;
+    QFile config(directory.filePath(u"servers.json"_s));
+    QVERIFY(config.open(QIODevice::WriteOnly));
+    config.write(QJsonDocument(
+                     QJsonObject{{u"schemaVersion"_s, 2},
+                                 {u"revision"_s, 1},
+                                 {u"servers"_s,
+                                  QJsonArray{QJsonObject{{u"id"_s, u"local"_s},
+                                                         {u"name"_s, u"Local"_s},
+                                                         {u"url"_s, url},
+                                                         {u"forge"_s, false},
+                                                         {u"accountRealm"_s, u"account-test"_s}}}}})
+                     .toJson());
+    config.close();
+    qputenv("HEXPROOF_SERVER_DIRECTORY_FILE", config.fileName().toUtf8());
+    auto cleanup = qScopeGuard([] { qunsetenv("HEXPROOF_SERVER_DIRECTORY_FILE"); });
+    QList<Envelope> received;
+    QWebSocket *peer = nullptr;
+    connect(&server, &QWebSocketServer::newConnection, &server, [&] {
+        peer = takeServerPeer(server);
+        connect(peer, &QWebSocket::textMessageReceived, &server, [&](const QString &wire) {
+            bool ok;
+            received.append(hexproof::protocol::parse(wire.toUtf8(), &ok));
+        });
+    });
+    WsClient client;
+    client.connectAccountToServer(0, u"login"_s, u"private-login"_s);
+    QTRY_VERIFY(!received.isEmpty());
+    QCOMPARE(received[0].type, hexproof::protocol::kTypeSessionHello);
+    QVERIFY(!received[0].payload.contains(u"accountSession"_s));
+    Envelope welcome;
+    welcome.type = hexproof::protocol::kTypeSessionWelcome;
+    welcome.id = received[0].id;
+    welcome.payload = {{u"v"_s, hexproof::protocol::kProtocolVersion},
+                       {u"serverVersion"_s, buildVersion()},
+                       {u"connectionId"_s, u"account-connection"_s},
+                       {u"resumeToken"_s, u"old-room-token"_s},
+                       {u"accountRealm"_s, u"account-test"_s}};
+    sendEnvelope(peer, welcome);
+    QTRY_VERIFY(received.size() >= 2);
+    const auto login = received[1];
+    QCOMPARE(login.type, hexproof::protocol::kTypeAccountCommand);
+    QCOMPARE(login.payload.value(u"loginCode"_s).toString(), u"private-login"_s);
+    Envelope response;
+    response.type = hexproof::protocol::kTypeAccountState;
+    response.id = login.id;
+    response.payload = {{u"operation"_s, u"login"_s},
+                        {u"accountId"_s, u"test-account"_s},
+                        {u"displayName"_s, u"Alice"_s},
+                        {u"devices"_s, QJsonArray{}},
+                        {u"resources"_s, QJsonArray{}}};
+    sendEnvelope(peer, response);
+    QTRY_VERIFY(client.account()->authenticated());
+    QCOMPARE(client.displayName(), u"Alice"_s);
+    Envelope joined;
+    joined.type = hexproof::protocol::kTypeRoomCreated;
+    joined.payload = {{u"roomId"_s, u"ABCDEF"_s}};
+    sendEnvelope(peer, joined);
+    sendEnvelope(peer, roomSnapshot(u"Account room"_s));
+    QTRY_VERIFY(client.inRoom());
+    Envelope replaced;
+    replaced.type = hexproof::protocol::kTypeError;
+    replaced.payload = {{u"code"_s, u"account_replaced"_s}, {u"message"_s, u"Replaced"_s}};
+    sendEnvelope(peer, replaced);
+    QTRY_COMPARE(client.connectionState(), WsClient::Disconnected);
+    QTest::qWait(1500);
+    QCOMPARE(client.connectionState(), WsClient::Disconnected);
+    QVERIFY(!server.hasPendingConnections());
+}

@@ -1,0 +1,231 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls.Basic
+
+Item {
+    id: root
+    required property var tableController
+    property real unit: 1
+    property bool showCount: true
+    property int ownerSeat: tableController.handOwnerSeat
+    property var visibleCards: []
+    readonly property bool crowded: visibleCards.length > 9
+        || cardWidth + 64 * unit * Math.max(0, visibleCards.length - 1) > width
+    readonly property real cardWidth: 132 * unit
+    readonly property real faceHeight: cardWidth * 1.394
+    readonly property real step: crowded ? 88 * unit : Math.min(103 * unit, (width - cardWidth) / Math.max(1, visibleCards.length - 1))
+    readonly property real fanWidth: cardWidth + step * Math.max(0, visibleCards.length - 1)
+    readonly property Flickable scrollArea: viewport
+    function collect() {
+        const next = []
+        for (let i = 0; i < cards.count; ++i) {
+            const card = cards.itemAt(i) as HandSlot
+            if (card && card.matches) next.push(card)
+        }
+        visibleCards = next
+    }
+    function scrollBy(amount) {
+        viewport.cancelFlick()
+        viewport.contentX = Math.max(0, Math.min(viewport.contentWidth - viewport.width,
+                                               viewport.contentX + amount))
+    }
+    function scrollWheel(event) {
+        const pixels = event.pixelDelta.x || event.pixelDelta.y
+        const angle = event.angleDelta.x || event.angleDelta.y
+        scrollBy(-(pixels || angle))
+        event.accepted = true
+    }
+    function reveal(card) {
+        if (card.x < viewport.contentX)
+            viewport.contentX = Math.max(0, card.x - 8 * unit)
+        else if (card.x + card.width > viewport.contentX + viewport.width)
+            viewport.contentX = Math.min(viewport.contentWidth - viewport.width,
+                                        card.x + card.width + 8 * unit - viewport.width)
+    }
+    Timer { id: refresh; interval: 0; onTriggered: root.collect() }
+    Connections {
+        target: root.tableController.rulesSession
+        function onSnapshotChanged() { refresh.restart() }
+    }
+    Text {
+        objectName: "forgeHandCaption"
+        visible: root.showCount || root.ownerSeat < 0 || root.tableController.canViewSpectatorHands
+        textFormat: Text.PlainText
+        y: (root.showCount ? -16 : 6) * root.unit
+        text: root.ownerSeat < 0 ? qsTr("Hands are hidden from spectators in this room")
+            : root.tableController.canViewSpectatorHands ? qsTr("%1 — hand (read only)").arg(root.tableController.matchUi.playerName(root.ownerSeat))
+            : qsTr("Hand · %1").arg(root.visibleCards.length)
+        color: Theme.textMuted
+        font.pixelSize: 10 * root.unit
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3 * root.unit
+            z: -1
+            radius: 3 * root.unit
+            color: Theme.surface
+            enabled: false
+        }
+    }
+    component HandSlot: Item {
+        id: slot
+        required property string cardId
+        required property string zone
+        required property int zoneOwnerSeat
+        required property bool visibleIdentity
+        required property string name
+        required property string setCode
+        required property string collectorNumber
+        required property bool tapped
+        required property bool faceDown
+        required property bool attacking
+        required property string power
+        required property string toughness
+        required property string countersSummary
+        readonly property bool pointerPreviewActive: pointer.containsMouse
+        readonly property Item inspectionFocusItem: face
+        readonly property bool matches: zone === "hand" && zoneOwnerSeat === root.ownerSeat
+        readonly property int position: root.visibleCards.indexOf(slot)
+        readonly property real distance: position - (root.visibleCards.length - 1) / 2
+        readonly property bool canPlay: root.tableController.canDragHandCard(cardId)
+        objectName: "forgeHandCard-" + cardId
+        visible: matches && position >= 0
+        x: (root.crowded ? 8 * root.unit : (root.width - root.fanWidth) / 2) + position * root.step
+        y: 26 * root.unit + (root.crowded ? 0 : Math.abs(distance) * 2 * root.unit)
+        width: root.cardWidth
+        // Only the exposed upper half receives input. The full face extends
+        // below the window; hover inspection supplies readable card text.
+        height: Math.max(1, root.height - 8 * root.unit)
+        z: pointer.containsMouse || face.activeFocus ? 50 : position
+        onMatchesChanged: refresh.restart()
+        ForgeCard {
+            id: face
+            objectName: "forgeHandSurface-" + slot.cardId
+            width: slot.width
+            height: root.faceHeight
+            unit: root.unit
+            card: slot
+            tableController: root.tableController
+            fullFace: true
+            pointerEnabled: false
+            activeFocusOnTab: true
+            onActiveFocusChanged: {
+                if (activeFocus) {
+                    root.reveal(slot)
+                    root.tableController.previewCard(slot.cardId, slot, true)
+                } else root.tableController.endCardPreview(slot)
+            }
+            y: pointer.containsMouse && !pointer.drag.active ? -18 * root.unit : 0
+            rotation: pointer.containsMouse || root.crowded ? 0 : slot.distance * 2.5
+            opacity: pointer.drag.active ? 0.4 : 1
+            Behavior on y { enabled: Theme.motionEnabled || Theme.hoverMotion; NumberAnimation { duration: Theme.motionFast } }
+            Behavior on rotation { enabled: Theme.motionEnabled || Theme.hoverMotion; NumberAnimation { duration: Theme.motionFast } }
+        }
+        // The drag image exists only from a press until its release, above the
+        // clipped hand viewport.
+        property Item ghost: null
+        function dropGhost() {
+            if (ghost)
+                ghost.destroy()
+            ghost = null
+        }
+        Component {
+            id: ghostComponent
+            ForgeCard {
+                id: ghostCard
+                readonly property string cardId: slot.cardId
+                readonly property string name: slot.name
+                width: slot.width
+                height: root.faceHeight
+                visible: pointer.drag.active
+                z: 1000
+                unit: root.unit
+                card: slot
+                tableController: root.tableController
+                fullFace: true
+                pointerEnabled: false
+                Drag.active: pointer.drag.active
+                Drag.source: ghostCard
+                Drag.keys: ["hexproof/rules-card"]
+                Drag.hotSpot.x: width / 2
+                Drag.hotSpot.y: height / 2
+            }
+        }
+        MouseArea {
+            id: pointer
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            cursorShape: face.actionable ? Qt.PointingHandCursor : Qt.ArrowCursor
+            drag.target: slot.canPlay ? slot.ghost : null
+            drag.threshold: 6 * root.unit
+            preventStealing: slot.canPlay
+            onWheel: event => root.scrollWheel(event)
+            onEntered: root.tableController.previewCard(slot.cardId, slot)
+            onExited: root.tableController.endCardPreview(slot)
+            onPressed: event => {
+                root.tableController.endCardPreview()
+                slot.dropGhost()
+                if (!slot.canPlay || event.button !== Qt.LeftButton)
+                    return
+                const point = slot.mapToItem(root.tableController, 0, 0)
+                slot.ghost = ghostComponent.createObject(root.tableController, {x: point.x, y: point.y})
+            }
+            onReleased: {
+                if (drag.active && slot.ghost)
+                    slot.ghost.Drag.drop()
+                slot.dropGhost()
+            }
+            onCanceled: {
+                if (slot.ghost)
+                    slot.ghost.Drag.cancel()
+                slot.dropGhost()
+            }
+            onClicked: event => {
+                if (event.button === Qt.LeftButton) face.activate()
+                else root.tableController.openCardDetails(slot.cardId, face)
+            }
+        }
+        Component.onDestruction: {
+            dropGhost()
+            root.tableController.endCardPreview(slot)
+        }
+    }
+    Flickable {
+        id: viewport
+        objectName: "forgeHandViewport"
+        y: -26 * root.unit
+        width: root.width
+        height: root.height + 26 * root.unit
+        contentWidth: Math.max(width, root.fanWidth + 16 * root.unit)
+        contentHeight: height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.HorizontalFlick
+        ScrollBar.horizontal: ScrollBar {
+            objectName: "forgeHandScrollBar"
+            parent: root
+            x: 0
+            y: 6 * root.unit
+            width: root.width
+            height: 10 * root.unit
+            z: 100
+            policy: ScrollBar.AlwaysOn
+            visible: viewport.contentWidth > viewport.width
+        }
+        WheelHandler {
+            target: null
+            onWheel: event => root.scrollWheel(event)
+        }
+        onContentWidthChanged: contentX = Math.max(0, Math.min(contentX, contentWidth - width))
+        onWidthChanged: contentX = Math.max(0, Math.min(contentX, contentWidth - width))
+        Repeater {
+            id: cards
+            model: root.tableController.rulesSession.zoneCardsFor(root.ownerSeat, "hand")
+            onItemAdded: refresh.restart()
+            onItemRemoved: refresh.restart()
+            delegate: HandSlot {}
+        }
+    }
+}

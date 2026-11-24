@@ -1,0 +1,7 @@
+Deck
+12 Mountain (M11) 242
+12 Evolving Wilds (ROE) 228
+36 Lightning Bolt (M11) 149
+
+Sideboard
+2 Mountain

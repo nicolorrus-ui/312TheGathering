@@ -1,0 +1,142 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#include "CardArtCache.h"
+#include "CardCatalog.h"
+#include "CardCatalogCommon.h"
+#include "CatalogRepository.h"
+
+namespace hexproof::client {
+using namespace catalog_internal;
+
+QString CardCatalog::cardDisplayName(const QString &name) const
+{
+    if (m_language != QStringLiteral("zh") || name.simplified().isEmpty())
+        return name;
+    // Public log entries carry names without printing coordinates. Resolve
+    // their labels locally; viewing history must never enqueue downloads.
+    const CardRequest request{name.simplified(), {}, {}, m_language};
+    for (const CardRecord &record :
+         {lookupCatalog(request), m_artCache->localizedMetadataForName(request)}) {
+        if (!looksLikeChinese(record.localizedName))
+            continue;
+        const QStringList faces = record.name.split(QStringLiteral(" // "));
+        if (faces.size() > 1 && request.name.compare(record.name, Qt::CaseInsensitive) != 0) {
+            const QStringList localizedFaces = record.localizedName.split(QStringLiteral(" // "));
+            for (qsizetype index = 0; index < faces.size(); ++index) {
+                if (request.name.compare(faces[index], Qt::CaseInsensitive) == 0 &&
+                    localizedFaces.size() == faces.size()) {
+                    return localizedFaces[index];
+                }
+            }
+            if (request.name.compare(record.faceName, Qt::CaseInsensitive) != 0)
+                continue;
+        }
+        return record.localizedName;
+    }
+    return name;
+}
+
+CardCatalog::CardRecord CardCatalog::lookupCatalog(const CardRequest &request) const
+{
+    if (m_catalogBusy || !installed())
+        return {};
+    const QString key = request.name.toLower() + QChar(0x1f) + request.setCode.toUpper() +
+                        QChar(0x1f) + request.collectorNumber + QChar(0x1f) + request.language +
+                        QChar(0x1f) + QString::number(m_indexVersion);
+    if (const CardRecord *cached = m_lookupCache.object(key))
+        return *cached;
+    QString error;
+    const CardRecord record = guiCatalog().lookup(
+        CatalogCardQuery{
+            request.name,
+            request.setCode,
+            request.collectorNumber,
+            request.language,
+        },
+        &error);
+    // Missing engine/generated names recur on every prompt refresh. Cache
+    // successful misses until catalog replacement, but retry database failures.
+    if (error.isEmpty())
+        m_lookupCache.insert(key, new CardRecord(record));
+    return record;
+}
+
+CardCatalog::CardRecord
+CardCatalog::lookupLocalizedPrinting(const CardRequest &request,
+                                     const CardRecord &catalogIdentity) const
+{
+    if (m_catalogBusy || !installed())
+        return {};
+    return guiCatalog().lookupLocalizedPrinting(
+        CatalogCardQuery{
+            request.name,
+            request.setCode,
+            request.collectorNumber,
+            request.language,
+        },
+        catalogIdentity, m_indexVersion);
+}
+
+CardCatalog::CardRecord CardCatalog::migrateLegacyCacheRecord(const CardRequest &request,
+                                                              const CardRecord &record) const
+{
+    if (ambiguousLegacySameNamedFace(record) ||
+        kCardResolutionVersion != kScryfallPlaceholderPolicyVersion || !record.valid() ||
+        record.resolutionVersion != kCompatibleResolutionVersionBeforePlaceholderPolicy ||
+        !QFileInfo::exists(record.imagePath) ||
+        (record.reusesLocalArt && !request.allowsSubstituteArt(m_artCache->reuseLocalArt()))) {
+        return {};
+    }
+
+    const QUrl imageUrl(record.imageUrl);
+    const QString host = imageUrl.host().toLower();
+    const bool isScryfall =
+        host == QStringLiteral("scryfall.io") || host.endsWith(QStringLiteral(".scryfall.io"));
+    if (isScryfall &&
+        (m_catalogBusy || !installed() || !guiCatalog().cachedScryfallArtIsUsable(record))) {
+        return {};
+    }
+
+    CardRecord migrated = record;
+    migrated.resolutionVersion = kCardResolutionVersion;
+    return migrated;
+}
+
+CatalogRepository &CardCatalog::guiCatalog() const
+{
+    if (!m_guiCatalog)
+        m_guiCatalog = std::make_unique<CatalogRepository>(m_databasePath);
+    return *m_guiCatalog;
+}
+
+void CardCatalog::clearGuiQueryCaches()
+{
+    m_printingsCache.clear();
+    m_cardFacesCache.clear();
+    m_lookupCache.clear();
+}
+
+void CardCatalog::persistLocalizedPrintings(const QJsonArray &printings)
+{
+    if (m_catalogBusy || !installed())
+        return;
+    const CatalogPersistResult result =
+        guiCatalog().persistLocalizedPrintings(printings, m_indexVersion);
+    if (!result.error.isEmpty()) {
+        qCWarning(cardCatalogLog).noquote()
+            << "Could not persist localized Scryfall printings:" << result.error;
+        return;
+    }
+    if (result.localizedPrintingCount >= 0 &&
+        result.localizedPrintingCount != m_localizedPrintingCount) {
+        m_localizedPrintingCount = result.localizedPrintingCount;
+        clearGuiQueryCaches();
+        if (!saveCatalogMetadata()) {
+            qCWarning(cardCatalogLog)
+                << "Could not update catalog metadata after caching localized printings.";
+        }
+    }
+}
+
+} // namespace hexproof::client

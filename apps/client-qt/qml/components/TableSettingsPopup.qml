@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+
+AppPopup {
+    id: root
+
+    property bool canSetCounterCount: false
+    signal backgroundRequested()
+    signal audioRequested()
+    signal settingsRequested(bool showPlayers, bool showShared,
+                             bool showInspector, int counterCount,
+                             bool showGameLog)
+
+    width: Math.min(Theme.size(460), parent.width - Theme.size(48))
+    height: Math.min(settingsContent.implicitHeight + padding * 2,
+                     parent.height - Theme.size(48))
+
+    function showFor(showPlayers, showShared, showInspector, counterCount,
+                     canSetCounters, showGameLog) {
+        playersToggle.checked = false
+        sharedToggle.checked = showShared
+        inspectorToggle.checked = false
+        gameLogToggle.checked = showGameLog !== false
+        counterSpin.value = Math.max(0, Math.min(7, counterCount))
+        canSetCounterCount = canSetCounters
+        open()
+    }
+
+    contentItem: ScrollView {
+        id: settingsScroll
+        objectName: "tableSettingsScroll"
+        contentWidth: availableWidth
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        ColumnLayout {
+            id: settingsContent
+            width: settingsScroll.availableWidth
+            spacing: Theme.size(14)
+
+            AppPopupHeader {
+                titleText: qsTr("Table layout")
+                subtitleText: qsTr("Choose the optional table tools you want to keep visible.")
+            }
+
+            AppButton {
+                objectName: "openTableBackgroundButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Battlefield background…")
+                onClicked: {
+                    root.close()
+                    root.backgroundRequested()
+                }
+            }
+
+            AppButton {
+                objectName: "openTableAudioButton"
+                Layout.fillWidth: true
+                compact: true
+                text: qsTr("Audio")
+                onClicked: {
+                    root.close()
+                    root.audioRequested()
+                }
+            }
+
+            AppToggle {
+                id: gameLogToggle
+                objectName: "showGameLogToggle"
+                Layout.fillWidth: true
+                text: qsTr("Game log / chat rail")
+            }
+
+            AppToggle {
+                id: playersToggle
+                objectName: "showPlayersToggle"
+                visible: false
+                Layout.fillWidth: true
+                text: qsTr("Player docks")
+            }
+            AppToggle {
+                id: sharedToggle
+                objectName: "showSharedToggle"
+                Layout.fillWidth: true
+                text: qsTr("Stack / reveal tray")
+            }
+            AppToggle {
+                id: inspectorToggle
+                objectName: "showInspectorToggle"
+                visible: false
+                Layout.fillWidth: true
+                text: qsTr("Card detail / game log")
+            }
+
+            RowLayout {
+                id: counterSettings
+                Layout.fillWidth: true
+                visible: root.canSetCounterCount
+                spacing: Theme.size(12)
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.size(2)
+                    Text {
+                        textFormat: Text.PlainText
+                        text: qsTr("Your counter slots")
+                        color: Theme.text
+                        font.pixelSize: Theme.fontSize(13)
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        textFormat: Text.PlainText
+                        Layout.fillWidth: true
+                        text: qsTr("Show zero to seven counters beside your hand.")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSize(10)
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                SpinBox {
+                    id: counterSpin
+                    objectName: "counterCountSpinBox"
+                    from: 0
+                    to: 7
+                    editable: true
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.size(10)
+
+                Item { Layout.fillWidth: true }
+
+                AppButton {
+                    compact: true
+                    variant: "ghost"
+                    text: qsTr("Cancel")
+                    onClicked: root.close()
+                }
+                AppButton {
+                    objectName: "applyTableSettingsButton"
+                    compact: true
+                    variant: "primary"
+                    text: qsTr("Apply")
+                    onClicked: {
+                        root.close()
+                        root.settingsRequested(
+                                    false,
+                                    sharedToggle.checked,
+                                    false,
+                                    counterSpin.value,
+                                    gameLogToggle.checked)
+                    }
+                }
+            }
+        }
+    }
+}

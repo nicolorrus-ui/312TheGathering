@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#pragma once
+
+#include <QHash>
+#include <QJsonObject>
+#include <QObject>
+#include <QString>
+#include <QVariantList>
+#include <QVariantMap>
+
+namespace hexproof::client {
+
+class TournamentSessionState : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool inTournament READ inTournament NOTIFY inTournamentChanged)
+    Q_PROPERTY(QVariantList tournamentList READ tournamentList NOTIFY tournamentListChanged)
+    Q_PROPERTY(
+        QVariantList activeTournamentList READ activeTournamentList NOTIFY tournamentListChanged)
+    Q_PROPERTY(QVariantList historicalTournamentList READ historicalTournamentList NOTIFY
+                   tournamentListChanged)
+    Q_PROPERTY(QString tournamentId READ tournamentId NOTIFY snapshotChanged)
+    Q_PROPERTY(QString name READ name NOTIFY snapshotChanged)
+    Q_PROPERTY(QString format READ format NOTIFY snapshotChanged)
+    Q_PROPERTY(QString eventType READ eventType NOTIFY snapshotChanged)
+    Q_PROPERTY(QString coordinator READ coordinator NOTIFY snapshotChanged)
+    Q_PROPERTY(bool cubeRoom READ cubeRoom NOTIFY snapshotChanged)
+    Q_PROPERTY(QString stage READ stage NOTIFY snapshotChanged)
+    Q_PROPERTY(QString matchMode READ matchMode NOTIFY snapshotChanged)
+    Q_PROPERTY(QString rulesMode READ rulesMode NOTIFY snapshotChanged)
+    Q_PROPERTY(bool actionClockEnabled READ actionClockEnabled NOTIFY snapshotChanged)
+    Q_PROPERTY(QString status READ status NOTIFY snapshotChanged)
+    Q_PROPERTY(QString role READ role NOTIFY snapshotChanged)
+    Q_PROPERTY(QString participantId READ participantId NOTIFY snapshotChanged)
+    Q_PROPERTY(QString organizerName READ organizerName NOTIFY snapshotChanged)
+    Q_PROPERTY(int roundMinutes READ roundMinutes NOTIFY snapshotChanged)
+    Q_PROPERTY(QString roundStartedAt READ roundStartedAt NOTIFY snapshotChanged)
+    Q_PROPERTY(int maxPlayers READ maxPlayers NOTIFY snapshotChanged)
+    Q_PROPERTY(int minimumPlayers READ minimumPlayers NOTIFY snapshotChanged)
+    Q_PROPERTY(int plannedRounds READ plannedRounds NOTIFY snapshotChanged)
+    Q_PROPERTY(int currentRound READ currentRound NOTIFY snapshotChanged)
+    Q_PROPERTY(int registered READ registered NOTIFY snapshotChanged)
+    Q_PROPERTY(int checkedIn READ checkedIn NOTIFY snapshotChanged)
+    Q_PROPERTY(bool roundComplete READ roundComplete NOTIFY snapshotChanged)
+    Q_PROPERTY(bool canRegister READ canRegister NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap product READ product NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap plan READ plan NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantMap draftSettings READ draftSettings NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantList participants READ participants NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantList pairings READ pairings NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantList standings READ standings NOTIFY snapshotChanged)
+    Q_PROPERTY(QVariantList chatMessages READ chatMessages NOTIFY chatChanged)
+
+  public:
+    explicit TournamentSessionState(QObject *parent = nullptr);
+
+    bool inTournament() const
+    {
+        return !m_tournamentId.isEmpty();
+    }
+    QVariantList tournamentList() const
+    {
+        return m_tournamentList;
+    }
+    QVariantList activeTournamentList() const
+    {
+        return m_activeTournamentList;
+    }
+    QVariantList historicalTournamentList() const
+    {
+        return m_historicalTournamentList;
+    }
+    QString tournamentId() const
+    {
+        return m_tournamentId;
+    }
+    QString name() const
+    {
+        return m_name;
+    }
+    QString format() const
+    {
+        return m_format;
+    }
+    QString eventType() const
+    {
+        return m_eventType;
+    }
+    QString coordinator() const
+    {
+        return m_coordinator;
+    }
+    bool cubeRoom() const
+    {
+        return (m_eventType == QStringLiteral("cube_draft") ||
+                m_eventType == QStringLiteral("commander_cube")) &&
+               m_coordinator == QStringLiteral("casual");
+    }
+    QString stage() const
+    {
+        return m_stage;
+    }
+    QString matchMode() const
+    {
+        return m_matchMode;
+    }
+    QString rulesMode() const
+    {
+        return m_rulesMode;
+    }
+    bool actionClockEnabled() const
+    {
+        return m_actionClockEnabled;
+    }
+    QString status() const
+    {
+        return m_status;
+    }
+    QString role() const
+    {
+        return m_role;
+    }
+    QString participantId() const
+    {
+        return m_participantId;
+    }
+    QString organizerName() const
+    {
+        return m_organizerName;
+    }
+    int roundMinutes() const
+    {
+        return m_roundMinutes;
+    }
+    QString roundStartedAt() const
+    {
+        return m_roundStartedAt;
+    }
+    int maxPlayers() const
+    {
+        return m_maxPlayers;
+    }
+    int minimumPlayers() const
+    {
+        return m_minimumPlayers;
+    }
+    int plannedRounds() const
+    {
+        return m_plannedRounds;
+    }
+    int currentRound() const
+    {
+        return m_currentRound;
+    }
+    int registered() const
+    {
+        return m_registered;
+    }
+    int checkedIn() const
+    {
+        return m_checkedIn;
+    }
+    bool roundComplete() const
+    {
+        return m_roundComplete;
+    }
+    bool canRegister() const
+    {
+        return m_canRegister;
+    }
+    QVariantMap product() const
+    {
+        return m_product;
+    }
+    QVariantMap plan() const
+    {
+        return m_plan;
+    }
+    QVariantMap draftSettings() const
+    {
+        return m_draftSettings;
+    }
+    QVariantList participants() const
+    {
+        return m_participants;
+    }
+    QVariantList pairings() const
+    {
+        return m_pairings;
+    }
+    QVariantList standings() const
+    {
+        return m_standings;
+    }
+
+    Q_INVOKABLE void rememberTabletopScore(const QString &roomId, const QVariantList &seats,
+                                           int drawnGames = 0);
+    Q_INVOKABLE QVariantMap tabletopScoreForPairing(const QString &pairingId) const;
+
+    void applyList(const QJsonObject &payload);
+    QVariantList chatMessages() const
+    {
+        return m_chatMessages;
+    }
+    void applyChatMessage(const QJsonObject &payload);
+    void applyChatHistory(const QJsonObject &payload);
+    void enter(const QString &tournamentId, const QString &role, const QString &participantId = {});
+    void applyRegistration(const QString &participantId);
+    void applySnapshot(const QJsonObject &payload);
+    void clear();
+
+  signals:
+    void inTournamentChanged();
+    void tournamentListChanged();
+    void snapshotChanged();
+    void chatChanged();
+
+  private:
+    bool tabletopScoreMatchesPairing(const QVariantMap &score, const QVariantMap &pairing) const;
+    QVariantList m_tournamentList;
+    QVariantList m_activeTournamentList;
+    QVariantList m_historicalTournamentList;
+    QString m_tournamentId;
+    QString m_name;
+    QString m_format;
+    QString m_eventType;
+    QString m_coordinator;
+    QString m_stage;
+    QString m_matchMode;
+    QString m_rulesMode = QStringLiteral("manual");
+    bool m_actionClockEnabled = false;
+    QString m_status;
+    QString m_role;
+    QString m_participantId;
+    QString m_organizerName;
+    int m_roundMinutes = 0;
+    QString m_roundStartedAt;
+    int m_maxPlayers = 0;
+    int m_minimumPlayers = 0;
+    int m_plannedRounds = 0;
+    int m_currentRound = 0;
+    int m_registered = 0;
+    int m_checkedIn = 0;
+    bool m_roundComplete = false;
+    bool m_canRegister = false;
+    QVariantMap m_product;
+    QVariantMap m_plan;
+    QVariantMap m_draftSettings;
+    QVariantList m_participants;
+    QVariantList m_pairings;
+    QVariantList m_standings;
+    QVariantList m_chatMessages;
+    QHash<QString, QVariantMap> m_tabletopScores;
+};
+
+} // namespace hexproof::client

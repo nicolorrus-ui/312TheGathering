@@ -1,0 +1,192 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useState, type FormEvent } from "react";
+import { createRoot } from "react-dom/client";
+import { Board } from "./Board";
+import { CardImage, CardImages } from "./CardImages";
+import { deckStorage, parseDeck, readDecks } from "./decks";
+import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata } from "./protocol";
+import { useSession } from "./session";
+import "./style.css";
+
+type Session = ReturnType<typeof useSession>;
+
+function DeckLibrary({ decks, save }: { decks: Deck[]; save: (next: Deck[]) => void }) {
+  const [editing, setEditing] = useState<Pick<Deck, "id" | "name" | "text">>();
+  const [error, setError] = useState("");
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!editing) return;
+    try {
+      const deck = parseDeck(editing.id, editing.name, editing.text);
+      save([...decks.filter((previous) => previous.id !== editing.id), deck]);
+      setEditing(undefined);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Cannot save this deck.");
+    }
+  }
+  return <section className="panel deck-library">
+    <header><h2>My decks</h2><button className="quiet" type="button" onClick={() => {
+      setError(""); setEditing({ id: crypto.randomUUID(), name: "", text: "" });
+    }}>Import deck</button></header>
+    {editing && <form onSubmit={submit}>
+      <label>Deck name<input required maxLength={128} value={editing.name}
+        onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
+      <label>MTGA or MTGO decklist<textarea required spellCheck={false} rows={9} value={editing.text}
+        placeholder={"Deck\n4 Lightning Bolt (M11) 149\n\nSideboard\n2 Abrade"}
+        onChange={(event) => setEditing({ ...editing, text: event.target.value })} /></label>
+      {error && <p className="notice" role="alert">{error}</p>}
+      <div className="choices"><button className="primary" type="submit">Save deck</button>
+        <button className="quiet" type="button" onClick={() => { setEditing(undefined); setError(""); }}>Cancel</button></div>
+    </form>}
+    {!decks.length && !editing && <p>Paste a decklist to get started.</p>}
+    {decks.length > 0 && <ul className="deck-list">{decks.map((deck) => <li key={deck.id}><div>
+      <strong>{deck.name}</strong><small>{deck.mainboard.reduce((count, card) => count + card.count, 0)} main · {deck.sideboard.reduce((count, card) => count + card.count, 0)} side</small></div>
+      <button className="quiet" type="button" onClick={() => { setError(""); setEditing(deck); }}>Edit</button>
+      <button className="quiet" type="button" onClick={() => {
+        if (!window.confirm(`Delete ${deck.name}?`)) return;
+        save(decks.filter((previous) => previous.id !== deck.id));
+        if (editing?.id === deck.id) setEditing(undefined);
+      }}>Delete</button>
+    </li>)}</ul>}
+  </section>;
+}
+
+function Lobby({ session }: { session: Session }) {
+  const [tab, setTab] = useState<"create" | "join">(() => new URLSearchParams(location.search).has("room") ? "join" : "create");
+  const [name, setName] = useState("Club duel");
+  const [password, setPassword] = useState("");
+  const [roomId, setRoomId] = useState(() => new URLSearchParams(location.search).get("room") ?? "");
+  const [matchMode, setMatchMode] = useState("bo1");
+  const [deckFormat, setDeckFormat] = useState<DeckFormat>("modern");
+  const blocked = session.connection !== "online" || !session.welcome?.forgeRulesAvailable;
+  return <section className="panel">
+    <div className="tabs"><button type="button" aria-pressed={tab === "create"} onClick={() => { setTab("create"); setPassword(""); }}>Create room</button>
+      <button type="button" aria-pressed={tab === "join"} onClick={() => { setTab("join"); setPassword(""); }}>Join room</button></div>
+    {session.connection === "online" && !session.welcome?.forgeRulesAvailable && <p role="alert">Forge is unavailable.</p>}
+    <form onSubmit={(event) => {
+      event.preventDefault();
+      if (tab === "join") session.send("room.join", { roomId, password, asSpectator: false });
+      else session.send("room.create", { name, password, deckFormat, matchMode, format: "modern", rulesMode: "forge",
+        maxSeats: 2, allowSpectators: false, spectatorsSeeHands: false, cardLoadMode: "background" });
+    }}>
+      {tab === "create" ? <>
+        <label>Room name<input required maxLength={128} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <div className="form-row"><label>Format<select aria-label="Format" value={deckFormat} onChange={(event) => setDeckFormat(event.target.value as DeckFormat)}>
+          {formats.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}</select></label>
+          <label>Match<select aria-label="Match" value={matchMode} onChange={(event) => setMatchMode(event.target.value)}>
+            <option value="bo1">Best of one</option><option value="bo3">Best of three</option></select></label></div>
+      </> : <label>Room code<input required minLength={6} maxLength={6} value={roomId} onChange={(event) => setRoomId(event.target.value.toUpperCase())} /></label>}
+      <label>Room password<input required type="password" maxLength={72} value={password} autoComplete="off"
+        onChange={(event) => setPassword(event.target.value)} /></label>
+      <button className="primary" type="submit" disabled={blocked}>{tab === "create" ? "Create private duel" : "Join private duel"}</button>
+    </form>
+  </section>;
+}
+
+function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
+  const [copied, setCopied] = useState(false);
+  const [selected, setSelected] = useState("");
+  const room = session.room!;
+  const ownSeat = room.seats[session.seat ?? -1];
+  const deck = decks.find((item) => item.id === selected);
+  const online = session.connection === "online";
+  const invite = new URL(location.pathname, location.origin);
+  invite.searchParams.set("room", room.roomId);
+  return <section className="panel">
+    <header><div><h2>{room.name}</h2><small>{formatLabel(room.deckFormat)} · {room.matchMode.toUpperCase()}</small></div>
+      <button className="quiet" type="button" onClick={() => session.send("room.leave")} disabled={!online}>Leave</button></header>
+    <div className="room-code"><span>Room code</span><strong>{room.roomId}</strong>
+      <button type="button" className="quiet" onClick={async () => {
+        try { await navigator.clipboard.writeText(invite.href); setCopied(true); }
+        catch { setCopied(false); }
+      }}>{copied ? "Copied" : "Copy invite"}</button></div>
+    <ul className="seats">{room.seats.map((seat, index) => <li key={index}>
+      <strong>{seat.displayName || "Open seat"}{index === session.seat ? " (you)" : ""}</strong>
+      <small>{seat.ready ? "Ready" : seat.deckSelected ? "Deck selected" : seat.occupied ? "Choosing a deck" : "Awaiting player"}</small>
+    </li>)}</ul>
+    <div className="form-row">
+      <label>Your deck<select aria-label="Your deck" value={selected} disabled={!online || ownSeat?.ready} onChange={(event) => setSelected(event.target.value)}>
+        <option value="">Select a deck</option>{decks.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select></label>
+      <button type="button" disabled={!online || !deck || ownSeat?.ready} onClick={() => {
+        if (!deck) return;
+        session.send("deck.select", { name: deck.name, mainboard: deck.mainboard, sideboard: deck.sideboard,
+          format: "modern", deckFormat: room.deckFormat });
+      }}>Use deck</button>
+    </div>
+    {room.ownDeckName && <p className="selected-deck">{room.ownDeckName} selected</p>}
+    <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected}
+      onClick={() => session.send("player.ready", { ready: !ownSeat?.ready })}>{ownSeat?.ready ? "Cancel ready" : "Ready"}</button>
+  </section>;
+}
+
+function Sideboard({ metadata, session }: { metadata: GameMetadata; session: Session }) {
+  const board = metadata.sideboard!;
+  const seat = session.seat!;
+  const ready = board.seats.find((entry) => entry.seat === seat)?.ready;
+  return <section className="panel sideboard">
+    <header><h2>Sideboard for game {metadata.gameNumber + 1}</h2><span>{metadata.score[seat] ?? 0}–{metadata.score[1 - seat] ?? 0}</span></header>
+    <fieldset disabled={session.connection !== "online"}>
+      {board.canChooseStartingPlayer && <div className="choices">
+        <button aria-pressed={board.chosenStartingSeat === seat} onClick={() => session.send("sideboard.choose_starting_player", { startingSeat: seat })}>Play first</button>
+        <button aria-pressed={board.chosenStartingSeat === 1 - seat} onClick={() => session.send("sideboard.choose_starting_player", { startingSeat: 1 - seat })}>Draw first</button>
+      </div>}
+      <div className="form-row">
+        {(["mainboard", "sideboard"] as const).map((zone) => <section key={zone}>
+          <h3>{zone === "mainboard" ? "Main deck" : "Sideboard"}</h3>
+          <ul className="deck-list">{(board[zone] ?? []).map((card, index) => <li key={index}><div>
+            <CardImage identity={card} className="sideboard-card-image" decorative />
+            <strong>{card.count} × {card.name}</strong><small>{card.setCode} {card.collectorNumber}</small></div>
+            <button type="button" disabled={ready}
+              onClick={() => session.send("sideboard.move", { name: card.name, setCode: card.setCode, collectorNumber: card.collectorNumber,
+                fromZone: zone, toZone: zone === "mainboard" ? "sideboard" : "mainboard" })}>Move one</button>
+          </li>)}</ul>
+        </section>)}
+      </div>
+      <button className="primary" type="button" onClick={() => session.send("sideboard.ready", { ready: !ready })}>{ready ? "Cancel ready" : "Ready for next game"}</button>
+    </fieldset>
+  </section>;
+}
+
+function App() {
+  const session = useSession();
+  const [name, setName] = useState("");
+  const [decks, setDecks] = useState(readDecks);
+  const matchSection = session.room?.phase === "started";
+  const online = session.connection === "online";
+  const sideboard = session.metadata?.sideboard && session.metadata.result && !session.metadata.result.matchFinished;
+  function saveDecks(next: Deck[]) {
+    localStorage.setItem(deckStorage, JSON.stringify(next));
+    setDecks(next);
+  }
+  return <>
+    <header className="topbar">
+      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
+      {session.identity && <div className="account"><span className={`connection ${session.connection}`}>{session.connection}</span>
+        <span>{session.identity}</span>{!session.room && <button type="button" className="quiet" onClick={session.forget}>Sign out</button>}</div>}
+    </header>
+    {session.error && <div className="notice app-error" role="alert">{session.error}
+      <button type="button" className="quiet" onClick={session.clearError}>Dismiss</button></div>}
+    {!session.identity ? <main className="shell intro">
+      <div><p className="eyebrow">PRIVATE MAGIC DUELS</p><h1>Your club.<br />Your table.</h1></div>
+      <section className="panel"><h2>Take a seat</h2><form onSubmit={(event) => {
+        event.preventDefault();
+        if (name.trim()) session.enter(name);
+      }}><label>Player name<input required autoFocus maxLength={64} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <button className="primary" type="submit">Enter club</button></form></section>
+    </main> : sideboard && session.metadata ? <main className="shell"><Sideboard metadata={session.metadata} session={session} /></main>
+      : matchSection && session.game && session.seat !== undefined ? <Board key={session.game.gameId} game={session.game}
+        seat={session.seat} prompt={session.prompt} locked={!online || session.awaiting === session.prompt?.promptId && Boolean(session.prompt)}
+        metadata={session.metadata} answer={session.answer}
+        concede={() => session.send("game.concede")} back={() => session.send("game.return_to_room")} />
+      : session.room && session.room.phase !== "waiting" ? <main className="shell"><p role="status">Starting Forge…</p></main>
+      : <main className="shell"><div className="lobby-title"><h1>{session.room ? "Duel room" : "Club lobby"}</h1></div>
+        <div className="lobby-grid">{session.room ? <RoomPanel key={session.room.roomId} session={session} decks={decks} />
+          : <Lobby session={session} />}<DeckLibrary decks={decks} save={saveDecks} /></div>
+      </main>}
+  </>;
+}
+
+createRoot(document.getElementById("root")!).render(<CardImages><App /></CardImages>);

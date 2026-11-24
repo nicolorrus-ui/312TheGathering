@@ -1,0 +1,556 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+// Package protocol defines the hexproof.v3 wire envelope and message types.
+//
+// Wire conventions:
+//   - Protocol version `v` is negotiated ONCE at handshake. The authoritative
+//     value lives ONLY in the session.welcome payload. Subsequent messages
+//     carry NO top-level `v`.
+//   - Client commands that need a reply include `id`; the server echoes the
+//     same `id` on the matching success event or on `error`.
+//   - Success types are events, not *.ok: room.create -> room.created.
+//   - seq is per-room, 1-based, monotonic; emitted on room.snapshot and
+//     game.snapshot. Absent means "no seq yet" (pre-join). seq of 0 is never
+//     produced (P1 lock: start at 1). `room.event` is reserved and unused.
+package protocol
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// SessionHello is the payload of session.hello (C->S). ClientVersion is
+// required diagnostic metadata. Protocol is required and must match the hub;
+// application release versions are independent.
+type SessionHello struct {
+	RulesCrashReportSchema int           `json:"rulesCrashReportSchema,omitempty"`
+	ClusterRealm           string        `json:"clusterRealm,omitempty"`
+	ClusterTicket          string        `json:"clusterTicket,omitempty"`
+	NodeLatencies          []NodeLatency `json:"nodeLatencies,omitempty"`
+	DisplayName            string        `json:"displayName"`
+	ClientVersion          string        `json:"clientVersion"`
+	Protocol               string        `json:"protocol"`
+	ResumeToken            string        `json:"resumeToken,omitempty"`
+	LastSeq                int64         `json:"lastSeq,omitempty"`
+	AccountSession         string        `json:"accountSession,omitempty"`
+}
+
+// SessionWelcome is the payload of session.welcome (S->C). It is the ONLY
+// message that authoritatively carries the protocol version `v`. ResumeToken
+// is an opaque, client-private credential. A resumed welcome carries enough
+// membership metadata for a restarted client to interpret the fresh room and
+// role-specific game snapshots that immediately follow.
+type SessionWelcome struct {
+	ClusterNode                 string `json:"clusterNode,omitempty"`
+	V                           string `json:"v"`
+	ConnectionID                string `json:"connectionId"`
+	ServerVersion               string `json:"serverVersion"`
+	ResumeToken                 string `json:"resumeToken"`
+	Resumed                     bool   `json:"resumed,omitempty"`
+	RoomID                      string `json:"roomId,omitempty"`
+	Role                        string `json:"role,omitempty"`
+	Seat                        *int   `json:"seat,omitempty"`
+	Host                        bool   `json:"host,omitempty"`
+	AIModelsAvailable           bool   `json:"aiModelsAvailable"`
+	ForgeAIAvailable            bool   `json:"forgeAIAvailable,omitempty"`
+	ForgeDuelAIAvailable        bool   `json:"forgeDuelAIAvailable,omitempty"`
+	PlayerHostedDuelAIAvailable bool   `json:"playerHostedDuelAIAvailable,omitempty"`
+	ForgeRulesAvailable         bool   `json:"forgeRulesAvailable"`
+	PlayerHostingAvailable      bool   `json:"playerHostingAvailable,omitempty"`
+	PeerTransportAvailable      bool   `json:"peerTransportAvailable,omitempty"`
+	HostMigrationAvailable      bool   `json:"hostMigrationAvailable,omitempty"`
+	AccountRealm                string `json:"accountRealm,omitempty"`
+	AccountID                   string `json:"accountId,omitempty"`
+	AccountName                 string `json:"accountName,omitempty"`
+}
+
+// ErrorPayload is the payload of an `error` message.
+type ErrorPayload struct {
+	Code           string `json:"code"`
+	Message        string `json:"message"`
+	ClientVersion  string `json:"clientVersion,omitempty"`
+	ClientProtocol string `json:"clientProtocol,omitempty"`
+	ServerProtocol string `json:"serverProtocol,omitempty"`
+	// MinimumPlayers is a structured detail on tournament_not_ready errors:
+	// the checked-in count the tournament needs before it can start. Clients
+	// localize from it instead of parsing Message.
+	MinimumPlayers int `json:"minimumPlayers,omitempty"`
+	// RulesStartFailure is safe room-wide context with optional owner-only deck details.
+	RulesStartFailure *RulesStartFailure `json:"rulesStartFailure,omitempty"`
+	RulesCrashReport  *RulesCrashReport  `json:"rulesCrashReport,omitempty"`
+}
+
+// RoomCreate is the payload of room.create (C->S).
+type RoomCreate struct {
+	Name               string `json:"name"`
+	Format             string `json:"format"`
+	DeckFormat         string `json:"deckFormat"`
+	MaxSeats           int    `json:"maxSeats,omitempty"`
+	Playtest           bool   `json:"playtest,omitempty"`
+	AllowSpectators    bool   `json:"allowSpectators"`
+	SpectatorsSeeHands bool   `json:"spectatorsSeeHands"`
+	MatchMode          string `json:"matchMode"`
+	CardLoadMode       string `json:"cardLoadMode,omitempty"`
+	RulesMode          string `json:"rulesMode"`
+	ActionClockEnabled bool   `json:"actionClockEnabled,omitempty"`
+	HostingMode        string `json:"hostingMode,omitempty"`
+	AISource           string `json:"aiSource,omitempty"`
+	AIDifficulty       string `json:"aiDifficulty,omitempty"`
+	Password           string `json:"password,omitempty"`
+}
+
+// RoomCreated is the payload of room.created (S->C).
+type RoomCreated struct {
+	RoomID   string       `json:"roomId"`
+	Settings RoomSettings `json:"settings"`
+	HostSeat int          `json:"hostSeat"`
+}
+
+// RoomSettings is the room configuration shared in created/snapshot.
+type RoomSettings struct {
+	Name               string `json:"name"`
+	Format             string `json:"format"`
+	DeckFormat         string `json:"deckFormat"`
+	MaxSeats           int    `json:"maxSeats"`
+	Playtest           bool   `json:"playtest,omitempty"`
+	AllowSpectators    bool   `json:"allowSpectators"`
+	SpectatorsSeeHands bool   `json:"spectatorsSeeHands"`
+	MatchMode          string `json:"matchMode"`
+	CardLoadMode       string `json:"cardLoadMode"`
+	HasPassword        bool   `json:"hasPassword"`
+	RulesMode          string `json:"rulesMode"`
+	ActionClockEnabled bool   `json:"actionClockEnabled,omitempty"`
+	HostingMode        string `json:"hostingMode,omitempty"`
+	AISource           string `json:"aiSource,omitempty"`
+	AIDifficulty       string `json:"aiDifficulty,omitempty"`
+}
+
+// RoomListEntry is the public, hub-local discovery projection. It never
+// contains password material, member identities, deck selection, connection
+// ids, or hidden game state.
+type RoomListEntry struct {
+	NodeName           string `json:"nodeName,omitempty"`
+	RoomID             string `json:"roomId"`
+	RoomKind           string `json:"roomKind,omitempty"`
+	Name               string `json:"name"`
+	Format             string `json:"format"`
+	DeckFormat         string `json:"deckFormat"`
+	MatchMode          string `json:"matchMode"`
+	CardLoadMode       string `json:"cardLoadMode"`
+	RulesMode          string `json:"rulesMode"`
+	HostingMode        string `json:"hostingMode,omitempty"`
+	AISource           string `json:"aiSource,omitempty"`
+	AIDifficulty       string `json:"aiDifficulty,omitempty"`
+	MaxSeats           int    `json:"maxSeats"`
+	PlayerCount        int    `json:"playerCount"`
+	SpectatorCount     int    `json:"spectatorCount"`
+	AllowSpectators    bool   `json:"allowSpectators"`
+	SpectatorsSeeHands bool   `json:"spectatorsSeeHands"`
+	HasPassword        bool   `json:"hasPassword"`
+	Phase              string `json:"phase"`
+	PlayerJoinable     bool   `json:"playerJoinable"`
+	SpectatorJoinable  bool   `json:"spectatorJoinable"`
+}
+
+type RoomListed struct {
+	Rooms []RoomListEntry `json:"rooms"`
+}
+
+// RoomJoin is the payload of room.join (C->S).
+type RoomJoin struct {
+	UseAccount       bool   `json:"useAccount,omitempty"`
+	AcceptPlayerHost bool   `json:"acceptPlayerHost,omitempty"`
+	RoomID           string `json:"roomId"`
+	AsSpectator      bool   `json:"asSpectator"`
+	Password         string `json:"password,omitempty"`
+	Credential       string `json:"credential,omitempty"`
+}
+
+// RoomJoined is the payload of room.joined (S->C).
+type RoomJoined struct {
+	RoomID string `json:"roomId"`
+	Role   string `json:"role"` // "player" | "spectator"
+	Seat   *int   `json:"seat,omitempty"`
+}
+
+// DeckCard identifies one selected printing and its quantity. The server keeps
+// this private deck data for later match setup; room projections never expose
+// it to opponents or spectators. A completed tournament may publish the last
+// deck registered in one of its private pairing rooms.
+type DeckCard struct {
+	Name            string `json:"name"`
+	Count           int    `json:"count"`
+	SetCode         string `json:"setCode"`
+	CollectorNumber string `json:"collectorNumber"`
+	TypeLine        string `json:"typeLine,omitempty"`
+	VirtualBasic    bool   `json:"virtualBasic,omitempty"`
+}
+
+// DeckSelect is the payload of deck.select (C->S). It carries the complete
+// local deck identity because Hexproof uses a trust-server model.
+type DeckSelect struct {
+	Name       string   `json:"name"`
+	Format     string   `json:"format"`
+	DeckFormat string   `json:"deckFormat"`
+	Commander  string   `json:"commander,omitempty"`
+	Commanders []string `json:"commanders,omitempty"`
+	// Derived only from an authoritative Limited pool; never accepted on the wire.
+	CommanderPrintings []DeckCard `json:"-"`
+	CommanderColors    []string   `json:"-"`
+	Mainboard          []DeckCard `json:"mainboard"`
+	Sideboard          []DeckCard `json:"sideboard"`
+}
+
+// DeckSelected acknowledges a stored deck selection without echoing hidden
+// deck identities back onto the wire.
+type DeckSelected struct {
+	RoomID string `json:"roomId"`
+	Seat   int    `json:"seat"`
+}
+
+// PlayerReady is the payload of player.ready (C->S).
+type PlayerReady struct {
+	Ready bool `json:"ready"`
+}
+
+// PlayerReadyChanged acknowledges the resulting ready state.
+type PlayerReadyChanged struct {
+	RoomID string `json:"roomId"`
+	Seat   int    `json:"seat"`
+	Ready  bool   `json:"ready"`
+}
+
+// CardKey is the minimum printing identity clients need to prefetch metadata
+// and art before the match starts. Quantities and deck ownership are omitted.
+type CardKey struct {
+	Name            string `json:"name"`
+	SetCode         string `json:"setCode"`
+	CollectorNumber string `json:"collectorNumber"`
+}
+
+// MatchLoadRequired starts one pre-match asset load generation.
+type MatchLoadRequired struct {
+	LoadID   int64     `json:"loadId"`
+	CardKeys []CardKey `json:"cardKeys"`
+}
+
+// ClientLoadComplete reports that one client finished a load generation.
+type ClientLoadComplete struct {
+	LoadID int64 `json:"loadId"`
+}
+
+// ClientLoadCompleted acknowledges a load completion report.
+type ClientLoadCompleted struct {
+	RoomID string `json:"roomId"`
+	LoadID int64  `json:"loadId"`
+}
+
+// MatchStarted transitions all room members from loading to the table shell.
+type MatchStarted struct {
+	RoomID string `json:"roomId"`
+	LoadID int64  `json:"loadId"`
+}
+
+// CardPosition is normalized to the battlefield bounds. Normalized
+// coordinates keep the server-authoritative layout independent of viewport
+// size and UI scale.
+type CardPosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// GameCard is a server-assigned card instance. Hidden-zone identities appear
+// only in the owning player's projected game snapshot. OwnerSeat remains
+// stable when a permanent is moved onto another seat's battlefield. Position
+// is present only while the card is on the battlefield.
+type GameCard struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name,omitempty"`
+	SetCode         string            `json:"setCode,omitempty"`
+	CollectorNumber string            `json:"collectorNumber,omitempty"`
+	TypeLine        string            `json:"typeLine,omitempty"`
+	OwnerSeat       int               `json:"ownerSeat"`
+	Commander       bool              `json:"commander,omitempty"`
+	FaceName        string            `json:"faceName,omitempty"`
+	FaceDown        bool              `json:"faceDown,omitempty"`
+	Position        *CardPosition     `json:"position,omitempty"`
+	Token           bool              `json:"token,omitempty"`
+	Tapped          bool              `json:"tapped,omitempty"`
+	Counters        []GameCardCounter `json:"counters,omitempty"`
+}
+
+// GameCardCounter is public state attached to one battlefield permanent.
+// The unnamed number counter uses the stable "number" id; ability counters
+// have server-assigned ids and a user-supplied public label.
+type GameCardCounter struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Label string `json:"label,omitempty"`
+	Value int    `json:"value"`
+}
+
+// BattlefieldCardPosition assigns one normalized position to an existing
+// permanent during an atomic manual battlefield arrangement.
+type BattlefieldCardPosition struct {
+	CardID   string        `json:"cardId"`
+	Position *CardPosition `json:"position"`
+}
+
+// GameSharedCard is a public card in the room-wide stack or reveal area.
+type GameSharedCard struct {
+	GameCard
+}
+
+// GamePlayerCounter is one of the seven public per-seat counter slots. Key is
+// stable for the game; Label and Value may be changed only by that seat.
+type GamePlayerCounter struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value int    `json:"value"`
+}
+
+// GameSeatProjection contains public zone counts and identities plus an
+// optional private hand. Hand is populated only for the owning viewer.
+type GameSeatProjection struct {
+	Seat               int                 `json:"seat"`
+	DisplayName        string              `json:"displayName"`
+	Life               int                 `json:"life"`
+	TurnCount          int                 `json:"turnCount"`
+	Counters           []GamePlayerCounter `json:"counters,omitempty"`
+	CounterCount       int                 `json:"counterCount,omitempty"`
+	LibraryTopRevealed bool                `json:"libraryTopRevealed,omitempty"`
+	LibraryTopCard     *GameCard           `json:"libraryTopCard,omitempty"`
+	LibraryCount       int                 `json:"libraryCount"`
+	HandCount          int                 `json:"handCount"`
+	MulliganCount      int                 `json:"mulliganCount"`
+	Hand               []GameCard          `json:"hand,omitempty"`
+	SideboardCount     int                 `json:"sideboardCount,omitempty"`
+	Sideboard          []GameCard          `json:"sideboard,omitempty"`
+	Battlefield        []GameCard          `json:"battlefield"`
+	Graveyard          []GameCard          `json:"graveyard"`
+	Exile              []GameCard          `json:"exile"`
+	CommandZone        []GameCard          `json:"commandZone,omitempty"`
+	Emblems            []GameEmblem        `json:"emblems,omitempty"`
+	CommanderTax       int                 `json:"commanderTax,omitempty"`
+	CommanderTaxes     map[string]int      `json:"commanderTaxes,omitempty"`
+	Eliminated         bool                `json:"eliminated,omitempty"`
+	ResponseStatus     string              `json:"responseStatus,omitempty"`
+}
+
+// GameCommanderIdentity keeps each designated commander's public identity
+// available even while the physical card is face down or controlled by
+// another player. Commander status is public game information.
+type GameCommanderIdentity struct {
+	CardID      string `json:"cardId"`
+	OwnerSeat   int    `json:"ownerSeat"`
+	Name        string `json:"name"`
+	ChosenColor string `json:"chosenColor,omitempty"`
+}
+
+// GameCommanderDamage is one public commander-to-player damage total. The
+// source is the physical commander card rather than only its owner or name.
+type GameCommanderDamage struct {
+	CommanderID        string `json:"commanderId"`
+	CommanderOwnerSeat int    `json:"commanderOwnerSeat"`
+	TargetSeat         int    `json:"targetSeat"`
+	Value              int    `json:"value"`
+}
+
+// GameLogEntry is public table history. Text must never contain hidden card
+// identities unless a later explicit reveal action authorizes them.
+type GameLogEntry struct {
+	ID   int64  `json:"id"`
+	Kind string `json:"kind"`
+	Seat int    `json:"seat"`
+	Text string `json:"text"`
+}
+
+// GameResult is the public, immutable outcome of one completed game.
+type GameResult struct {
+	Reason        string `json:"reason"`
+	WinnerSeat    int    `json:"winnerSeat"`
+	ConcededSeat  int    `json:"concededSeat"`
+	MatchFinished bool   `json:"matchFinished"`
+}
+
+// GameSnapshot is projected independently for each room member. All members
+// receive identical public counts/logs; only a seated owner receives Hand.
+type GameSnapshot struct {
+	RoomID            string                  `json:"roomId"`
+	GameNumber        int                     `json:"gameNumber"`
+	StartingSeat      int                     `json:"startingSeat"`
+	TurnOrder         []int                   `json:"turnOrder"`
+	ActiveSeat        int                     `json:"activeSeat"`
+	CurrentPhase      string                  `json:"currentPhase"`
+	LandPlaysThisTurn int                     `json:"landPlaysThisTurn"`
+	Seats             []GameSeatProjection    `json:"seats"`
+	Stack             []GameSharedCard        `json:"stack"`
+	Revealed          []GameSharedCard        `json:"revealed"`
+	Arrows            []GameArrow             `json:"arrows"`
+	Attachments       []GameAttachment        `json:"attachments"`
+	Commanders        []GameCommanderIdentity `json:"commanders,omitempty"`
+	CommanderDamage   []GameCommanderDamage   `json:"commanderDamage,omitempty"`
+	Log               []GameLogEntry          `json:"log"`
+	LogStartID        int64                   `json:"logStartId,omitempty"`
+	LogTruncated      bool                    `json:"logTruncated,omitempty"`
+	Score             []int                   `json:"score"`
+	DrawnGames        int                     `json:"drawnGames,omitempty"`
+	Result            *GameResult             `json:"result,omitempty"`
+	Sideboard         *SideboardProjection    `json:"sideboard,omitempty"`
+}
+
+// GameArrow is a public, temporary combat or targeting relation. Combat sources
+// are controlled battlefield cards; ordinary target sources may also be cards
+// the acting player owns on the shared stack. A relation points to a seated
+// player or a battlefield card, and each source owns at most one relation.
+type GameArrow struct {
+	Seat         int    `json:"seat"`
+	SourceCardID string `json:"sourceCardId"`
+	Kind         string `json:"kind"`
+	TargetCardID string `json:"targetCardId,omitempty"`
+	TargetSeat   *int   `json:"targetSeat,omitempty"`
+}
+
+// GameAttachment is a public battlefield relation. SourceCardID belongs to
+// OwnerSeat; TargetCardID may belong to any seated player.
+type GameAttachment struct {
+	OwnerSeat    int    `json:"ownerSeat"`
+	SourceCardID string `json:"sourceCardId"`
+	TargetCardID string `json:"targetCardId"`
+}
+
+// RoomKick is the payload of room.kick (C->S, host only). Exactly one of
+// Seat / SpectatorIndex must be set; the host cannot kick their own (host)
+// seat - use room.leave or room.disband instead. Display names are not used
+// (duplicates are allowed, so name-based kick would be ambiguous).
+type RoomKick struct {
+	Seat           *int `json:"seat,omitempty"`           // player seat index 0..maxSeats-1
+	SpectatorIndex *int `json:"spectatorIndex,omitempty"` // index into spectators slice
+}
+
+// Validate reports an error code (empty string if OK) if the kick target is
+// not exactly one of Seat / SpectatorIndex.
+func (k RoomKick) Validate() string {
+	seatSet := k.Seat != nil
+	specSet := k.SpectatorIndex != nil
+	if seatSet == specSet { // both or neither
+		return ErrInvalidTarget
+	}
+	return ""
+}
+
+// RoomLeft is the payload of room.left (S->C, ack for leave).
+type RoomLeft struct {
+	RoomID string `json:"roomId"`
+}
+
+// Seat is a player seat projection in a snapshot.
+type Seat struct {
+	Controller   string `json:"controller,omitempty"`
+	AIDifficulty string `json:"aiDifficulty,omitempty"`
+	Occupied     bool   `json:"occupied"`
+	DisplayName  string `json:"displayName,omitempty"`
+	Host         bool   `json:"host,omitempty"`
+	DeckSelected bool   `json:"deckSelected,omitempty"`
+	DeckLocked   bool   `json:"deckLocked,omitempty"`
+	Ready        bool   `json:"ready,omitempty"`
+	Loaded       bool   `json:"loaded,omitempty"`
+	// ConnectionID is omitted in projections (never sent to clients).
+}
+
+// SpectatorProjection is a spectator entry in a snapshot.
+type SpectatorProjection struct {
+	DisplayName string `json:"displayName"`
+}
+
+// RoomSnapshot is the payload of room.snapshot (S->C). It carries public room
+// structure and the immutable policy used by later role-specific game
+// projections. OwnDeckName is optional recipient-private display metadata;
+// card identities and opponents' deck names are never embedded here.
+type RoomSnapshot struct {
+	RoomID             string                `json:"roomId"`
+	Name               string                `json:"name"`
+	OwnDeckName        string                `json:"ownDeckName,omitempty"`
+	Format             string                `json:"format"`
+	DeckFormat         string                `json:"deckFormat"`
+	MaxSeats           int                   `json:"maxSeats"`
+	Playtest           bool                  `json:"playtest,omitempty"`
+	MatchMode          string                `json:"matchMode"`
+	CardLoadMode       string                `json:"cardLoadMode"`
+	RulesMode          string                `json:"rulesMode"`
+	ActionClockEnabled bool                  `json:"actionClockEnabled,omitempty"`
+	HostingMode        string                `json:"hostingMode,omitempty"`
+	AISource           string                `json:"aiSource,omitempty"`
+	AIDifficulty       string                `json:"aiDifficulty,omitempty"`
+	HostConnected      bool                  `json:"hostConnected,omitempty"`
+	HostStatus         *ForgeHostStatus      `json:"hostStatus,omitempty"`
+	HostSeat           int                   `json:"hostSeat"`
+	HasPassword        bool                  `json:"hasPassword"`
+	Seats              []Seat                `json:"seats"`
+	Spectators         []SpectatorProjection `json:"spectators"`
+	AllowSpectators    bool                  `json:"allowSpectators"`
+	SpectatorsSeeHands bool                  `json:"spectatorsSeeHands"`
+	Phase              string                `json:"phase"`
+	LoadID             int64                 `json:"loadId,omitempty"`
+	// ActionClockMs is remaining action time per seat. ActionClockRunning is
+	// the decision seat whose clock is counting in a timed two-player Forge match.
+	ActionClockMs      []int64 `json:"actionClockMs,omitempty"`
+	ActionClockRunning *int    `json:"actionClockRunning,omitempty"`
+}
+
+// NewEnvelope builds an Envelope with the given type and JSON-marshaled payload.
+func NewEnvelope(typ string, payload any) (Envelope, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return Envelope{Type: typ, Payload: raw}, nil
+}
+
+// Marshal serializes an Envelope to JSON.
+func (e Envelope) Marshal() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+// ParseEnvelope decodes a JSON byte slice into an Envelope. It does NOT require
+// a top-level `v`: only session.welcome carries `v`, and only in its payload.
+// It rejects messages with an empty `type` (invalid envelope).
+func ParseEnvelope(data []byte) (Envelope, error) {
+	var env Envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return Envelope{}, err
+	}
+	if env.Type == "" {
+		return Envelope{}, fmt.Errorf("protocol: envelope missing type")
+	}
+	return env, nil
+}
+
+// DecodePayload unmarshals the envelope payload into dst.
+func (e Envelope) DecodePayload(dst any) error {
+	if len(e.Payload) == 0 {
+		return nil
+	}
+	return json.Unmarshal(e.Payload, dst)
+}
+
+// ValidateWelcome returns an error if a session.welcome payload does not carry
+// the expected protocol version. Enforces the handshake-only `v` rule.
+func ValidateWelcome(w SessionWelcome) error {
+	if w.V != ProtocolVersion {
+		return fmt.Errorf("protocol: welcome version %q != %q", w.V, ProtocolVersion)
+	}
+	return nil
+}
+
+// RoomAIConfigure updates the opponent while the practice room is waiting.
+// Deck is private input; snapshots expose only whether a deck was selected.
+type RoomAIConfigure struct {
+	Difficulty string      `json:"difficulty,omitempty"`
+	Deck       *DeckSelect `json:"deck,omitempty"`
+}
+
+func ValidAIDifficulty(value string) bool {
+	return value == AIDifficultyEasy || value == AIDifficultyNormal || value == AIDifficultyHard
+}

@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+import QtQuick
+import QtQuick.Controls.Basic
+
+Control {
+    id: control
+
+    property var options: []
+    property int currentIndex: 0
+    signal activated(int index)
+
+    function activateRelative(delta) {
+        if (options.length < 2)
+            return
+        const next = (currentIndex + delta + options.length)
+                     % options.length
+        currentIndex = next
+        activated(next)
+        const button = segmentRepeater.itemAt(next)
+        if (button)
+            button.forceActiveFocus()
+    }
+
+    padding: Theme.size(4)
+    implicitHeight: Theme.size(48)
+    implicitWidth: Theme.size(280)
+
+    background: Item {
+        implicitHeight: Theme.size(48)
+
+        LiquidGlass {
+            anchors.fill: parent
+            radius: Theme.radiusMedium
+            compact: true
+            visible: Theme.useGlass
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: !Theme.useGlass
+            color: Theme.surfaceMuted
+            radius: Theme.radiusMedium
+            border.width: 1
+            border.color: Theme.border
+        }
+    }
+
+    contentItem: Row {
+        id: segments
+        spacing: Theme.size(4)
+
+        Repeater {
+            id: segmentRepeater
+            model: control.options
+
+            delegate: Button {
+                id: segmentButton
+
+                required property int index
+                required property var modelData
+
+                width: (segments.width - Math.max(0, control.options.length - 1) * segments.spacing)
+                       / Math.max(1, control.options.length)
+                height: segments.height
+                text: modelData
+                hoverEnabled: true
+                focusPolicy: Qt.StrongFocus
+                checked: index === control.currentIndex
+                font.pixelSize: Theme.fontSize(13)
+                font.weight: checked ? Font.DemiBold : Font.Medium
+
+                onClicked: {
+                    control.currentIndex = index
+                    control.activated(index)
+                }
+                Keys.onLeftPressed: event => {
+                    control.activateRelative(-1)
+                    event.accepted = true
+                }
+                Keys.onRightPressed: event => {
+                    control.activateRelative(1)
+                    event.accepted = true
+                }
+
+                contentItem: Text {
+                    textFormat: Text.PlainText
+                    id: segmentLabel
+                    elide: Text.ElideRight
+                    text: segmentButton.text
+                    color: segmentButton.checked
+                           ? (Theme.useGlass ? Theme.primaryInk : Theme.text)
+                           : Theme.textMuted
+                    font: segmentButton.font
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                ToolTip.visible: hovered && segmentLabel.truncated
+                ToolTip.text: text
+                ToolTip.delay: 600
+
+                background: Rectangle {
+                    radius: Theme.useGlass ? Math.round(height / 2) : Theme.radiusSmall
+                    antialiasing: true
+                    color: segmentButton.checked
+                           ? (Theme.useGlass ? Theme.primary : Theme.surfaceElevated)
+                           : (segmentButton.hovered
+                              ? (Theme.useGlass ? Theme.glassElevated : Theme.surfaceHover)
+                              : "transparent")
+                    border.width: segmentButton.activeFocus ? 1 : 0
+                    border.color: Theme.primary
+
+                    Behavior on color { ColorAnimation { duration: Theme.motionFast } }
+                }
+            }
+        }
+    }
+}

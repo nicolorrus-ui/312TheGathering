@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+from __future__ import annotations
+
+import importlib
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+TOOLS_DIR = Path(__file__).resolve().parents[1]
+
+
+def load_tool(filename: str, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, TOOLS_DIR / filename)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {filename}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+protocol = load_tool("check-protocol-parity.py", "check_protocol_parity")
+protocol_codegen = load_tool("protocol_codegen.py", "protocol_codegen")
+payload_schema = importlib.import_module("payload_schema")
+payload_go_structs = importlib.import_module("payload_go_structs")
+i18n = load_tool("check-i18n.py", "check_i18n")
+module_size = load_tool("check-module-size.py", "check_module_size")
+server_directory = load_tool("write-server-directory.py", "write_server_directory")
+
+
+class ProtocolParityTests(unittest.TestCase):
+    def test_generated_go_and_cpp_constants_match(self) -> None:
+        constants = [
+            protocol_codegen.WireConstant("ProtocolVersion", "hexproof.v2"),
+            protocol_codegen.WireConstant("TypePing", "session.ping"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            go = root / "wire_constants_generated.go"
+            cpp = root / "WireConstantsGenerated.h"
+            go.write_text(protocol_codegen.render_go(constants), encoding="utf-8")
+            cpp.write_text(protocol_codegen.render_cpp(constants), encoding="utf-8")
+            expected = {item.name: item.value for item in constants}
+            self.assertEqual(protocol.parse_constants(go, protocol.GO_CONSTANT), expected)
+            self.assertEqual(protocol.parse_constants(cpp, protocol.CPP_CONSTANT), expected)
+
+    def test_manual_generated_constant_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            go = root / "apps/server/internal/protocol/protocol.go"
+            cpp = root / "apps/client-qt/src/protocol/Message.h"
+            go.parent.mkdir(parents=True)
+            cpp.parent.mkdir(parents=True)
+            go.write_text('const TypePing = "session.ping"\n', encoding="utf-8")
+            cpp.write_text(
+                'inline const QString kTypePing = QStringLiteral("session.ping");\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                protocol.manual_declarations(root, {"TypePing"}),
+                [
+                    "apps/server/internal/protocol/protocol.go manually redeclares generated "
+                    "constant TypePing",
+                    "apps/client-qt/src/protocol/Message.h manually redeclares generated "
+                    "constant TypePing",
+                ],
+            )
+
+    def test_core_payload_schema_matches_go_qt_and_fixtures(self) -> None:
+        root = TOOLS_DIR.parent
+        constants = protocol_codegen.load_schema(root)
+        message_types = {
+            item.value for item in constants if item.name.startswith("Type")
+        }
+        schema = payload_schema.load_payload_schema(root, message_types)
+        self.assertEqual(schema.protocol, "hexproof.v3")
+        self.assertEqual(set(schema.messages), message_types - {"room.event"})
+        self.assertIn("game.snapshot", schema.messages)
+        self.assertIn("room.snapshot", schema.messages)
+        self.assertIn("sideboard.completed", schema.messages)
+        self.assertIn("replay.loaded", schema.messages)
+        self.assertIn("game.attachment_set", schema.messages)
+        self.assertIn("game.library_view_resolved", schema.messages)
+        self.assertIn("game.said", schema.messages)
+        self.assertIn("error", schema.messages)
+        self.assertNotIn("room.event", schema.messages)
+        self.assertEqual(payload_schema.verify_payload_fixtures(root, schema), [])
+        self.assertEqual(payload_go_structs.verify_go_payload_structs(root, schema), [])
+        self.assertEqual(payload_schema.verify_qt_payload_builders(root, schema), [])
+
+    def test_go_struct_parser_keeps_inline_empty_structs_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "protocol.go"
+            path.write_text(
+                'package protocol\n\n'
+                'type Empty struct{}\n\n'
+                'type Reply struct {\n'
+                '\tRoomID string `json:"roomId"`\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            structs = payload_schema.parse_go_structs(path)
+            self.assertEqual(structs["Empty"], {})
+            self.assertEqual(structs["Reply"], {"roomId": ("string", False)})
+
+    def test_go_package_struct_parser_reads_non_test_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "first.go").write_text(
+                "package protocol\n\ntype First struct{}\n", encoding="utf-8"
+            )
+            (root / "second.go").write_text(
+                'package protocol\n\ntype Second struct {\n'
+                '\tRoomID string `json:"roomId"`\n'
+                '}\n',
+                encoding="utf-8",
+            )
+            (root / "ignored_test.go").write_text(
+                "package protocol\n\ntype TestOnly struct{}\n", encoding="utf-8"
+            )
+            structs = payload_go_structs.parse_go_package_structs(root)
+            self.assertEqual(structs["First"], {})
+            self.assertEqual(structs["Second"], {"roomId": ("string", False)})
+            self.assertNotIn("TestOnly", structs)
+
+    def test_payload_number_accepts_coordinates_but_not_boolean(self) -> None:
+        self.assertTrue(payload_schema._json_matches_type(0.25, "number"))
+        self.assertTrue(payload_schema._json_matches_type(1, "number"))
+        self.assertFalse(payload_schema._json_matches_type(True, "number"))
+
+    def test_payload_validation_rejects_missing_and_unknown_fields(self) -> None:
+        spec = payload_schema.ObjectSpec(
+            name="Ready",
+            go_type="PlayerReady",
+            fields=(
+                payload_schema.FieldSpec("ready", "boolean", True),
+            ),
+        )
+        schema = payload_schema.PayloadSchema("hexproof.v2", {}, {})
+        problems = payload_schema._validate_object(
+            {"extra": True}, spec, schema, "player.ready.payload"
+        )
+        self.assertEqual(
+            problems,
+            [
+                "player.ready.payload: unknown fields extra",
+                "player.ready.payload.ready: required field is missing",
+            ],
+        )
+
+
+class I18nAuditTests(unittest.TestCase):
+    def test_catalog_messages_include_completed_translations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hexproof_zh_CN.ts"
+            path.write_text(
+                '<?xml version="1.0"?><TS><context><name>Main</name>'
+                '<message><source>Hello</source><translation>你好</translation></message>'
+                '</context></TS>',
+                encoding="utf-8",
+            )
+            report = i18n.parse_catalog(path, 1)
+            self.assertEqual(report.valid_key_set, {("Main", "Hello")})
+            self.assertEqual(report.duplicates, [])
+            self.assertEqual(report.unfinished, [])
+
+    def test_unfinished_and_duplicate_messages_are_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "hexproof_zh_CN.ts"
+            path.write_text(
+                '<?xml version="1.0"?><TS><context><name>Main</name>'
+                '<message><source>Hello</source>'
+                '<translation type="unfinished"></translation></message>'
+                '<message><source>Hello</source><translation>您好</translation></message>'
+                '</context></TS>',
+                encoding="utf-8",
+            )
+            report = i18n.parse_catalog(path, 1)
+            self.assertEqual(report.duplicates, [("Main", "Hello")])
+            self.assertEqual(report.unfinished, [("Main", "Hello")])
+
+
+class ServerDirectoryToolTests(unittest.TestCase):
+    def test_account_realms_are_scoped_to_secure_endpoints(self) -> None:
+        entry = {"id": "official", "name": "Official", "forge": False,
+                 "url": "wss://official.example/ws", "accountRealm": "hexproof-official"}
+        document = {"schemaVersion": 2, "revision": 1, "servers": [entry]}
+        self.assertEqual(server_directory.validate_directory(document), document)
+        for key, value in (("accountRealm", ""), ("accountRealm", "wrong realm"),
+                           ("accountRealm", "x" * 65), ("url", "ws://127.0.0.1/ws"),
+                           ("url", "wss://127.0.0.2/ws")):
+            with self.subTest(key=key, value=value):
+                changed = dict(entry, **{key: value})
+                with self.assertRaises(ValueError):
+                    server_directory.validate_directory(dict(document, servers=[changed]))
+        local = dict(entry, url="ws://127.0.0.1/ws", accountRealm="local-test")
+        server_directory.validate_directory(dict(document, servers=[local]))
+
+    def test_rejects_invalid_ports_and_control_characters_in_all_url_fields(self) -> None:
+        for url in ("wss://server.example:99999/ws", "ws://server.example:abc/ws",
+                    "ws://server.example:-1/ws", "ws://server example/ws",
+                    "wss://ser\nver.example/ws", "wss://server.example/%wrong"):
+            for legacy in (False, True):
+                with self.subTest(url=url, legacy=legacy):
+                    document = {"schemaVersion": 1,
+                                "servers": [{"url": f"wss://server-{i}.example/ws"}
+                                            for i in range(5)]}
+                    if legacy:
+                        document["servers"][0]["legacyUrls"] = [url]
+                    else:
+                        document["servers"][0]["url"] = url
+                    with self.assertRaises(ValueError):
+                        server_directory.validate_directory(document)
+
+    def test_accepts_valid_ports_ipv6_and_encoded_paths(self) -> None:
+        urls = ["ws://[::1]:57320/ws", "wss://server.example:443/test/ws",
+                "wss://server.example/ws", "ws://127.0.0.1:65535/ws",
+                "wss://server.example/%E6%B5%8B%E8%AF%95/ws"]
+        document = {"schemaVersion": 1,
+                    "servers": [{"url": url, "legacyUrls": [url]} for url in urls]}
+        self.assertEqual(server_directory.validate_directory(document), document)
+
+    def test_accepts_five_servers_including_a_path_scoped_test_hub(self) -> None:
+        document = {
+            "schemaVersion": 1,
+            "servers": [
+                {"url": "wss://server-1.example/ws"},
+                {"url": "wss://server-2.example/ws"},
+                {"url": "wss://server-3.example/ws"},
+                {"url": "wss://server-4.example/ws"},
+                {"url": "wss://server-1.example/test/ws"},
+            ],
+        }
+        self.assertEqual(server_directory.validate_directory(document), document)
+
+    def test_accepts_variable_legacy_server_count(self) -> None:
+        document = {
+            "schemaVersion": 1,
+            "servers": [
+                {"url": "wss://server-1.example/ws"},
+                {"url": "wss://server-2.example/ws"},
+                {"url": "wss://server-3.example/ws"},
+                {"url": "wss://server-1.example/test/ws"},
+            ],
+        }
+        self.assertEqual(server_directory.validate_directory(document), document)
+
+    def test_online_catalog_requires_unique_ids_and_boolean_capabilities(self) -> None:
+        valid = {"schemaVersion": 2, "revision": 1,
+                 "directoryUrls": ["https://directory.example/servers.json"],
+                 "servers": [{"id": "server-1", "name": "Server 1", "forge": False,
+                              "url": "wss://server-1.example/ws"}]}
+        self.assertEqual(server_directory.validate_directory(valid), valid)
+        for field, value in (("id", "custom"), ("forge", "false"),
+                             ("name", ""), ("url", "ws://public.example/ws"),
+                             ("url", "wss://user:password@public.example/ws"),
+                             ("url", "wss://public.example/ws?token=value")):
+            with self.subTest(field=field, value=value):
+                changed = json.loads(json.dumps(valid))
+                changed["servers"][0][field] = value
+                with self.assertRaises(ValueError):
+                    server_directory.validate_directory(changed)
+        duplicate = json.loads(json.dumps(valid))
+        duplicate["servers"].append(dict(valid["servers"][0], url="wss://other.example/ws"))
+        with self.assertRaises(ValueError):
+            server_directory.validate_directory(duplicate)
+
+    def test_online_catalog_accepts_empty_list_and_rejects_invalid_revisions(self) -> None:
+        document = {"schemaVersion": 2, "revision": 1, "servers": []}
+        self.assertEqual(server_directory.validate_directory(document), document)
+        for revision in (0, -1, True, 1.5, 2**53):
+            with self.subTest(revision=revision):
+                with self.assertRaises(ValueError):
+                    server_directory.validate_directory(dict(document, revision=revision))
+
+
+
+class VerificationScriptTests(unittest.TestCase):
+    def test_module_size_policy_includes_test_sources(self) -> None:
+        policy = json.loads(module_size.POLICY_PATH.read_text(encoding="utf-8"))
+        excluded = policy.get("excludePrefixes", [])
+        self.assertNotIn("apps/client-qt/tests/", excluded)
+        self.assertNotIn("apps/server/", excluded)
+        sources = {
+            module_size.relative(path) for path in module_size.source_files(policy)
+        }
+        self.assertTrue(any(path.startswith("apps/client-qt/tests/qml/") and path.endswith(".qml")
+                            for path in sources),
+                        "The active policy must include QML test sources")
+        self.assertTrue(any(path.startswith("apps/server/") and path.endswith("_test.go")
+                            for path in sources),
+                        "The active policy must include server test sources")
+
+    def test_background_jobs_do_not_use_the_global_qt_thread_pool(self) -> None:
+        source_root = TOOLS_DIR.parent / "apps/client-qt/src"
+        offenders = []
+        for path in source_root.rglob("*.cpp"):
+            text = path.read_text(encoding="utf-8")
+            if "QtConcurrent::run([" in text or "QtConcurrent::run(\n        [" in text:
+                offenders.append(str(path.relative_to(TOOLS_DIR.parent)))
+        self.assertEqual(offenders, [])
+
+    def test_synchronous_deck_import_is_not_exposed_to_qml(self) -> None:
+        header = (
+            TOOLS_DIR.parent / "apps/client-qt/src/models/DeckLibraryModel.h"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "bool importDeck(const QString &name, const QString &format, const QString &text);",
+            header,
+        )
+        self.assertNotIn("Q_INVOKABLE bool importDeck(", header)
+
+    def test_client_and_tests_share_domain_libraries(self) -> None:
+        cmake = (TOOLS_DIR.parent / "apps/client-qt/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        for target in (
+            "hexproof_deck_core",
+            "hexproof_deck_library",
+            "hexproof_session",
+            "hexproof_table_models",
+        ):
+            self.assertIn(f"qt_add_library({target} STATIC", cmake)
+        wsclient_test = cmake.split("qt_add_executable(hexproof_wsclient_test", 1)[
+            1
+        ].split("add_test(NAME wsclient", 1)[0]
+        self.assertIn("hexproof_session", wsclient_test)
+        self.assertNotIn("src/services/WsClient.cpp", wsclient_test)
+        deck_test = cmake.split("qt_add_executable(hexproof_deck_test", 1)[1].split(
+            "add_test(NAME deck", 1
+        )[0]
+        self.assertIn("hexproof_deck_library", deck_test)
+        self.assertNotIn("src/models/DeckLibraryModel.cpp", deck_test)
+
+    def test_macos_signing_secrets_are_scoped_to_required_steps(self) -> None:
+        workflow = (TOOLS_DIR.parent / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        macos_job = workflow.split("  client-macos:\n", 1)[1].split(
+            "\n  server:\n", 1
+        )[0]
+        job_configuration = macos_job.split("    steps:\n", 1)[0]
+        self.assertNotIn("secrets.MACOS_", job_configuration)
+        self.assertIn(
+            "          - arch: arm64\n            runner: macos-15",
+            macos_job,
+        )
+        self.assertNotIn("arch: x86_64", macos_job)
+        self.assertNotIn("macos-15-intel", macos_job)
+        self.assertIn("      - name: Import signing certificate", macos_job)
+        self.assertIn("      - name: Build package", macos_job)
+        self.assertIn("MACOS_RELEASE_NOTARIZED:", workflow)
+
+    def test_release_uses_compatible_stable_card_database(self) -> None:
+        workflow = (TOOLS_DIR.parent / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        prepare_job = workflow.split("  prepare:\n", 1)[1].split(
+            "\n  forge-sources:\n", 1
+        )[0]
+        assemble_job = workflow.split("  assemble:\n", 1)[1]
+        self.assertNotIn("\n  card-database:\n", workflow)
+        self.assertIn(
+            "Verify stable card database compatibility",
+            prepare_job,
+        )
+        self.assertIn(
+            "kCatalogIndexVersion",
+            prepare_job,
+        )
+        self.assertIn(
+            "releases/download/card-data/card-database-manifest.json",
+            prepare_job,
+        )
+        self.assertIn(".schemaVersion == $expectedSchema", prepare_job)
+        self.assertNotIn("      - card-database", assemble_job)
+        self.assertNotIn("hexproof-card-database", assemble_job)
+
+    def test_card_database_workflow_reports_generated_version(self) -> None:
+        workflow = (TOOLS_DIR.parent / ".github/workflows/card-database.yml").read_text(
+            encoding="utf-8"
+        )
+        packager = (
+            TOOLS_DIR.parent / "packaging/card-database/build-release-assets.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Report card database version", workflow)
+        self.assertIn(".generatedAt | strings", workflow)
+        self.assertIn('>> "$GITHUB_STEP_SUMMARY"', workflow)
+        self.assertIn(
+            "name: hexproof-card-database-${{ steps.metadata.outputs.artifact_version }}",
+            workflow,
+        )
+        self.assertIn("gh release upload card-data --clobber", workflow)
+        self.assertIn('manifest_name="card-database-manifest.json"', packager)
+        self.assertIn('asset_name="hexproof-default-cards.sqlite.gz"', packager)
+
+
+class CardServiceBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def source(path: str) -> str:
+        return (TOOLS_DIR.parent / path).read_text(encoding="utf-8")
+
+    def test_catalog_disconnects_direct_replies_before_resolver_shutdown(self) -> None:
+        text = self.source("apps/client-qt/src/services/CardCatalog.cpp")
+        destructor = text.split("CardCatalog::~CardCatalog()", 1)[1].split(
+            "bool CardCatalog::installed()", 1
+        )[0]
+        disconnect = destructor.index("disconnect(reply, nullptr, this, nullptr)")
+        clear_jobs = destructor.index("m_directImageJobs.clear()")
+        reset_resolver = destructor.index("m_cardResolver.reset()")
+        self.assertLess(disconnect, reset_resolver)
+        self.assertLess(clear_jobs, reset_resolver)
+        self.assertNotIn("m_directImageJobs.contains(reply)", destructor)
+
+    def test_mtgch_recovery_clears_confirmed_missing(self) -> None:
+        requests = self.source("apps/client-qt/src/services/CardResolverRequests.cpp")
+        replies = self.source("apps/client-qt/src/services/CardResolverReplies.cpp")
+        mtgch_english = requests.split("const auto beginMtgchEnglish", 1)[1].split(
+            "if (m_currentProvider", 1
+        )[0]
+        mtgch_reply = replies.split("void CardResolver::applyMtgchJson", 1)[1].split(
+            "void CardResolver::handleImageReply", 1
+        )[0]
+        self.assertIn("m_currentConfirmedMissing = false;", mtgch_english)
+        self.assertGreaterEqual(
+            mtgch_reply.count("m_currentConfirmedMissing = false;"), 2
+        )
+
+    def test_table_uses_model_revisions_instead_of_json_serialization(self) -> None:
+        table = self.source("apps/client-qt/qml/screens/Table.qml")
+        seat_state = self.source(
+            "apps/client-qt/qml/components/BattlefieldSeatState.qml"
+        )
+        self.assertNotIn("JSON.stringify", table)
+        self.assertNotIn("JSON.stringify", seat_state)
+        self.assertIn("source.modelRevision", seat_state)
+
+    def test_dynamic_quality_gates_cover_client_and_server_boundaries(self) -> None:
+        cmake = self.source("apps/client-qt/CMakeLists.txt")
+        ci = self.source(".github/workflows/ci.yml")
+        self.assertIn("HEXPROOF_ENABLE_SANITIZERS", cmake)
+        self.assertIn("-fsanitize=address,undefined", cmake)
+        self.assertIn(
+            "client-sanitizers:\n"
+            "    name: Qt client (ASan and UBSan)\n"
+            "    if: github.event_name == 'workflow_dispatch'",
+            ci,
+        )
+        self.assertIn(
+            "client-platforms:\n"
+            "    name: Qt client (${{ matrix.name }})\n"
+            "    if: github.event_name == 'workflow_dispatch'",
+            ci,
+        )
+        fuzz_step = next(step for step in ci.split("      - name:")
+                         if "-fuzztime" in step)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", fuzz_step)
+        self.assertIn("FuzzParseEnvelope", ci)
+        self.assertIn("FuzzGameMoveSequencePreservesCards", ci)
+        self.assertIn("FuzzDecodeRetainedRoom", ci)
+
+    def test_ci_format_check_tolerates_rewritten_push_bases(self) -> None:
+        ci = self.source(".github/workflows/ci.yml")
+        self.assertIn("PUSH_BASE_SHA: ${{ github.event.before }}", ci)
+        self.assertIn('git cat-file -e "$base^{commit}"', ci)
+        self.assertIn("git rev-parse --verify --quiet HEAD^", ci)
+
+    def test_static_checks_are_shared_by_local_and_ci_gates(self) -> None:
+        for path in ("tools/verify.sh", ".github/workflows/ci.yml"):
+            with self.subTest(path=path):
+                self.assertIn("./tools/check-shared.sh static", self.source(path))
+
+
+if __name__ == "__main__":
+    unittest.main()

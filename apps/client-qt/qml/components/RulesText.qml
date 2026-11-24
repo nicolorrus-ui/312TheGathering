@@ -1,0 +1,364 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+pragma Singleton
+import QtQuick
+
+QtObject {
+    // Translate only known engine UI templates. Inserted player names stay
+    // literal. Modal lines can be replaced by the same printed mode in the
+    // viewer's card language; that replacement never determines a response.
+    function text(source) {
+        if (!source) return source
+        return String(source).split("\n").map(line => translateLine(line)).join("\n")
+    }
+
+    function isPlayOrDraw(kind, title, detail) {
+        return kind === "chooseBoolean" && (title + "\n" + detail).split("\n")
+            .some(line => line === "Would you like to play or draw?")
+    }
+
+    function title(kind, source, detail) {
+        return isPlayOrDraw(kind, source, detail) ? qsTr("Choose play or draw") : text(source)
+    }
+
+    function choice(kind, label, title, detail) {
+        if (isPlayOrDraw(kind, title, detail)) {
+            if (label === "Play") return qsTr("Play first")
+            if (label === "Draw") return qsTr("Draw first")
+        }
+        if (/^Assign (.+) combat damage now\?$/.test(title)) {
+            if (label === "Assign now") return qsTr("Assign this creature first")
+            if (label === "Assign later") return qsTr("Assign other creatures first")
+        }
+        switch (label) {
+        case "OK": return qsTr("OK")
+        case "Cancel": return qsTr("Cancel")
+        case "Accept": return qsTr("Accept")
+        case "Decline": return qsTr("Decline")
+        case "Library": return qsTr("Library")
+        case "Graveyard": return qsTr("Graveyard")
+        case "Top": return qsTr("Top")
+        case "Bottom": return qsTr("Bottom")
+        case "Keep this hand": return qsTr("Keep this hand")
+        case "View next hand": return qsTr("View next hand")
+        default: return text(label)
+        }
+    }
+
+    function translateLine(source) {
+        switch (source) {
+        // Exact native-host and adapter headings are listed here so lupdate
+        // and the strict translation audit can track every UI string.
+        case "AI deck advisory": return qsTr("AI deck advisory")
+        case "Game notice": return qsTr("Game notice")
+        case "=== Main Deck ===": return qsTr("Main deck")
+        case "=== Sideboard ===": return qsTr("Sideboard")
+        case "You can continue this game. These cards will remain in the deck.":
+            return qsTr("You can continue this game. These cards will remain in the deck.")
+        case "Confirm decision": return qsTr("Confirm decision")
+        case "Choose an action": return qsTr("Choose an action")
+        case "Choose an ability": return qsTr("Choose an ability")
+        case "Opening hand": return qsTr("Opening hand")
+        case "Scry": return qsTr("Scry")
+        case "Discard to maximum hand size": return qsTr("Discard to maximum hand size")
+        case "Choose cards to activate from opening hand and their order":
+            return qsTr("Choose cards to activate from opening hand and their order")
+        case "Select a card from your sideboard and exile":
+            return qsTr("Select a card from your sideboard and exile")
+        case "Pay mana": return qsTr("Pay mana")
+        case "Choose a card or player": return qsTr("Choose a card or player")
+        case "Choose cards": return qsTr("Choose cards")
+        case "Choose cards to put back": return qsTr("Choose cards to put back")
+        case "Look at these cards": return qsTr("Look at these cards")
+        case "Choose an order": return qsTr("Choose an order")
+        case "Sort cards into zones": return qsTr("Sort cards into zones")
+        case "Select target Permanent.nonLand+OppCtrl or Card.inZoneStack+OppCtrl":
+        case "Choose targets": return qsTr("Choose targets")
+        case "Select target Permanent.cmcGE1 or Card.inZoneStack+cmcGE1":
+            return qsTr("Choose a permanent or spell with mana value at least 1")
+        case "Declare attackers": return qsTr("Declare attackers")
+        case "Declare blockers": return qsTr("Declare blockers")
+        case "Assign each blocker to the attackers it can legally block.":
+            return qsTr("Assign each blocker to the attackers it can legally block.")
+        case "Choose combat damage order": return qsTr("Choose combat damage order")
+        case "Assign combat damage": return qsTr("Assign combat damage")
+        case "Choose yes or no": return qsTr("Choose yes or no")
+        case "Choose a number": return qsTr("Choose a number")
+        case "Name a card": return qsTr("Name a card")
+        case "Choose colors": return qsTr("Choose colors")
+        case "Choose options": return qsTr("Choose options")
+        case "Forge decision required": return qsTr("Forge decision required")
+        case "This decision type is not supported by this Hexproof build.":
+            return qsTr("This decision type is not supported by this Hexproof build.")
+        case "Choose a mana ability:": return qsTr("Choose a mana ability:")
+        case "Undo mana": return qsTr("Undo mana")
+        case "Choose optional costs": return qsTr("Choose optional costs")
+        case "Choose cost order": return qsTr("Choose cost order")
+        case "Select order for simultaneous abilities": return qsTr("Select order for simultaneous abilities")
+        case "Reorder simultaneous abilities": return qsTr("Reorder simultaneous abilities")
+        case "Select order for replacement effects": return qsTr("Select order for replacement effects")
+        case "Reorder replacement effects": return qsTr("Reorder replacement effects")
+        case "Would you like to play or draw?": return qsTr("Would you like to play or draw?")
+        case "Do you want to keep your hand?": return qsTr("Do you want to keep your hand?")
+        case "Do you want to scry?": return qsTr("Do you want to scry?")
+        case "Review the cards in your hand. Keep this hand or view the next starting hand.":
+            return qsTr("Review the cards in your hand. Keep this hand or view the next starting hand.")
+        case "Do you want to discard your hand?": return qsTr("Do you want to discard your hand?")
+        case "Do you want to exile all cards in your graveyard?": return qsTr("Do you want to exile all cards in your graveyard?")
+        case "Do you want to exile all cards in your hand?": return qsTr("Do you want to exile all cards in your hand?")
+        case "You have priority.": return qsTr("You have priority.")
+        case "You have mana floating in your mana pool that could be lost if you pass priority now.":
+            return qsTr("You have mana floating in your mana pool that could be lost if you pass priority now.")
+        case "Click on your life total to pay life for phyrexian mana.":
+            return qsTr("Click on your life total to pay life for phyrexian mana.")
+        }
+        let match
+        if ((match = source.match(/^Assign (.+) combat damage now\?$/)))
+            return I18n.formatRulesLog(qsTr("Assign %1's combat damage first?"), match.slice(1))
+        if ((match = source.match(/^AI can't play these cards well from (.+)$/)))
+            return I18n.formatRulesLog(qsTr("AI can't play these cards well from %1"), match.slice(1))
+        if ((match = source.match(/^Choose X for (.+)$/)))
+            return I18n.formatRulesLog(qsTr("Choose X for %1"), match.slice(1))
+        if ((match = source.match(/^Mulligans taken: (\d+)$/)))
+            return qsTr("Mulligans taken: %1").arg(match[1])
+        if ((match = source.match(/^Choose exactly (\d+) card\(s\) to put on the bottom of your library\.$/)))
+            return qsTr("Choose exactly %1 card(s) to put on the bottom of your library.").arg(match[1])
+        if ((match = source.match(/^Choose exactly (\d+) card\(s\)\.$/)))
+            return qsTr("Choose exactly %1 card(s).").arg(match[1])
+        if ((match = source.match(/^Choose between (\d+) and (\d+) card\(s\)\.$/)))
+            return I18n.formatRulesLog(qsTr("Choose between %1 and %2 card(s)."), match.slice(1))
+        if ((match = source.match(/^(.+), you have won the coin toss\.$/)))
+            return I18n.formatRulesLog(qsTr("%1, you have won the coin toss."), match.slice(1))
+        if ((match = source.match(/^(.+), you lost the last game\.$/)))
+            return I18n.formatRulesLog(qsTr("%1, you lost the last game."), match.slice(1))
+        if ((match = source.match(/^(.+), you are going first!$/)))
+            return I18n.formatRulesLog(qsTr("%1, you are going first!"), match.slice(1))
+        if ((match = source.match(/^(.+) is going first\.$/)))
+            return I18n.formatRulesLog(qsTr("%1 is going first."), match.slice(1))
+        if ((match = source.match(/^(.+), you are going second\.$/)))
+            return I18n.formatRulesLog(qsTr("%1, you are going second."), match.slice(1))
+        if ((match = source.match(/^Starting hand (\d+) of (\d+)$/)))
+            return I18n.formatRulesLog(qsTr("Starting hand %1 of %2"), match.slice(1))
+        if ((match = source.match(/^Use triggered ability of (.+)\?$/)))
+            return I18n.formatRulesLog(qsTr("Use triggered ability of %1?"), match.slice(1))
+        if ((match = source.match(/^Put (.+) on the top of library or graveyard\?$/)))
+            return I18n.formatRulesLog(qsTr("Put %1 on the top of library or graveyard?"), match.slice(1))
+        if ((match = source.match(/^Put (.+) on the top or bottom of your library\?$/)))
+            return I18n.formatRulesLog(qsTr("Put %1 on the top or bottom of your library?"), match.slice(1))
+        if ((match = source.match(/^Do you want to pay (\d+) life\?$/)))
+            return qsTr("Do you want to pay %1 life?").arg(match[1])
+        if ((match = source.match(/^Pay (\d+) life$/)))
+            return qsTr("Pay %1 life").arg(match[1])
+        if ((match = source.match(/^Use floating ([WUBRGC]) mana$/)))
+            return qsTr("Use floating %1 mana").arg(match[1])
+        if ((match = source.match(/^Choose (\d+) card\(s\) to discard$/)))
+            return qsTr("Choose %1 card(s) to discard").arg(match[1])
+        if ((match = source.match(/^Pay Mana Cost: (.+)$/)))
+            return I18n.formatRulesLog(qsTr("Pay Mana Cost: %1"), match.slice(1))
+        if ((match = source.match(/^Priority: (.+)$/)))
+            return I18n.formatRulesLog(qsTr("Priority: %1"), match.slice(1))
+        if ((match = source.match(/^Turn: (\d+) \((.+)\)(?:  \[(Day|Night)\])?$/)))
+            return I18n.formatRulesLog(qsTr("Turn: %1 (%2)"), [match[1], match[2]])
+                + (match[3] ? "  [" + (match[3] === "Day" ? qsTr("Day") : qsTr("Night")) + "]" : "")
+        if ((match = source.match(/^Phase: (.+)$/)))
+            return I18n.formatRulesLog(qsTr("Phase: %1"), [phase(match[1])])
+        if (source === "Stack: Empty") return qsTr("Stack: Empty")
+        if ((match = source.match(/^Stack: (\d+) to Resolve\.$/)))
+            return qsTr("Stack: %1 to resolve.").arg(match[1])
+        if ((match = source.match(/^Storm Count: (\d+)$/)))
+            return qsTr("Storm Count: %1").arg(match[1])
+        if (source === "First") return qsTr("First")
+        if ((match = source.match(/^After (.+)$/)))
+            return qsTr("After %1").arg(match[1])
+        if ((match = source.match(/^(.+) — (cast spell|play land|activate ability)$/))) {
+            const action = match[2] === "cast spell" ? qsTr("Cast spell")
+                : match[2] === "play land" ? qsTr("Play land") : qsTr("Activate ability")
+            return I18n.formatRulesLog(qsTr("%1 — %2"), [match[1], action])
+        }
+        if ((match = source.match(/^(.+) activated (.+) - Choose a mode$/)))
+            return I18n.formatRulesLog(qsTr("%1 activated %2 — choose a mode"), match.slice(1))
+        if ((match = source.match(/^Choose target creature with mana value (.+) or less$/)))
+            return qsTr("Choose target creature with mana value %1 or less").arg(match[1])
+        if (source === "Choose target card in a graveyard")
+            return qsTr("Choose target card in a graveyard")
+        if ((match = source.match(/^(?:Select|Choose) target (.+)$/))) {
+            const noun = targetNoun(match[1])
+            if (noun)
+                return qsTr("Select target %1").arg(noun)
+        }
+        // Unknown effect descriptions retain their exact text and mana symbols.
+        return source
+    }
+
+    function targetNoun(source) {
+        switch (source) {
+        case "player": return qsTr("player")
+        case "opponent": return qsTr("opponent")
+        case "creature": return qsTr("creature")
+        case "permanent": return qsTr("permanent")
+        case "spell": return qsTr("spell")
+        case "artifact": return qsTr("artifact")
+        case "enchantment": return qsTr("enchantment")
+        case "planeswalker": return qsTr("planeswalker")
+        case "land": return qsTr("land")
+        case "card": return qsTr("card")
+        default: return ""
+        }
+    }
+
+    function normalizeMode(source) {
+        return String(source || "").replace(/^[•●・*\-]+\s*/, "")
+            .replace(/\s+/g, " ").trim().toLowerCase()
+    }
+
+    function modalBullets(oracle) {
+        const lines = String(oracle || "").split(/\r?\n/).map(line => line.trim()).filter(line => line.length)
+        const bulleted = lines.filter(line => /^[•●・*]/.test(line))
+        if (bulleted.length < 2)
+            return []
+        return bulleted.map(line => line.replace(/^[•●・*]+\s*/, "").trim()).filter(line => line.length)
+    }
+
+    function sharedPrefixLength(left, right) {
+        const limit = Math.min(left.length, right.length)
+        let index = 0
+        while (index < limit && left[index] === right[index])
+            ++index
+        return index
+    }
+
+    function matchingBulletIndex(label, bullets) {
+        const needle = normalizeMode(label)
+        if (!needle)
+            return -1
+        let found = -1
+        for (let index = 0; index < bullets.length; ++index) {
+            const text = normalizeMode(bullets[index])
+            const prefix = sharedPrefixLength(text, needle)
+            if (text !== needle && prefix < 40)
+                continue
+            if (found >= 0)
+                return -1
+            found = index
+        }
+        return found
+    }
+
+    function modalChoice(kind, title, label, index, count, englishOracle, localizedOracle) {
+        if (kind !== "chooseFromSelection" || !/ activated .+ - Choose a mode$/.test(String(title || "")))
+            return ""
+        void index
+        void count
+        const localized = modalBullets(localizedOracle)
+        const english = modalBullets(englishOracle)
+        if (!english.length || localized.length !== english.length)
+            return ""
+        const found = matchingBulletIndex(label, english)
+        return found >= 0 ? localized[found] : ""
+    }
+
+    function modePosition(haystack, bullet) {
+        const text = normalizeMode(bullet)
+        if (text.length < 12)
+            return -1
+        let at = haystack.indexOf(text)
+        if (at >= 0)
+            return at
+        if (text.length > 40)
+            return haystack.indexOf(text.slice(0, 40))
+        return -1
+    }
+
+    function currentModalIndex(detail, englishOracle) {
+        const bullets = modalBullets(englishOracle)
+        const haystack = normalizeMode(detail)
+        let best = -1
+        let bestAt = 1000000
+        let bestLen = 0
+        for (let index = 0; index < bullets.length; ++index) {
+            const at = modePosition(haystack, bullets[index])
+            const length = normalizeMode(bullets[index]).length
+            if (at >= 0 && (at < bestAt || (at === bestAt && length > bestLen))) {
+                best = index
+                bestAt = at
+                bestLen = length
+            }
+        }
+        return best
+    }
+
+    function matchingSectionIndex(needleSource, sections) {
+        const needle = normalizeMode(needleSource)
+        if (needle.length < 12)
+            return -1
+        let found = -1
+        for (let index = 0; index < sections.length; ++index) {
+            const text = normalizeMode(sections[index])
+            const prefix = sharedPrefixLength(text, needle)
+            const overlap = Math.min(text.length, needle.length)
+            const contains = overlap >= 24 && (text.includes(needle) || needle.includes(text))
+            if (text !== needle && prefix < 40 && !contains)
+                continue
+            if (found >= 0)
+                return -1
+            found = index
+        }
+        return found
+    }
+
+    function localizedAbility(rulesText, englishOracle, localizedOracle) {
+        const localized = String(localizedOracle || "").trim()
+        if (!localized)
+            return rulesText || ""
+        const english = String(englishOracle || "").trim()
+        if (!english)
+            return localized
+        const englishParts = english.split(/\n\n+/).map(part => part.trim()).filter(part => part.length)
+        const localizedParts = localized.split(/\n\n+/).map(part => part.trim()).filter(part => part.length)
+        if (englishParts.length > 1 && englishParts.length === localizedParts.length) {
+            const index = matchingSectionIndex(rulesText, englishParts)
+            if (index >= 0)
+                return localizedParts[index]
+        }
+        return localized
+    }
+
+    function currentEffectTitle(detail, englishOracle, localizedOracle) {
+        const index = currentModalIndex(detail, englishOracle)
+        if (index < 0)
+            return ""
+        const english = modalBullets(englishOracle)
+        const localized = modalBullets(localizedOracle)
+        const shown = localized.length === english.length ? localized[index] : english[index]
+        return qsTr("This effect: %1").arg(shown)
+    }
+
+    function targetInstruction(detail) {
+        const lines = String(detail || "").split("\n").map(line => line.trim()).filter(line => line.length)
+        for (let index = lines.length - 1; index >= 0; --index) {
+            if (/^(?:Select|Choose) target\b/.test(lines[index]))
+                return lines[index]
+        }
+        return ""
+    }
+
+    function targetInstructionTitle(detail) {
+        const instruction = targetInstruction(detail)
+        if (!instruction)
+            return ""
+        const translated = text(instruction)
+        return translated !== instruction ? translated : ""
+    }
+
+    function phase(source) {
+        const phases = {
+            "Untap step": "untap", "Upkeep step": "upkeep", "Draw step": "draw",
+            "Main phase, precombat": "main1", "Beginning of Combat Step": "begin_combat",
+            "Declare Attackers Step": "declare_attackers", "Declare Blockers Step": "declare_blockers",
+            "Combat Damage Step": "combat_damage", "End of Combat Step": "end_combat",
+            "Main phase, postcombat": "main2", "End step": "end", "Cleanup step": "cleanup"
+        }
+        if (source === "First Strike Damage Step") return qsTr("First strike combat damage")
+        return Object.prototype.hasOwnProperty.call(phases, source) ? I18n.gamePhaseLabel(phases[source]) : source
+    }
+}

@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+import QtQuick
+import QtTest
+import "../../qml/components"
+
+TestCase {
+    name: "TableZoneStateController"
+
+    property int battlefieldMaterializations: 0
+    property var observedBattlefieldCards: observeBattlefieldCards()
+    signal battlefieldMaterialized()
+    onBattlefieldMaterialized: ++battlefieldMaterializations
+
+    QtObject {
+        id: optimisticModel
+
+        property var removed: []
+
+        function removeValue(kind, key) {
+            removed = removed.concat([kind + ":" + key])
+        }
+    }
+
+    QtObject {
+        id: mockWs
+
+        property int seatIndex: 0
+    }
+
+    QtObject {
+        id: fakeRoomSession
+        property int seatIndex: mockWs.seatIndex
+    }
+
+    QtObject {
+        id: fakeTable
+        property var optimisticCommands: fakeTable
+        property var wsModel: mockWs
+        property var roomSession: fakeRoomSession
+        property var optimisticCommandModel: optimisticModel
+        property var gameTableModel: testGameTable
+        property var authoritativeSeats: testGameTable.seats
+        property var pendingCardMoves: ({})
+
+        function isCardPendingFrom(cardId, zone, seat) {
+            if (!Object.prototype.hasOwnProperty.call(
+                        pendingCardMoves, cardId)) {
+                return false
+            }
+            const move = pendingCardMoves[cardId]
+            return move.fromZone === zone
+                    && (move.fromSeat === seat || move.fromSeat < 0)
+        }
+    }
+
+    TableZoneStateController {
+        id: controller
+        tableRoot: fakeTable
+    }
+
+    function observeBattlefieldCards() {
+        battlefieldMaterialized()
+        return controller.zoneCardsForSeat(0, "battlefield")
+    }
+
+    function init() {
+        optimisticModel.removed = []
+        fakeTable.pendingCardMoves = ({})
+        testGameTable.applySnapshot({
+            "seats": [{
+            "seat": 0,
+            "hand": [{"id": "hand-1", "ownerSeat": 0}],
+            "battlefield": [{"id": "battlefield-1", "ownerSeat": 0}],
+            "graveyard": [],
+            "exile": [],
+            "commandZone": []
+        }, {
+            "seat": 1,
+            "hand": [],
+            "battlefield": [],
+            "graveyard": [{"id": "graveyard-1", "ownerSeat": 1}],
+            "exile": [],
+            "commandZone": []
+            }],
+            "stack": [{"id": "stack-1", "ownerSeat": 1}],
+            "revealed": [{"id": "reveal-1", "ownerSeat": 0}]
+        })
+    }
+
+    function cleanup() {
+        testGameTable.clear()
+    }
+
+    function test_readsTypedZonesAndLocatesCards() {
+        compare(controller.zoneCardCount(0, "hand"), 1)
+        compare(controller.zoneCardAt(0, "hand", 0).id, "hand-1")
+        verify(controller.cardInZone("graveyard-1", "graveyard", 1))
+        compare(controller.cardDataForId("stack-1").ownerSeat, 1)
+        compare(controller.visibleZoneSeatForCard(
+                    "graveyard-1", "graveyard"), 1)
+        compare(controller.revealedCardsForSeat(0).length, 1)
+    }
+
+    function test_metadataOnlySnapshotDoesNotRematerializeZoneArray() {
+        wait(0)
+        battlefieldMaterializations = 0
+
+        testGameTable.applySnapshot({
+            "seats": [{
+                "seat": 0,
+                "life": 19,
+                "hand": [{"id": "hand-1", "ownerSeat": 0}],
+                "battlefield": [{"id": "battlefield-1", "ownerSeat": 0}],
+                "graveyard": [],
+                "exile": [],
+                "commandZone": []
+            }, {
+                "seat": 1,
+                "hand": [],
+                "battlefield": [],
+                "graveyard": [{"id": "graveyard-1", "ownerSeat": 1}],
+                "exile": [],
+                "commandZone": []
+            }],
+            "stack": [{"id": "stack-1", "ownerSeat": 1}],
+            "revealed": [{"id": "reveal-1", "ownerSeat": 0}]
+        })
+        wait(0)
+        compare(battlefieldMaterializations, 0)
+
+        const zoneChanged = JSON.parse(JSON.stringify(testGameTable.seats))
+        zoneChanged[0].hand = [{"id": "hand-1", "ownerSeat": 0}]
+        zoneChanged[0].battlefield = [
+            {"id": "battlefield-1", "ownerSeat": 0},
+            {"id": "battlefield-2", "ownerSeat": 0}
+        ]
+        zoneChanged[0].graveyard = []
+        zoneChanged[0].exile = []
+        zoneChanged[0].commandZone = []
+        zoneChanged[1].hand = []
+        zoneChanged[1].battlefield = []
+        zoneChanged[1].graveyard = [{"id": "graveyard-1", "ownerSeat": 1}]
+        zoneChanged[1].exile = []
+        zoneChanged[1].commandZone = []
+        testGameTable.applySnapshot({
+            "seats": zoneChanged,
+            "stack": [{"id": "stack-1", "ownerSeat": 1}],
+            "revealed": [{"id": "reveal-1", "ownerSeat": 0}]
+        })
+
+        tryVerify(() => battlefieldMaterializations > 0)
+        compare(observedBattlefieldCards.length, 2)
+    }
+
+    function test_pendingMovesOverlayAndReconcile() {
+        fakeTable.pendingCardMoves = ({
+            "battlefield-2": {
+                "cardId": "battlefield-2",
+                "card": {"id": "battlefield-2", "name": "Pending"},
+                "fromZone": "hand",
+                "fromSeat": 0,
+                "toZone": "battlefield",
+                "toSeat": 0,
+                "x": 0.4,
+                "y": 0.5,
+                "tapped": true
+            },
+            "graveyard-1": {
+                "cardId": "graveyard-1",
+                "card": {"id": "graveyard-1", "name": "Moved"},
+                "fromZone": "graveyard",
+                "fromSeat": 1,
+                "toZone": "exile",
+                "toSeat": 1
+            }
+        })
+
+        const pending = controller.pendingBattlefieldMovesForSeat(0)
+        compare(pending.length, 1)
+        compare(pending[0].x, 0.4)
+        compare(pending[0].tapped, true)
+        compare(controller.displayedPublicZoneTopCard(1, "exile").id,
+                "graveyard-1")
+
+        testGameTable.applySnapshot({"seats": [{
+            "seat": 0,
+            "hand": [{"id": "hand-1", "ownerSeat": 0}],
+            "battlefield": [{"id": "battlefield-1", "ownerSeat": 0}],
+            "graveyard": [],
+            "exile": [],
+            "commandZone": []
+        }, {
+            "seat": 1,
+            "hand": [],
+            "battlefield": [],
+            "graveyard": [],
+            "exile": [{"id": "graveyard-1", "ownerSeat": 1}],
+            "commandZone": []
+        }]})
+        controller.reconcilePendingCardMoves()
+        verify(optimisticModel.removed.indexOf(
+                   "move:graveyard-1") >= 0)
+    }
+
+    function test_reconcileLibraryToBattlefieldByNewCard() {
+        fakeTable.pendingCardMoves = ({
+            "library-top": {
+                "cardId": "library-top",
+                "card": {"id": "library-top", "name": ""},
+                "fromZone": "library",
+                "fromSeat": 0,
+                "toZone": "battlefield",
+                "toSeat": 0,
+                "x": 0.4,
+                "y": 0.5,
+                "knownCardIds": ["battlefield-1"]
+            }
+        })
+
+        // Only the permanent that was already on the battlefield: no new
+        // instance has arrived, so the optimistic overlay must survive.
+        controller.reconcilePendingCardMoves()
+        verify(optimisticModel.removed.indexOf("move:library-top") < 0)
+
+        // The server assigns a new instance id (and may auto-adjust the
+        // position), so a previously unseen permanent at the target seat
+        // commits the overlay.
+        testGameTable.applySnapshot({"seats": [{
+            "seat": 0,
+            "hand": [{"id": "hand-1", "ownerSeat": 0}],
+            "battlefield": [{"id": "battlefield-1", "ownerSeat": 0},
+                            {"id": "instance-9", "ownerSeat": 0,
+                             "position": {"x": 0.72, "y": 0.81}}],
+            "graveyard": [],
+            "exile": [],
+            "commandZone": []
+        }, {
+            "seat": 1,
+            "hand": [],
+            "battlefield": [],
+            "graveyard": [],
+            "exile": [],
+            "commandZone": []
+        }]})
+        controller.reconcilePendingCardMoves()
+        verify(optimisticModel.removed.indexOf("move:library-top") >= 0)
+    }
+
+    function test_handRevealTransitionDetection() {
+        fakeTable.pendingCardMoves = ({
+            "hand-1": {
+                "cardId": "hand-1",
+                "fromZone": "hand",
+                "fromSeat": 0,
+                "toZone": "reveal",
+                "toSeat": -1
+            }
+        })
+        verify(controller.handRevealTransitionPending())
+        fakeTable.pendingCardMoves = ({})
+        verify(!controller.handRevealTransitionPending())
+    }
+}

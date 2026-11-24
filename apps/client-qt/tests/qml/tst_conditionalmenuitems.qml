@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+import QtQuick
+import QtQuick.Controls.Basic
+import QtTest
+import "../../qml/components"
+
+TestCase {
+    name: "ConditionalMenuItems"
+    when: windowShown
+
+    ApplicationWindow {
+        width: 320
+        height: 240
+        visible: true
+
+        AppMenu {
+            id: testMenu
+
+            ConditionalMenuItem {
+                id: hiddenItem
+                text: "Hidden"
+                visible: false
+            }
+            ConditionalMenuSeparator {
+                id: hiddenSeparator
+                visible: false
+            }
+            ConditionalMenuItem {
+                id: shownItem
+                text: "Shown"
+            }
+        }
+    }
+
+    function test_hiddenRowsCollapse() {
+        testMenu.open()
+        tryVerify(() => testMenu.opened)
+        compare(hiddenItem.height, 0)
+        compare(hiddenSeparator.height, 0)
+        verify(shownItem.height > 0)
+        verify(shownItem.height <= Theme.size(36))
+        testMenu.close()
+    }
+}

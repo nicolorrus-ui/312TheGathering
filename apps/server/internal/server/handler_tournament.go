@@ -1,0 +1,919 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+package server
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"strings"
+	"time"
+
+	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/room"
+	"hexproof/server/internal/tournament"
+)
+
+func tournamentActor(sess *Session) tournament.Actor {
+	binding := sess.Tournament()
+	return tournament.Actor{
+		AccountID:     sess.Account().ID,
+		ConnectionID:  sess.ConnectionID,
+		Role:          binding.Role,
+		ParticipantID: binding.ParticipantID,
+	}
+}
+
+func sendTournamentError(h *Handler, sess *Session, id string, err error) {
+	code := tournament.ErrorCode(err)
+	message := err.Error()
+	minimumPlayers := 0
+	if domainError, ok := err.(*tournament.Error); ok {
+		message = domainError.Message
+		minimumPlayers = domainError.MinimumPlayers
+	}
+	if code == "" {
+		if protocolCode, ok := ErrCode(err); ok {
+			code = protocolCode
+		}
+	}
+	if code == "" {
+		code = protocol.ErrInternal
+	}
+	h.sendErrorDetail(sess, id, code, message, minimumPlayers)
+}
+
+func (h *Handler) handleTournamentList(ctx context.Context, sess *Session, env protocol.Envelope) error {
+	h.evictExpiredTournaments(time.Now().UTC())
+	events := h.tournaments.list()
+	if h.clusterAgent != nil && sess.clusterEnabled {
+		view, err := h.clusterView(ctx, sess.Account().ID)
+		if err != nil {
+			h.clusterError(sess, env.ID, err)
+			return nil
+		}
+		events = view.Events
+	}
+	listed, _ := protocol.NewEnvelope(protocol.TypeTournamentListed, protocol.TournamentListed{Tournaments: events})
+	listed.ID = env.ID
+	h.send(sess, listed)
+	return nil
+}
+
+func (h *Handler) handleTournamentCreate(sess *Session, env protocol.Envelope) error {
+	if sess.DisplayName == "" {
+		h.sendError(sess, env.ID, protocol.ErrNameRequired, "hello first")
+		return nil
+	}
+	if sess.Room() != nil || h.cubeRoomBlocksNavigation(sess, "") {
+		h.sendError(sess, env.ID, protocol.ErrAlreadyInRoom,
+			"leave the current room before creating a tournament")
+		return nil
+	}
+	var request protocol.TournamentCreate
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	operationKey, err := tournamentCreateOperationKey(request, env.ID, sess.ConnectionID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	now := time.Now().UTC()
+	if !h.allowTournamentCreate(sess.RemoteIP, now) {
+		h.sendError(sess, env.ID, protocol.ErrRateLimited,
+			"tournament create rate limit exceeded")
+		return nil
+	}
+	if err := h.tournaments.claimCreateOperation(operationKey); err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	h.evictExpiredTournaments(now)
+	token, err := genResumeToken()
+	if err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInternal, "tournament credential unavailable")
+		return nil
+	}
+	var event *tournament.Tournament
+	for attempts := 0; attempts < 8; attempts++ {
+		id, idErr := genTournamentID()
+		cubeRoom := strings.EqualFold(strings.TrimSpace(request.Coordinator), protocol.LimitedCoordinatorCasual) &&
+			protocol.IsCubeEventType(strings.ToLower(strings.TrimSpace(request.EventType)))
+		if cubeRoom {
+			id, idErr = genRoomID()
+		}
+		if idErr != nil {
+			h.sendError(sess, env.ID, protocol.ErrInternal, "tournament id unavailable")
+			return nil
+		}
+		event, err = tournament.New(id, tournament.Config{
+			Name: request.Name, Format: request.Format, MatchMode: request.MatchMode,
+			RoundMinutes: request.RoundMinutes, MaxPlayers: request.MaxPlayers,
+			PlannedRounds: request.PlannedRounds, EventType: request.EventType,
+			Coordinator: request.Coordinator, Product: request.Product, Plan: request.Plan,
+			DraftSettings: request.DraftSettings, RulesMode: request.RulesMode,
+			ActionClockEnabled: request.ActionClockEnabled,
+		}, sess.DisplayName, sess.ConnectionID, tournament.CredentialHash(token), now)
+		if err != nil {
+			sendTournamentError(h, sess, env.ID, err)
+			return nil
+		}
+		if event.RulesMode == protocol.RulesModeForge && !h.forgeRulesAvailable() {
+			h.sendError(sess, env.ID, protocol.ErrRulesUnavailable,
+				"Forge rules mode is not available on this server")
+			return nil
+		}
+		if event.IsCubeRoom() {
+			participant, seatErr := event.Register(sess.DisplayName, sess.ConnectionID,
+				tournament.CredentialHash(token), now)
+			if seatErr != nil {
+				sendTournamentError(h, sess, env.ID, seatErr)
+				return nil
+			}
+			event.OrganizerParticipantID = participant.ID
+			if reserveErr := h.hub.reserveCubeRoomID(id); reserveErr != nil {
+				if code, _ := ErrCode(reserveErr); code == protocol.ErrServerLimit {
+					sendTournamentError(h, sess, env.ID, reserveErr)
+					return nil
+				}
+				event = nil
+				continue
+			}
+		}
+		event.OrganizerAccountID = sess.Account().ID
+		for _, participant := range event.Participants {
+			if participant.ConnectionID == sess.ConnectionID {
+				participant.AccountID = sess.Account().ID
+			}
+		}
+		if _, err = h.tournaments.create(event); err == nil {
+			break
+		}
+		if event.IsCubeRoom() {
+			h.hub.releaseCubeRoomID(id)
+		}
+		if code, _ := ErrCode(err); code == protocol.ErrServerLimit {
+			h.sendError(sess, env.ID, code, err.Error())
+			return nil
+		}
+		event = nil
+	}
+	if event == nil {
+		h.sendError(sess, env.ID, protocol.ErrInternal, "tournament id allocation failed")
+		return nil
+	}
+	previousID := h.detachTournamentSession(sess)
+	defer h.refreshTournament(previousID)
+	sess.setTournament(tournamentBinding{
+		TournamentID: event.ID, Role: tournament.RoleOrganizer, ParticipantID: event.OrganizerParticipantID,
+	})
+	created, _ := protocol.NewEnvelope(protocol.TypeTournamentCreated,
+		protocol.TournamentCreated{TournamentID: event.ID, OrganizerToken: token})
+	created.ID = env.ID
+	h.send(sess, created)
+	h.sendTournamentChatHistory(sess)
+	h.refreshTournament(event.ID)
+	return nil
+}
+
+func (h *Handler) handleTournamentEnter(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentEnter
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	request.TournamentID = strings.ToUpper(strings.TrimSpace(request.TournamentID))
+	if h.cubeRoomBlocksNavigation(sess, request.TournamentID) {
+		h.sendError(sess, env.ID, protocol.ErrAlreadyInRoom, "leave the current Cube room first")
+		return nil
+	}
+	if h.isCubeRoom(request.TournamentID) {
+		return h.handleCubeRoomJoin(sess, env, protocol.RoomJoin{
+			RoomID: request.TournamentID, Credential: request.Credential, UseAccount: request.UseAccount,
+		})
+	}
+	h.evictExpiredTournaments(time.Now().UTC())
+	entry, err := h.tournaments.lockOperation(request.TournamentID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	previousID := ""
+	defer func() {
+		entry.opMu.Unlock()
+		h.refreshTournament(previousID)
+	}()
+
+	previous := sess.Tournament()
+	role := tournament.RoleViewer
+	participantID := ""
+	entry.mu.Lock()
+	if request.Credential != "" {
+		if len(request.Credential) > protocol.MaxResumeTokenBytes {
+			entry.mu.Unlock()
+			h.sendError(sess, env.ID, protocol.ErrTournamentForbidden,
+				"invalid tournament credential")
+			return nil
+		}
+		var ok bool
+		role, participantID, ok = entry.event.BindCredentialForAccount(
+			tournament.CredentialHash(request.Credential), sess.Account().ID, sess.ConnectionID, time.Now().UTC())
+		if !ok {
+			entry.mu.Unlock()
+			h.sendError(sess, env.ID, protocol.ErrTournamentForbidden,
+				"invalid tournament credential")
+			return nil
+		}
+	} else if request.UseAccount && sess.Account().ID != "" {
+		if accountRole, accountParticipant, ok := entry.event.BindAccount(sess.Account().ID, sess.ConnectionID, time.Now().UTC()); ok {
+			role, participantID = accountRole, accountParticipant
+		}
+	}
+	entry.mu.Unlock()
+	if previous.TournamentID != "" && previous.TournamentID != request.TournamentID {
+		previousID = h.detachTournamentSession(sess)
+	}
+	sess.setTournament(tournamentBinding{
+		TournamentID: request.TournamentID, Role: role, ParticipantID: participantID,
+	})
+	entered, _ := protocol.NewEnvelope(protocol.TypeTournamentEntered,
+		protocol.TournamentEntered{
+			TournamentID: request.TournamentID, Role: role, ParticipantID: participantID,
+		})
+	entered.ID = env.ID
+	h.send(sess, entered)
+	h.sendTournamentChatHistory(sess)
+	h.fanoutTournament(request.TournamentID)
+	return nil
+}
+
+func (h *Handler) handleTournamentLeave(sess *Session, env protocol.Envelope) error {
+	binding := sess.Tournament()
+	if binding.TournamentID == "" {
+		h.sendError(sess, env.ID, protocol.ErrTournamentNotFound, "not viewing a tournament")
+		return nil
+	}
+	if h.isCubeRoom(binding.TournamentID) {
+		return h.handleCubeRoomLeave(sess, env)
+	}
+	entry, err := h.tournaments.lockOperation(binding.TournamentID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	defer func() {
+		entry.opMu.Unlock()
+		h.evictExpiredTournaments(time.Now().UTC())
+	}()
+	entry.mu.Lock()
+	sess.tournamentMu.RLock()
+	_, current := tournamentProjectionIdentity(entry.event, sess, binding)
+	sess.tournamentMu.RUnlock()
+	entry.mu.Unlock()
+	h.detachTournamentSession(sess)
+	left, _ := protocol.NewEnvelope(protocol.TypeTournamentLeft,
+		protocol.TournamentLeft{TournamentID: binding.TournamentID})
+	left.ID = env.ID
+	h.send(sess, left)
+	h.fanoutTournament(binding.TournamentID)
+	if current && binding.Role == tournament.RoleOrganizer {
+		h.reconcileTournamentRetentionLocked(binding.TournamentID, entry, time.Now().UTC(), true)
+	}
+	return nil
+}
+
+func (h *Handler) handleTournamentRegister(sess *Session, env protocol.Envelope) error {
+	if h.isCubeRoom(sess.Tournament().TournamentID) {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "join the Cube room as a player to take a seat")
+		return nil
+	}
+	var request protocol.TournamentRegister
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	binding := sess.Tournament()
+	if binding.TournamentID != request.TournamentID ||
+		(binding.Role != tournament.RoleViewer && binding.Role != tournament.RoleOrganizer) ||
+		binding.ParticipantID != "" {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden,
+			"enter this tournament before registering")
+		return nil
+	}
+	token, err := genResumeToken()
+	if err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInternal, "participant credential unavailable")
+		return nil
+	}
+	entry, err := h.tournaments.lockOperation(binding.TournamentID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	defer entry.opMu.Unlock()
+	entry.mu.Lock()
+	if accountRole, existing := entry.event.AccountRole(sess.Account().ID); existing != "" || (accountRole == tournament.RoleOrganizer && binding.Role != tournament.RoleOrganizer) {
+		entry.mu.Unlock()
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "This account is already registered; restore its participant identity")
+		return nil
+	}
+	participant, registerErr := entry.event.Register(
+		sess.DisplayName, sess.ConnectionID, tournament.CredentialHash(token), time.Now())
+	if registerErr == nil {
+		participant.AccountID = sess.Account().ID
+	}
+	if registerErr == nil && binding.Role == tournament.RoleOrganizer {
+		entry.event.OrganizerParticipantID = participant.ID
+	}
+	entry.mu.Unlock()
+	if registerErr != nil {
+		sendTournamentError(h, sess, env.ID, registerErr)
+		return nil
+	}
+	binding.ParticipantID = participant.ID
+	if binding.Role == tournament.RoleViewer {
+		binding.Role = tournament.RoleParticipant
+	}
+	sess.setTournament(binding)
+	registered, _ := protocol.NewEnvelope(protocol.TypeTournamentRegistered,
+		protocol.TournamentRegistered{
+			TournamentID: binding.TournamentID, ParticipantID: participant.ID,
+			ParticipantToken: token,
+		})
+	registered.ID = env.ID
+	h.send(sess, registered)
+	h.fanoutTournament(binding.TournamentID)
+	return nil
+}
+
+func (h *Handler) handleTournamentUnregister(sess *Session, env protocol.Envelope) error {
+	if h.isCubeRoom(sess.Tournament().TournamentID) {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "leave the Cube room to release your seat")
+		return nil
+	}
+	var request protocol.TournamentParticipantCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentUnregistered,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			participantID := request.ParticipantID
+			if participantID == "" {
+				participantID = actor.ParticipantID
+			}
+			actor.ParticipantID = participantID
+			if err := event.Unregister(actor); err != nil {
+				return err
+			}
+			h.clearTournamentParticipantBindings(event.ID, participantID)
+			if event.OrganizerParticipantID == participantID {
+				event.OrganizerParticipantID = ""
+			}
+			binding := sess.Tournament()
+			if binding.ParticipantID == participantID {
+				binding.ParticipantID = ""
+				if binding.Role == tournament.RoleParticipant {
+					binding.Role = tournament.RoleViewer
+				}
+				sess.setTournament(binding)
+			}
+			return nil
+		})
+}
+
+func (h *Handler) handleTournamentCheckIn(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentCheckIn
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentCheckInSet,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			if request.ParticipantID != "" {
+				actor.ParticipantID = request.ParticipantID
+			}
+			return event.SetCheckedIn(actor, request.CheckedIn)
+		})
+}
+
+// Legacy single-product creation still accepts an envelope request identity.
+// New clients provide a globally unique operationId that survives reconnects.
+func tournamentCreateOperationKey(request protocol.TournamentCreate, requestID, connectionID string) (string, error) {
+	if request.Plan != nil && request.OperationID == "" {
+		return "", &protocolError{code: protocol.ErrInvalidMessage, message: "custom pack plans require an explicit stable operationId"}
+	}
+	if request.OperationID != "" {
+		if !validTournamentOperationID(request.OperationID) {
+			return "", &protocolError{code: protocol.ErrInvalidMessage, message: "operationId must contain 1–128 non-control characters without surrounding whitespace"}
+		}
+		return "operation:" + request.OperationID, nil
+	}
+	if !validTournamentOperationID(requestID) {
+		return "", &protocolError{code: protocol.ErrInvalidMessage, message: "a stable creation operationId or request id is required"}
+	}
+	return "request:" + connectionID + ":" + requestID, nil
+}
+
+func validTournamentOperationID(id string) bool {
+	return protocol.ValidOperationID(id)
+}
+
+func (h *Handler) handleTournamentStart(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentStart
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	if !validTournamentOperationID(request.OperationID) ||
+		(request.ExpectedStage != protocol.LimitedStageRegistration && request.ExpectedStage != protocol.LimitedStageDeckBuilding) {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "start requires a stable operationId and expectedStage registration or deck_building")
+		return nil
+	}
+	binding := sess.Tournament()
+	entry, err := h.tournaments.lockOperation(binding.TournamentID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	defer entry.opMu.Unlock()
+	entry.mu.Lock()
+	sess.tournamentMu.RLock()
+	_, current := tournamentProjectionIdentity(entry.event, sess, binding)
+	sess.tournamentMu.RUnlock()
+	if !current || binding.Role != tournament.RoleOrganizer {
+		entry.mu.Unlock()
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "only the current organizer can start the tournament")
+		return nil
+	}
+	if previous, exists := entry.startOperations[request.OperationID]; exists {
+		if previous.expectedStage != request.ExpectedStage {
+			err = &protocolError{code: protocol.ErrInvalidMessage, message: "start operationId is already bound to another expected stage"}
+		} else {
+			err = previous.err
+		}
+	} else if len(entry.startOperations) >= maxTournamentStartOperations {
+		err = &protocolError{code: protocol.ErrServerLimit, message: "start operation history is full; no further start attempts are accepted for this event"}
+	} else {
+		if entry.event.Stage != request.ExpectedStage {
+			err = &protocolError{code: protocol.ErrInvalidMessage, message: "tournament stage changed; refresh before starting the intended stage"}
+		} else if entry.event.RulesMode == protocol.RulesModeForge && !h.forgeRulesAvailable() {
+			err = &protocolError{code: protocol.ErrRulesUnavailable, message: "Forge rules mode is not available on this server"}
+		} else {
+			var seed int64
+			if request.ExpectedStage == protocol.LimitedStageRegistration {
+				var seedBytes [8]byte
+				if _, err = secureRandomRead(seedBytes[:]); err != nil {
+					err = &protocolError{code: protocol.ErrInternal, message: "pairing random source unavailable"}
+				} else {
+					seed = int64(binary.LittleEndian.Uint64(seedBytes[:]))
+				}
+			}
+			if err == nil {
+				err = entry.event.Start(tournamentActor(sess), seed, time.Now())
+			}
+		}
+		if entry.startOperations == nil {
+			entry.startOperations = make(map[string]tournamentStartOperation)
+		}
+		entry.startOperations[request.OperationID] = tournamentStartOperation{expectedStage: request.ExpectedStage, err: err}
+	}
+	entry.mu.Unlock()
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	reply, _ := protocol.NewEnvelope(protocol.TypeTournamentStarted, protocol.TournamentChanged{TournamentID: binding.TournamentID})
+	reply.ID = env.ID
+	h.send(sess, reply)
+	h.fanoutTournament(binding.TournamentID)
+	return nil
+}
+
+func (h *Handler) handleTournamentDrop(sess *Session, env protocol.Envelope) error {
+	if h.isCubeRoom(sess.Tournament().TournamentID) {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "Cube rooms do not have tournament drop controls")
+		return nil
+	}
+	var request protocol.TournamentParticipantCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentDropped,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Drop(actor, request.ParticipantID)
+		})
+}
+
+func (h *Handler) handleTournamentReportResult(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentResultCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentResultReported,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Report(actor, request.PairingID, tournament.MatchScore{
+				PlayerAWins: request.PlayerAWins, PlayerBWins: request.PlayerBWins,
+				DrawnGames: request.DrawnGames,
+			}, time.Now())
+		})
+}
+
+func (h *Handler) handleTournamentConfirmResult(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentPairingCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentResultConfirmed,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Confirm(actor, request.PairingID, time.Now())
+		})
+}
+
+func (h *Handler) handleTournamentRejectResult(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentPairingCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentResultRejected,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Reject(actor, request.PairingID)
+		})
+}
+
+func (h *Handler) handleTournamentCorrectResult(sess *Session, env protocol.Envelope) error {
+	var request protocol.TournamentResultCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentResultCorrected,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Correct(actor, request.PairingID, tournament.MatchScore{
+				PlayerAWins: request.PlayerAWins, PlayerBWins: request.PlayerBWins,
+				DrawnGames: request.DrawnGames,
+			}, time.Now())
+		})
+}
+
+func (h *Handler) handleTournamentNextRound(sess *Session, env protocol.Envelope) error {
+	return h.mutateTournament(sess, env, protocol.TypeTournamentRoundStarted,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Advance(actor, time.Now())
+		})
+}
+
+func (h *Handler) handleTournamentCancel(sess *Session, env protocol.Envelope) error {
+	if h.isCubeRoom(sess.Tournament().TournamentID) {
+		if sess.Tournament().Role != tournament.RoleOrganizer {
+			h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "only the host can close the Cube room")
+			return nil
+		}
+		return h.handleCubeRoomLeave(sess, env)
+	}
+	return h.mutateTournament(sess, env, protocol.TypeTournamentCancelled,
+		func(event *tournament.Tournament, actor tournament.Actor) error {
+			return event.Cancel(actor, time.Now())
+		})
+}
+
+func (h *Handler) mutateTournament(sess *Session, env protocol.Envelope, replyType string,
+	mutate func(*tournament.Tournament, tournament.Actor) error) error {
+	binding := sess.Tournament()
+	if binding.TournamentID == "" {
+		h.sendError(sess, env.ID, protocol.ErrTournamentNotFound, "not viewing a tournament")
+		return nil
+	}
+	entry, err := h.tournaments.lockOperation(binding.TournamentID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	defer entry.opMu.Unlock()
+	entry.mu.Lock()
+	err = mutate(entry.event, tournamentActor(sess))
+	entry.mu.Unlock()
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	reply, _ := protocol.NewEnvelope(replyType,
+		protocol.TournamentChanged{TournamentID: binding.TournamentID})
+	reply.ID = env.ID
+	h.send(sess, reply)
+	h.fanoutTournament(binding.TournamentID)
+	return nil
+}
+
+func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope) error {
+	if sess.Room() != nil {
+		h.sendError(sess, env.ID, protocol.ErrAlreadyInRoom, "already in a room")
+		return nil
+	}
+	var request protocol.TournamentPairingCommand
+	if err := env.DecodePayload(&request); err != nil {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
+		return nil
+	}
+	binding := sess.Tournament()
+	if binding.TournamentID == "" || binding.ParticipantID == "" {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden,
+			"only paired participants can open a match")
+		return nil
+	}
+	entry, err := h.tournaments.lockOperation(binding.TournamentID)
+	if err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	defer entry.opMu.Unlock()
+
+	entry.mu.Lock()
+	event := entry.event
+	sess.tournamentMu.RLock()
+	privateID, current := tournamentProjectionIdentity(event, sess, binding)
+	sess.tournamentMu.RUnlock()
+	if !current || privateID == "" {
+		entry.mu.Unlock()
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden,
+			"participant registration is not owned by this session")
+		return nil
+	}
+	pairing := event.CurrentPairing(binding.ParticipantID)
+	if event.Status != tournament.StatusRunning ||
+		event.Stage != protocol.LimitedStageCompetition || pairing == nil ||
+		pairing.ID != request.PairingID || pairing.Result != nil || pairing.Bye() || pairing.Invited {
+		entry.mu.Unlock()
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden,
+			"pairing is not an open current match")
+		return nil
+	}
+	roomID := pairing.RoomID
+	format := protocol.FormatModern
+	deckFormat := strings.ToLower(event.Format)
+	if event.EventType != protocol.LimitedEventConstructed {
+		deckFormat = protocol.DeckFormatLimited
+	}
+	if event.IsCommanderCube() {
+		format = protocol.FormatEDH
+		deckFormat = protocol.DeckFormatCommanderLimited
+	}
+	if event.Format == protocol.FormatDuel || strings.EqualFold(event.Format, "duel commander") {
+		format = protocol.FormatDuel
+		deckFormat = protocol.DeckFormatDuel
+	}
+	if !protocol.ValidDeckFormat(deckFormat) {
+		entry.mu.Unlock()
+		h.sendError(sess, env.ID, protocol.ErrUnsupportedFormat,
+			"tournament deck format is unsupported")
+		return nil
+	}
+	rulesMode := event.RulesMode
+	actionClockEnabled := event.ActionClockEnabled
+	matchMode := event.MatchMode
+	roundNumber := 0
+	if round := event.CurrentRound(); round != nil {
+		roundNumber = round.Number
+	}
+	coordinator := event.Coordinator
+	table := pairing.Table
+	leftName := event.Participant(pairing.PlayerAID).DisplayName
+	rightName := event.Participant(pairing.PlayerBID).DisplayName
+	maxSeats := 2
+	if pairing.Group != nil {
+		maxSeats = len(pairing.Group.PlayerIDs)
+	}
+	var lockedDeck *protocol.DeckSelect
+	participant := event.Participant(binding.ParticipantID)
+	constructedDeckLocked := event.EventType == protocol.LimitedEventConstructed &&
+		roundNumber > 1 && participant != nil && participant.Deck != nil
+	if event.EventType != protocol.LimitedEventConstructed &&
+		(participant == nil || participant.Deck == nil) {
+		entry.mu.Unlock()
+		h.sendError(sess, env.ID, protocol.ErrTournamentNotReady,
+			"limited pairing deck is unavailable")
+		return nil
+	}
+	if participant != nil && participant.Deck != nil &&
+		(event.EventType != protocol.LimitedEventConstructed || constructedDeckLocked) {
+		deckCopy := *participant.Deck
+		deckCopy.Commanders = append([]string(nil), participant.Deck.Commanders...)
+		deckCopy.CommanderPrintings = append([]protocol.DeckCard(nil), participant.Deck.CommanderPrintings...)
+		deckCopy.CommanderColors = append([]string(nil), participant.Deck.CommanderColors...)
+		deckCopy.Mainboard = append([]protocol.DeckCard(nil), participant.Deck.Mainboard...)
+		deckCopy.Sideboard = append([]protocol.DeckCard(nil), participant.Deck.Sideboard...)
+		lockedDeck = &deckCopy
+	}
+	entry.mu.Unlock()
+
+	if roomID != "" && h.hub.FindRoom(roomID) == nil {
+		entry.mu.Lock()
+		event.ClearRoom(roomID)
+		entry.mu.Unlock()
+		if coordinator == protocol.LimitedCoordinatorCasual {
+			h.sendError(sess, env.ID, protocol.ErrTournamentNotReady,
+				"this casual table has closed; choose an opponent for another table")
+			h.fanoutTournament(binding.TournamentID)
+			return nil
+		}
+		roomID = ""
+	}
+	if roomID == "" {
+		if rulesMode == protocol.RulesModeForge && !h.forgeRulesAvailable() {
+			h.sendError(sess, env.ID, protocol.ErrRulesUnavailable,
+				"Forge rules mode is not available on this server")
+			return nil
+		}
+		roomName := fmt.Sprintf("R%d T%d · %s vs %s", roundNumber, table, leftName, rightName)
+		if coordinator == protocol.LimitedCoordinatorCasual {
+			roomName = fmt.Sprintf("Casual T%d · %s vs %s", table, leftName, rightName)
+		}
+		if format == protocol.FormatEDH {
+			roomName = fmt.Sprintf("Commander Cube T%d · %d players", table, maxSeats)
+		}
+		runes := []rune(roomName)
+		if len(runes) > protocol.MaxRoomNameRunes {
+			roomName = string(runes[:protocol.MaxRoomNameRunes])
+		}
+		r, snapshot, seq, roomOperation, createErr := h.hub.createRoom(roomCreateOptions{
+			name:                    roomName,
+			format:                  format,
+			deckFormat:              deckFormat,
+			matchMode:               matchMode,
+			cardLoadMode:            protocol.CardLoadBackground,
+			rulesMode:               rulesMode,
+			hostingMode:             "server",
+			maxSeats:                maxSeats,
+			allowSpectators:         true,
+			tournamentID:            binding.TournamentID,
+			tournamentPairing:       request.PairingID,
+			tournamentParticipantID: binding.ParticipantID,
+		}, sess)
+		if createErr != nil {
+			sendTournamentError(h, sess, env.ID, createErr)
+			return nil
+		}
+		var selected room.Result
+		if actionClockEnabled || lockedDeck != nil {
+			roomOperation.mu.Lock()
+			if actionClockEnabled {
+				roomOperation.room.EnableActionClock(time.Now())
+			}
+			if lockedDeck != nil {
+				selected, createErr = roomOperation.room.SelectDeck(sess.ConnectionID, *lockedDeck)
+				if createErr == nil && constructedDeckLocked {
+					createErr = roomOperation.room.SealTournamentDeck(sess.ConnectionID)
+					if createErr == nil {
+						// SelectDeck's snapshot predates the constructed lock.
+						selected.Broadcast = []protocol.Envelope{roomOperation.room.SnapshotEnvelope()}
+					}
+				}
+			}
+			roomOperation.mu.Unlock()
+			if createErr != nil {
+				sess.setRoom(nil)
+				_ = h.removeRoom(r)
+				roomOperation.opMu.Unlock()
+				sendTournamentError(h, sess, env.ID, mapRoomError(createErr))
+				return nil
+			}
+		}
+		entry.mu.Lock()
+		setErr := event.SetPairingRoom(tournamentActor(sess), request.PairingID, r.ID)
+		if setErr == nil {
+			event.MarkCubeTableEntered(binding.ParticipantID, request.PairingID)
+		}
+		entry.mu.Unlock()
+		if setErr != nil {
+			// The room is already registered and bound to the host, but no
+			// pairing references it. Discard it before reporting the failure so
+			// the hub cannot retain a room the tournament cannot reach.
+			// Tournament opMu is already held, so skip commitPairingRoomCleanup.
+			sess.setRoom(nil)
+			_ = h.removeRoom(r)
+			roomOperation.opMu.Unlock()
+			sendTournamentError(h, sess, env.ID, setErr)
+			return nil
+		}
+		opened, _ := protocol.NewEnvelope(protocol.TypeTournamentMatchOpened,
+			protocol.TournamentMatchOpened{
+				TournamentID: binding.TournamentID, PairingID: request.PairingID, RoomID: r.ID,
+			})
+		opened.ID = env.ID
+		h.send(sess, opened)
+		created, _ := protocol.NewEnvelope(protocol.TypeRoomCreated, protocol.RoomCreated{
+			RoomID: r.ID,
+			Settings: protocol.RoomSettings{
+				Name: r.Name, Format: r.Format, DeckFormat: r.DeckFormat,
+				MaxSeats:        r.MaxSeats,
+				AllowSpectators: true, MatchMode: r.MatchMode,
+				CardLoadMode: r.CardLoadMode, RulesMode: r.RulesMode, HostingMode: r.HostingMode, HasPassword: false,
+				ActionClockEnabled: r.ActionClockEnabled,
+			},
+			HostSeat: r.HostSeat,
+		})
+		h.send(sess, created)
+		if lockedDeck == nil && !actionClockEnabled {
+			roomOperation.mu.Lock()
+			snapshot = roomOperation.room.ProjectRoomSnapshot(sess.ConnectionID, snapshot)
+			roomOperation.mu.Unlock()
+			snapshotEnvelope, _ := protocol.NewEnvelope(protocol.TypeRoomSnapshot, snapshot)
+			h.send(sess, snapshotEnvelope.WithSeq(seq))
+		} else if lockedDeck == nil {
+			roomOperation.mu.Lock()
+			envelope := roomOperation.room.SnapshotEnvelope()
+			roomOperation.mu.Unlock()
+			h.fanout(r, []protocol.Envelope{envelope})
+		} else {
+			// The creation snapshot predates automatic Limited deck selection.
+			// Send only the reducer's post-selection snapshot so the client
+			// enters the room with the authoritative locked-deck state.
+			h.fanout(r, selected.Broadcast)
+		}
+		roomOperation.opMu.Unlock()
+		h.fanoutTournament(binding.TournamentID)
+		return nil
+	}
+
+	roomOperation, joinErr := h.hub.beginJoin(roomID, "")
+	if joinErr != nil {
+		sendTournamentError(h, sess, env.ID, joinErr)
+		return nil
+	}
+	roomOperation.mu.Lock()
+	returnAsSpectator := format == protocol.FormatEDH && deckFormat == protocol.DeckFormatCommanderLimited &&
+		roomOperation.room.Phase == protocol.RoomPhaseStarted
+	for _, seat := range roomOperation.room.Seats {
+		if seat.Occupied && seat.TournamentParticipantID == binding.ParticipantID {
+			returnAsSpectator = false
+		}
+	}
+	roomOperation.mu.Unlock()
+	var result room.Result
+	var r *room.Room
+	if returnAsSpectator {
+		// All invited seats were present before a Commander table could start.
+		// A member whose seat is now gone has already left/forfeited: returning
+		// may observe the remaining game, never recreate their library or seat.
+		result, r, joinErr = h.hub.joinRoom(roomOperation, sess, true)
+		lockedDeck = nil
+	} else {
+		result, r, joinErr = h.hub.joinTournamentRoom(roomOperation, sess, binding.ParticipantID)
+	}
+	if joinErr != nil {
+		roomOperation.opMu.Unlock()
+		sendTournamentError(h, sess, env.ID, joinErr)
+		return nil
+	}
+	if lockedDeck != nil {
+		roomOperation.mu.Lock()
+		selected, selectErr := roomOperation.room.SelectDeck(sess.ConnectionID, *lockedDeck)
+		if selectErr == nil && constructedDeckLocked {
+			selectErr = roomOperation.room.SealTournamentDeck(sess.ConnectionID)
+			if selectErr == nil {
+				selected.Broadcast = []protocol.Envelope{roomOperation.room.SnapshotEnvelope()}
+			}
+		}
+		roomOperation.mu.Unlock()
+		if selectErr != nil {
+			roomOperation.mu.Lock()
+			_, _ = roomOperation.room.Leave(sess.ConnectionID)
+			roomOperation.mu.Unlock()
+			sess.setRoom(nil)
+			roomOperation.opMu.Unlock()
+			sendTournamentError(h, sess, env.ID, mapRoomError(selectErr))
+			return nil
+		}
+		// Joining emits a pre-selection room snapshot. Replace it with the
+		// post-selection snapshot so neither paired client observes a transient
+		// deck-required state.
+		result.Broadcast = selected.Broadcast
+	}
+	entry.mu.Lock()
+	event.MarkCubeTableEntered(binding.ParticipantID, request.PairingID)
+	entry.mu.Unlock()
+	opened, _ := protocol.NewEnvelope(protocol.TypeTournamentMatchOpened,
+		protocol.TournamentMatchOpened{
+			TournamentID: binding.TournamentID, PairingID: request.PairingID, RoomID: roomID,
+		})
+	opened.ID = env.ID
+	h.send(sess, opened)
+	if result.Reply != nil {
+		result.Reply.ID = ""
+		h.send(sess, *result.Reply)
+	}
+	h.fanout(r, result.Broadcast)
+	if result.ProjectGame {
+		h.fanoutGameProjections(r)
+	}
+	roomOperation.opMu.Unlock()
+	h.fanoutTournament(binding.TournamentID)
+	return nil
+}

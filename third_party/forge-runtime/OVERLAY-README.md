@@ -1,0 +1,80 @@
+# Client-bundled native adapter
+
+`build-overlay.py` compiles the current Hexproof native host and every upstream
+Java class touched by the reviewed patch. It verifies the immutable base's
+binary and complete source archives, reverses that archive's patch in a
+disposable tree, and applies the current patch. The resulting small JAR loads
+before the base JAR. Unchanged Forge code, resources and dependencies come from
+the pinned base distribution. This preserves its source-backed XMLPull
+replacement and other dependency notices.
+
+The host and base must use the same official Forge source revision. Changing
+that revision requires a newly built and verified complete runtime/source pair,
+including the matching card resources. An overlay alone cannot upgrade the
+official engine. Review new base archives locally with `--base-archive` and
+`--source-archive`; these options retain the manifest's size/checksum checks.
+Do not activate download manifests before the pinned assets are published.
+The immutable base release and its runtime/source manifests are linked in the
+[runtime guide](README.md). Keep the complete corresponding-source asset;
+GitHub's automatic repository archive does not contain all base dependencies.
+
+Reviewed card-text corrections are host-owned display hints, applied by the
+patched ability factory only inside a native execution context. Only missing
+`StackDescription` and `TgtPrompt` annotations are accepted. This keeps local
+and bundled runtimes consistent without rewriting the immutable base card
+resources or changing costs, legal targets, or effect resolution.
+
+The source identity covers every native Java source, the upstream pin and patch.
+`apps/server/internal/forgehost/identity.go` must match
+`python3 third_party/forge-runtime/build-overlay.py --identity`; tool tests and
+the helper builder enforce this. The helper embeds the actual JAR checksum and
+verifies both its metadata and private copy before starting Java. Missing or
+mismatched files fail preparation instead of falling back to the old adapter.
+
+Normal client builds need JDK 21, Python 3.12+ and Git in addition to Qt/Go.
+The reviewed diagnostic index includes compiler-generated method names, which
+newer JDKs can change even with `--release 21`. The builder and CMake select a
+JDK 21 compiler from `JAVA_HOME_21_*`, `JAVA_HOME`, `PATH`, or installed Linux
+JDKs under `/usr/lib/jvm`, without changing the system Java default. Select a
+specific compiler with `--javac` or CMake's `HEXPROOF_FORGE_JAVAC`; an incompatible
+explicit compiler fails before downloading or compiling anything.
+`java-toolchain.py` shares this selection with the complete native runtime
+builder and accompanies both corresponding-source bundles.
+There is no Maven resolution. Initial build inputs total about 446 MiB; the
+content-addressed cache is `build/forge-overlay/downloads`. `--base-archive` and
+`--source-archive` accept predownloaded files, with the same mandatory checksums.
+CI and release jobs share these platform-independent downloads through
+`.github/actions/cache-forge-downloads`; the cache key covers both pinned
+manifests. Every restored archive still passes its pinned size and SHA-256
+checks before use. Compiled overlays and corresponding-source bundles are
+built from the current checkout, not restored from this cache.
+Only the small overlay ships beside `hexproof-forge-host`; players prepare the
+large base and platform Java payload on demand. Java is not required to join.
+
+## Complete source distribution and rebuild
+
+Release quality gates produce `hexproof-forge-overlay-source.tar.gz`, which
+contains the complete pinned source/dependency archive, current host/patch,
+build recipe and metadata. It must accompany client binaries in every release.
+The JAR also includes the exact modified Java files and Forge license; those
+files alone are not the complete corresponding-source package.
+
+From the extracted `hexproof-forge-overlay-source` directory:
+
+```sh
+python3 third_party/forge-runtime/build-overlay.py \
+  --source-archive base-source.tar.gz --output build/forge-overlay
+```
+
+The build may download the pinned base binary archive. Supply `--base-archive`
+to use an existing verified copy. Its corresponding complete sources and
+original build recipe are in `base-source.tar.gz`; this path never fetches a
+moving branch or silently updates card resources/dependencies. Output stays
+outside preserved inputs.
+
+To create the complete source bundle from a repository checkout:
+
+```sh
+python3 third_party/forge-runtime/build-overlay.py \
+  --source-output build/packages/hexproof-forge-overlay-source.tar.gz
+```

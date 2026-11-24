@@ -1,0 +1,336 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#include "CardCatalogCommon.h"
+#include "CardCatalogQueryInternal.h"
+#include "CatalogRepository.h"
+
+namespace hexproof::client {
+
+using namespace catalog_internal;
+
+CardRecord CatalogRepository::lookup(const CatalogCardQuery &request, QString *error) const
+{
+    if (error)
+        error->clear();
+    CardRecord record;
+    if (!ensureOpen(error))
+        return record;
+    const QSqlDatabase database = QSqlDatabase::database(m_connectionName);
+    const bool hasAliases = m_schema.hasAliases;
+    const QString localizedExpression = hasAliases ? localizedNameExpression(QStringLiteral("c"))
+                                                   : QStringLiteral("c.printed_name");
+    const QString typeExpression = request.language == QStringLiteral("zh") && hasAliases
+                                       ? localizedTypeExpression(QStringLiteral("c"))
+                                       : QStringLiteral("c.type_line");
+    const bool hasImageStatus = m_schema.cardColumns.contains(QStringLiteral("image_status"));
+    const QString imageStatusExpression =
+        hasImageStatus ? QStringLiteral("c.image_status") : QStringLiteral("''");
+    const QString oracleTextExpression =
+        m_schema.cardColumns.contains(QStringLiteral("oracle_text"))
+            ? QStringLiteral("c.oracle_text")
+            : QStringLiteral("''");
+    const QString layoutExpression = m_schema.cardColumns.contains(QStringLiteral("layout"))
+                                         ? QStringLiteral("c.layout")
+                                         : QStringLiteral("''");
+    const QString imageUsabilityOrder =
+        hasImageStatus
+            ? QStringLiteral("CASE WHEN lower(c.image_status) IN ('missing', 'placeholder') "
+                             "THEN 1 ELSE 0 END, ")
+            : QString{};
+    // Theme front cards can share an exact name with a playable spell. Keep
+    // name-only imports on the spell while still honoring explicit printings.
+    const QString playableOrder =
+        m_schema.cardColumns.contains(QStringLiteral("layout"))
+            ? QStringLiteral("CASE WHEN %1 THEN 0 ELSE 1 END, ").arg(catalogPlayablePrintingSql())
+            : QString{};
+    QSqlQuery query(database);
+    bool failed = false;
+    const auto readFirst = [&]() {
+        const bool executed = query.exec();
+        const bool found = executed && query.next();
+        if (!executed || (!found && query.lastError().isValid())) {
+            failed = true;
+            if (error)
+                *error = query.lastError().text();
+        }
+        return found;
+    };
+    const QString select =
+        QStringLiteral("SELECT c.name, c.oracle_id, %1, %2, c.set_code, c.collector_number, "
+                       "c.image_url, c.lang, c.illustration_id, %3, %4, %5 FROM cards c ")
+            .arg(localizedExpression, typeExpression, imageStatusExpression, oracleTextExpression,
+                 layoutExpression);
+    const QString preferredLanguage =
+        request.language == QStringLiteral("zh") ? QStringLiteral("zhs") : QStringLiteral("en");
+    const QString resultOrder =
+        QStringLiteral("ORDER BY ") + playableOrder + imageUsabilityOrder +
+        QStringLiteral("CASE WHEN c.lang = ? THEN 0 WHEN c.lang = 'en' THEN 1 ELSE 2 END LIMIT 1");
+    const bool exactPrinting = !request.setCode.isEmpty() && !request.collectorNumber.isEmpty();
+    const auto lookupIndexedName = [&](const QString &column) {
+        query = QSqlQuery(database);
+        QString statement = select + QStringLiteral("WHERE c.%1 = ? COLLATE NOCASE ").arg(column);
+        if (exactPrinting) {
+            statement += QStringLiteral("AND c.set_code = ? COLLATE NOCASE "
+                                        "AND c.collector_number = ? COLLATE NOCASE ");
+        }
+        query.prepare(statement + resultOrder);
+        query.addBindValue(request.name);
+        if (exactPrinting) {
+            query.addBindValue(request.setCode);
+            query.addBindValue(request.collectorNumber);
+        }
+        query.addBindValue(preferredLanguage);
+        return readFirst();
+    };
+
+    bool found = !request.name.isEmpty() && lookupIndexedName(QStringLiteral("name"));
+    if (!found && !failed && !request.name.isEmpty())
+        found = lookupIndexedName(QStringLiteral("printed_name"));
+
+    if (!found && !failed && exactPrinting) {
+        query = QSqlQuery(database);
+        query.prepare(select +
+                      QStringLiteral("WHERE c.set_code = ? COLLATE NOCASE "
+                                     "AND c.collector_number = ? COLLATE NOCASE ") +
+                      resultOrder);
+        query.addBindValue(request.setCode);
+        query.addBindValue(request.collectorNumber);
+        query.addBindValue(preferredLanguage);
+        found = readFirst();
+    } else if (!found && !failed) {
+        query = QSqlQuery(database);
+        QString statement =
+            select +
+            QStringLiteral("WHERE (lower(c.name) = lower(?) OR lower(c.printed_name) = lower(?) ");
+        if (hasAliases) {
+            statement += QStringLiteral(
+                "OR EXISTS (SELECT 1 FROM card_aliases a WHERE a.oracle_id = c.oracle_id "
+                "AND (lower(a.localized_name) = lower(?) "
+                "OR lower(a.face_name) = lower(?))) ");
+        }
+        statement +=
+            QStringLiteral("OR (instr(c.name, ' // ') > 0 "
+                           "AND (lower(substr(c.name, 1, instr(c.name, ' // ') - 1)) = lower(?) "
+                           "OR lower(substr(c.name, instr(c.name, ' // ') + 4)) = lower(?))) "
+                           ") ORDER BY "
+                           "CASE WHEN lower(c.name) = lower(?) "
+                           "OR lower(c.printed_name) = lower(?) THEN 0 ELSE 1 END, ");
+        statement += playableOrder + imageUsabilityOrder;
+        statement += QStringLiteral(
+            "CASE WHEN c.lang = ? THEN 0 WHEN c.lang = 'en' THEN 1 ELSE 2 END LIMIT 1");
+        query.prepare(statement);
+        query.addBindValue(request.name);
+        query.addBindValue(request.name);
+        if (hasAliases) {
+            query.addBindValue(request.name);
+            query.addBindValue(request.name);
+        }
+        query.addBindValue(request.name);
+        query.addBindValue(request.name);
+        query.addBindValue(request.name);
+        query.addBindValue(request.name);
+        query.addBindValue(preferredLanguage);
+        found = readFirst();
+    }
+    if (found) {
+        record.requestedName = request.name;
+        record.name = query.value(0).toString();
+        record.oracleId = query.value(1).toString();
+        record.localizedName =
+            request.language == QStringLiteral("zh") ? query.value(2).toString() : record.name;
+        if (request.language == QStringLiteral("zh") && !looksLikeChinese(record.localizedName)) {
+            record.localizedName.clear();
+        }
+        if (record.localizedName.isEmpty())
+            record.localizedName = record.name;
+        const QString requestedDisplayName = request.name.simplified();
+        if (exactPrinting && !requestedDisplayName.isEmpty() &&
+            !record.name.contains(QStringLiteral(" // ")) &&
+            record.name.compare(requestedDisplayName, Qt::CaseInsensitive) != 0) {
+            // Universes Beyond reskins and Secret Lair aliases retain the
+            // deck-list title while set/collector identify the canonical card.
+            record.localizedName = requestedDisplayName;
+        }
+        record.typeLine = query.value(3).toString();
+        // Scryfall oracle_text is canonical English even on localized printings.
+        record.oracleText = query.value(10).toString();
+        record.layout = query.value(11).toString();
+        record.oracleTextLanguage = QStringLiteral("en");
+        record.setCode = query.value(4).toString();
+        record.collectorNumber = query.value(5).toString();
+        record.imageUrl = upgradeLegacySmallImageUrl(query.value(6).toString());
+        const QString rowLanguage = query.value(7).toString().toLower();
+        record.illustrationId = query.value(8).toString();
+        const QString imageStatus = query.value(9).toString();
+        const bool unverifiedLegacyChineseImage =
+            !hasImageStatus &&
+            (rowLanguage == QStringLiteral("zhs") || rowLanguage == QStringLiteral("zh"));
+        if (!imageStatusAllowsArt(imageStatus) || unverifiedLegacyChineseImage)
+            record.imageUrl.clear();
+        record.imageLanguage =
+            rowLanguage == QStringLiteral("zhs") || rowLanguage == QStringLiteral("zh")
+                ? QStringLiteral("zh")
+                : QStringLiteral("en");
+    }
+    return record;
+}
+
+CardRecord CatalogRepository::imageFrameMetadata(const CardRecord &image) const
+{
+    if (image.name.isEmpty() || image.imageUrl.isEmpty() || !ensureOpen())
+        return {};
+    const QSqlDatabase database = QSqlDatabase::database(m_connectionName);
+    const auto matchingPrinting = [&](const QString &table) -> CardRecord {
+        // Both tables index their canonical name. Restrict the image match to
+        // this card's printings; never scan the entire image cache or catalog.
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral("SELECT set_code, collector_number FROM %1 "
+                                     "WHERE name = ? COLLATE NOCASE AND image_url = ? LIMIT 1")
+                          .arg(table));
+        query.addBindValue(image.name);
+        query.addBindValue(image.imageUrl);
+        if (!query.exec() || !query.next())
+            return {};
+        const QString setCode = query.value(0).toString();
+        const QString number = query.value(1).toString();
+        const CardRecord metadata = lookup({image.name, setCode, number, QStringLiteral("en")});
+        // A lookup may use a compatible fallback when an exact record is
+        // absent. Only the actual image's printing can prove its frame.
+        if (metadata.name.compare(image.name, Qt::CaseInsensitive) != 0 ||
+            metadata.setCode.compare(setCode, Qt::CaseInsensitive) != 0 ||
+            metadata.collectorNumber != number)
+            return {};
+        return metadata;
+    };
+    const CardRecord direct = matchingPrinting(QStringLiteral("cards"));
+    if (direct.valid())
+        return direct;
+    return m_schema.hasLocalizedPrintings ? matchingPrinting(QStringLiteral("localized_printings"))
+                                          : CardRecord{};
+}
+
+CardRecord CatalogRepository::lookupLocalizedPrinting(const CatalogCardQuery &request,
+                                                      const CardRecord &catalogIdentity,
+                                                      int indexVersion) const
+{
+    CardRecord record;
+    if (catalogIdentity.oracleId.isEmpty() || indexVersion < 5 || !ensureOpen())
+        return record;
+    if (!m_schema.localizedPrintingColumns.contains(QStringLiteral("image_status")))
+        return record;
+
+    const QSqlDatabase database = QSqlDatabase::database(m_connectionName);
+    QSqlQuery query(database);
+    QString statement =
+        QStringLiteral("SELECT name, face_name, localized_name, localized_type, set_code, "
+                       "collector_number, illustration_id, image_url, image_status "
+                       "FROM localized_printings WHERE oracle_id = ? ");
+    const QString normalizedRequest = request.name.simplified();
+    const QString normalizedCanonical = catalogIdentity.name.simplified();
+    const bool requestsFace =
+        normalizedCanonical.contains(QStringLiteral(" // ")) &&
+        normalizedCanonical.compare(normalizedRequest, Qt::CaseInsensitive) != 0;
+    if (requestsFace)
+        statement += QStringLiteral("AND lower(face_name) = lower(?) ");
+    statement +=
+        QStringLiteral("ORDER BY CASE WHEN lower(set_code) = lower(?) AND collector_number = ? "
+                       "THEN 0 ELSE 1 END, "
+                       "CASE WHEN illustration_id != '' AND lower(illustration_id) = lower(?) "
+                       "THEN 0 ELSE 1 END, digital ASC, released_at DESC, face_order ASC LIMIT 1");
+    query.prepare(statement);
+    query.addBindValue(catalogIdentity.oracleId);
+    if (requestsFace)
+        query.addBindValue(normalizedRequest);
+    query.addBindValue(request.setCode);
+    query.addBindValue(request.collectorNumber);
+    query.addBindValue(catalogIdentity.illustrationId);
+    if (query.exec() && query.next()) {
+        record.requestedName = request.name;
+        record.name = query.value(0).toString();
+        record.faceName = query.value(1).toString();
+        record.oracleId = catalogIdentity.oracleId;
+        record.localizedName = query.value(2).toString();
+        if (record.localizedName.isEmpty())
+            record.localizedName = catalogIdentity.localizedName;
+        record.oracleText = catalogIdentity.oracleText;
+        record.oracleTextLanguage = catalogIdentity.oracleTextLanguage;
+        record.typeLine = query.value(3).toString();
+        if (record.typeLine.isEmpty())
+            record.typeLine = catalogIdentity.typeLine;
+        record.setCode = query.value(4).toString();
+        record.collectorNumber = query.value(5).toString();
+        record.illustrationId = query.value(6).toString();
+        record.imageUrl = upgradeLegacySmallImageUrl(query.value(7).toString());
+        if (!imageStatusAllowsArt(query.value(8).toString()))
+            record.imageUrl.clear();
+        if (record.imageUrl.isEmpty())
+            return {};
+        record.imageLanguage = QStringLiteral("zh");
+        record.usesSubstituteArt =
+            request.setCode.compare(record.setCode, Qt::CaseInsensitive) != 0 ||
+            request.collectorNumber != record.collectorNumber;
+        record.resolutionVersion = kCardResolutionVersion;
+    }
+    return record;
+}
+
+bool CatalogRepository::cachedScryfallArtIsUsable(const CardRecord &record) const
+{
+    if (record.imageUrl.isEmpty() || !ensureOpen())
+        return false;
+
+    const QSqlDatabase database = QSqlDatabase::database(m_connectionName);
+    const auto matchesTable = [&](const QString &table, const QSet<QString> &columns,
+                                  const QString &language) {
+        static const QSet<QString> requiredColumns{
+            QStringLiteral("oracle_id"),
+            QStringLiteral("illustration_id"),
+            QStringLiteral("image_url"),
+            QStringLiteral("image_status"),
+        };
+        for (const QString &column : requiredColumns) {
+            if (!columns.contains(column))
+                return false;
+        }
+        if (!language.isEmpty() && !columns.contains(QStringLiteral("lang")))
+            return false;
+
+        QString statement =
+            QStringLiteral("SELECT 1 FROM %1 WHERE image_url != '' "
+                           "AND lower(image_status) NOT IN ('missing', 'placeholder') ")
+                .arg(table);
+        if (!language.isEmpty()) {
+            statement += language == QStringLiteral("zh")
+                             ? QStringLiteral("AND lower(lang) IN ('zhs', 'zh') ")
+                             : QStringLiteral("AND lower(lang) = 'en' ");
+        }
+        if (!record.oracleId.isEmpty())
+            statement += QStringLiteral("AND lower(oracle_id) = lower(?) ");
+        statement += QStringLiteral(
+            "AND (image_url = ? OR (? != '' AND lower(illustration_id) = lower(?))) LIMIT 1");
+
+        QSqlQuery query(database);
+        query.prepare(statement);
+        if (!record.oracleId.isEmpty())
+            query.addBindValue(record.oracleId);
+        query.addBindValue(record.imageUrl);
+        query.addBindValue(record.illustrationId);
+        query.addBindValue(record.illustrationId);
+        return query.exec() && query.next();
+    };
+
+    if (record.imageLanguage != QStringLiteral("zh") &&
+        record.imageLanguage != QStringLiteral("en")) {
+        return false;
+    }
+    const QString language =
+        record.imageLanguage == QStringLiteral("zh") ? QStringLiteral("zh") : QStringLiteral("en");
+    if (matchesTable(QStringLiteral("cards"), m_schema.cardColumns, language))
+        return true;
+    return language == QStringLiteral("zh") && m_schema.hasLocalizedPrintings &&
+           matchesTable(QStringLiteral("localized_printings"), m_schema.localizedPrintingColumns,
+                        {});
+}
+
+} // namespace hexproof::client

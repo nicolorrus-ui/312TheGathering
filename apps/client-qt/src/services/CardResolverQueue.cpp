@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
+
+#include "CardCatalogCommon.h"
+#include "CardResolver.h"
+
+namespace hexproof::client {
+using namespace catalog_internal;
+
+void CardResolver::resolve(CardRequest request)
+{
+    if (m_active)
+        return;
+    m_active = true;
+    m_currentRequest = std::move(request);
+    const ArtProvider provider = m_currentRequest.artProvider == ArtProvider::Auto
+                                     ? m_configuredProvider
+                                     : m_currentRequest.artProvider;
+    m_currentProvider =
+        provider == ArtProvider::Auto
+            ? (m_currentRequest.language == QStringLiteral("zh") ? ArtProvider::Mtgch
+                                                                 : ArtProvider::Scryfall)
+            : provider;
+    m_currentMtgchTried = false;
+    m_currentScryfallEnglishTried = false;
+    m_currentMtgchEnglishImageTried = false;
+    m_currentArtStage = ArtStage::None;
+    m_currentPhase = Phase::None;
+    m_currentPhaseRetries = 0;
+    m_currentConfirmedMissing = false;
+    m_currentFailureDetail.clear();
+    m_mtgchEnglishRecord = {};
+    m_metadataRecord = {};
+    m_pendingImageRecord = {};
+    m_pendingImageStage = ArtStage::None;
+    m_rulesProbeAttempted = false;
+    m_localizedRulesAttempted = false;
+    m_localizedRulesTransientFailure = false;
+    m_catalogRecord = m_currentRequest.catalogHint.valid()
+                          ? m_currentRequest.catalogHint
+                          : (m_callbacks.lookupCatalog ? m_callbacks.lookupCatalog(m_currentRequest)
+                                                       : CardRecord{});
+    m_currentRecord = m_catalogRecord;
+    const bool requestedFace =
+        m_catalogRecord.name.contains(QStringLiteral(" // ")) &&
+        m_catalogRecord.name.compare(m_currentRequest.name, Qt::CaseInsensitive) != 0 &&
+        m_catalogRecord.name.split(QStringLiteral(" // "), Qt::SkipEmptyParts)
+            .contains(m_currentRequest.name, Qt::CaseInsensitive);
+    if (requestedFace) {
+        m_currentRecord.imageUrl.clear();
+        m_currentRecord.artCropUrl.clear();
+        m_currentRecord.artCropPath.clear();
+        // Catalog rows describe the whole card. Do not carry a front/combined
+        // rule block into a separately requested back face's resolved metadata.
+        m_catalogRecord.oracleText.clear();
+        m_catalogRecord.oracleTextLanguage.clear();
+        m_catalogRecord.localizedRulesChecked = false;
+        m_currentRecord.oracleText.clear();
+        m_currentRecord.oracleTextLanguage.clear();
+        m_currentRecord.localizedRulesChecked = false;
+    } else {
+        retainMetadata(&m_currentRecord);
+    }
+    qCDebug(cardCatalogLog).noquote()
+        << "Card cache resolution"
+        << "card=" + m_currentRequest.name << "language=" + m_currentRequest.language
+        << "requestedPrinting=" + (m_currentRequest.setCode.isEmpty()
+                                       ? QStringLiteral("<name-only>")
+                                       : m_currentRequest.setCode + QLatin1Char('/') +
+                                             m_currentRequest.collectorNumber)
+        << "catalogHit=" +
+               QString(m_currentRecord.valid() ? QStringLiteral("true") : QStringLiteral("false"))
+        << "resolvedPrinting=" +
+               (m_currentRecord.setCode.isEmpty()
+                    ? QStringLiteral("<none>")
+                    : m_currentRecord.setCode + QLatin1Char('/') + m_currentRecord.collectorNumber)
+        << "imageLanguage=" + (m_currentRecord.imageLanguage.isEmpty()
+                                   ? QStringLiteral("<none>")
+                                   : m_currentRecord.imageLanguage);
+    if (m_callbacks.setStatus)
+        m_callbacks.setStatus(QStringLiteral("Caching %1…").arg(m_currentRequest.name));
+    if (m_currentRecord.valid())
+        m_currentRecord.requestedName = m_currentRequest.name;
+
+    if (m_currentRequest.language == QStringLiteral("zh")) {
+        if (m_currentProvider == ArtProvider::Mtgch) {
+            beginMtgchRequest();
+        } else if (!m_currentRequest.supportCard && !requestedFace &&
+                   m_currentRecord.imageLanguage == QStringLiteral("zh") &&
+                   !m_currentRecord.imageUrl.isEmpty()) {
+            beginImageRequest(ArtStage::ScryfallChineseExact);
+        } else {
+            beginChineseExactRequest();
+        }
+    } else if (m_currentProvider == ArtProvider::Mtgch) {
+        beginMtgchRequest();
+    } else if (!requestedFace && m_currentRecord.imageLanguage == QStringLiteral("en") &&
+               !m_currentRecord.imageUrl.isEmpty()) {
+        m_currentScryfallEnglishTried = true;
+        beginImageRequest(ArtStage::ScryfallEnglish);
+    } else {
+        beginScryfallEnglishRequest();
+    }
+}
+
+} // namespace hexproof::client
