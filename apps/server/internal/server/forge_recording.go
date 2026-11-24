@@ -64,7 +64,9 @@ func replaySecret() string {
 
 func (h *Handler) collectForgeReplay(r *room.Room, game forgeRoomGame) {
 	s := h.forgeReplays
-	if s == nil || s.config.RetentionDir == "" || len(r.Seats) != 2 {
+	// The browser Club does not expose replays. Keep its action path
+	// free of the extra engine RPC and archive work.
+	if h.config.ClubMode || s == nil || s.config.RetentionDir == "" || len(r.Seats) != 2 {
 		return
 	}
 	source, ok := game.client.(forge.ReplaySource)
