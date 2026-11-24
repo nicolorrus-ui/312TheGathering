@@ -62,9 +62,9 @@ async function practiceAndResume() {
   await button(player.page, "Use deck").click();
   await button(player.page, "Ready").click();
   if (process.env.CLUB_TEST_SLOW_READY === "1") {
-    // Run against a test server whose Java launcher delays by at least
-    // ten seconds before executing the real Forge JVM.
-    await player.page.getByText(/Starting Forge… This may take/).waitFor();
+    // Run against a test Forge launcher that delays the startGame response.
+    // The JVM itself is already warmed before Ready is enabled.
+    await player.page.getByText("Setting up the match…", { exact: true }).waitFor();
     await player.page.reload();
     await waitFor(() => player.welcome?.resumed, "resume during practice startup");
   }
