@@ -32,6 +32,8 @@ type resumeHold struct {
 
 var errSessionHelloTimeout = errors.New("session.hello timeout")
 
+const errClubResumePending = "club_resume_pending"
+
 // ServeHTTP upgrades to WebSocket and runs the connection lifecycle.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.config.MaxConnections > 0 &&
@@ -75,6 +77,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.registerSession(sess)
 	defer h.unregisterSession(sess)
+	if h.config.ClubMode {
+		defer func() {
+			if sess.ResumeToken != "" {
+				h.clubResumeTokens.Delete(sess.ResumeToken)
+			}
+		}()
+	}
 
 	// writePump drains sess.Send onto the WebSocket; readLoop reads inbound.
 	go h.writePump(ctx, conn, sess)
@@ -264,7 +273,7 @@ func (h *Handler) handleHello(ctx context.Context, sess *Session, env protocol.E
 					if sess.Account().ID != "" {
 						sess.DisplayName = displayName
 					}
-					sess.ResumeToken = resumeToken
+					h.publishResumeToken(sess, resumeToken)
 					welcome := protocol.SessionWelcome{
 						V:            protocol.ProtocolVersion,
 						ClusterNode:  clusterNode,
@@ -311,8 +320,14 @@ func (h *Handler) handleHello(ctx context.Context, sess *Session, env protocol.E
 			}
 		}
 	}
+	if h.config.ClubMode && hello.ResumeToken != "" &&
+		h.clubResumePending(hello.ResumeToken, sess.Account().ID) {
+		h.sendError(sess, env.ID, errClubResumePending, "The previous connection is still releasing the seat")
+		return nil
+	}
+
 	sess.DisplayName = displayName
-	sess.ResumeToken = resumeToken
+	h.publishResumeToken(sess, resumeToken)
 	welcome := protocol.SessionWelcome{
 		V:            protocol.ProtocolVersion,
 		ClusterNode:  clusterNode,
@@ -342,6 +357,31 @@ func hasControlCharacters(value string) bool {
 		}
 	}
 	return false
+}
+
+func (h *Handler) publishResumeToken(sess *Session, token string) {
+	sess.ResumeToken = token
+	if h.config.ClubMode {
+		h.clubResumeTokens.Store(token, sess)
+	}
+}
+
+// A slow room operation can hold the old read loop inside Ready while the
+// browser has already begun a fresh WebSocket handshake.
+func (h *Handler) clubResumePending(token, accountID string) bool {
+	if value, ok := h.clubResumeTokens.Load(token); ok {
+		previous := value.(*Session)
+		if previous.Room() != nil && previous.Account().ID == accountID {
+			return true
+		}
+	}
+
+	// Also cover the handoff if the old socket stored a hold immediately
+	// after handleHello checked for one.
+	h.resumeMu.Lock()
+	defer h.resumeMu.Unlock()
+	hold, ok := h.resumeHolds[token]
+	return ok && hold.accountID == accountID && time.Now().UTC().Before(hold.expiresAt)
 }
 
 func (h *Handler) holdForReconnect(sess *Session, r *room.Room) {
