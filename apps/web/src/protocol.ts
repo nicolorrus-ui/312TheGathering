@@ -38,6 +38,8 @@ export type Prompt = {
   combatTargets: Target[]; damageSource?: { label: string }; damageTargets: (Target & { lethalDamage: number })[];
   totalDamage: number; damageAssignmentMode?: string;
 };
+export type RulesPriority = { roomId: string; hold: boolean; stops: string[] };
+
 export type Response = {
   responseId: string; cardIds?: string[]; targetIds?: string[]; choiceIds?: string[];
   orderedIds?: string[]; chosenNumber?: number; name?: string;
