@@ -120,7 +120,8 @@ func NewHandler() *Handler {
 // NewHandlerWithConfig creates a bounded handler and optional retention store.
 func NewHandlerWithConfig(config Config) (*Handler, error) {
 	config = normalizeConfig(config)
-	if config.ClubMode && (config.ForgeRuntime == nil || config.Cluster != nil || config.AllowPlayerHosting) {
+	if config.ClubMode && (config.ForgeRuntime == nil || config.Cluster != nil ||
+		config.AllowPlayerHosting || config.ForgeGamesPerJVM != 1) {
 		return nil, fmt.Errorf("club mode requires a dedicated server-managed Forge runtime")
 	}
 	if err := peerlink.ValidateSTUNServers(config.PeerSTUNServers); err != nil {
@@ -189,6 +190,9 @@ func NewHandlerWithConfig(config Config) (*Handler, error) {
 	if err := h.configureCluster(); err != nil {
 		_ = h.Close()
 		return nil, fmt.Errorf("configure official cluster: %w", err)
+	}
+	if runtimeLifecycle.idle != nil {
+		go h.watchForgeRuntime(runtimeLifecycle.idle)
 	}
 	return h, nil
 }
