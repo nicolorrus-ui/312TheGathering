@@ -8,6 +8,7 @@ const activeRoomStorage = "hexproof-club.active-room.v1";
 type Identity = { name: string; resumeToken?: string; roomId?: string };
 type Connection = "idle" | "connecting" | "online" | "offline";
 type SessionState = { connection: Connection; welcome?: Welcome; seat?: number; room?: Room;
+  resuming?: boolean; pendingReady?: string;
   game?: Snapshot; prompt?: Prompt; metadata?: GameMetadata; error?: string; awaiting?: number; tournament?: Tournament };
 const initialState: SessionState = { connection: "idle" };
 const rotatedIdentity = (identity: Identity, token: string, roomId?: string) => ({ name: identity.name, resumeToken: token, roomId });
@@ -66,7 +67,8 @@ export function useSession() {
       const scheme = location.protocol === "https:" ? "wss" : "ws";
       current = new WebSocket(`${scheme}://${location.host}/ws`);
       socket.current = current;
-      setState((previous) => ({ ...previous, connection: "connecting" }));
+      setState((previous) => ({ ...previous, connection: "connecting",
+        resuming: Boolean(latestIdentity.current?.roomId) }));
       let hello: string | undefined;
       current.onopen = () => {
         const value = latestIdentity.current ?? identity!;
@@ -129,8 +131,12 @@ export function useSession() {
               ...(room.phase === "waiting" ? { game: undefined, prompt: undefined, metadata: undefined } : {}) }));
             break;
           }
+          case "player.ready_changed":
+            setState((previous) => previous.pendingReady === envelope.id
+              ? { ...previous, pendingReady: undefined } : previous);
+            break;
           case "match.started":
-            setState((previous) => ({ ...previous, error: undefined }));
+            setState((previous) => ({ ...previous, pendingReady: undefined, error: undefined }));
             break;
           case "game.returned_to_room":
             inFlightDecision.current = null;
@@ -165,10 +171,15 @@ export function useSession() {
             break;
           case "error": {
             const error = payload as ServerError;
+            if (envelope.id === hello && error.code === "club_resume_pending") {
+              current.close();
+              break;
+            }
             refused = envelope.id === hello;
             const failedDecision = envelope.id === inFlightDecision.current?.request;
             if (failedDecision) inFlightDecision.current = null;
             setState((previous) => ({ ...previous, error: describeError(error),
+              pendingReady: envelope.id === previous.pendingReady ? undefined : previous.pendingReady,
               awaiting: failedDecision ? undefined : previous.awaiting }));
             break;
           }
@@ -204,6 +215,11 @@ export function useSession() {
     setState(initialState);
   }
 
+  function setReady(ready: boolean) {
+    const request = send("player.ready", { ready });
+    if (request) setState((previous) => ({ ...previous, pendingReady: request, error: undefined }));
+  }
+
   function answer(prompt: Prompt, response: Response) {
     if (inFlightDecision.current?.promptId === prompt.promptId) return;
     const request = send("rules.respond", { promptId: prompt.promptId, ...response });
@@ -218,13 +234,13 @@ export function useSession() {
     send("tournament.enter", { tournamentId, credential });
   }
 
-  return { ...state, identity: identity?.name, enter, forget, send, answer, enterTournament,
+  return { ...state, identity: identity?.name, enter, forget, send, setReady, answer, enterTournament,
     clearError: () => setState((previous) => ({ ...previous, error: undefined })) };
 }
 
 function describeError(error: ServerError) {
   if (error.rulesStartFailure?.reason === "capacity") {
-    return "All Forge match slots are in use. A best-of-three match keeps its slot during sideboarding. When a slot opens, press Ready again. Your seats and decks are kept.";
+    return "All Forge match slots are in use. A match can hold its slot while starting, during sideboarding, or while a player reconnects. When a slot opens, press Ready again. Your seats and decks are kept.";
   }
   const issues = error.rulesStartFailure?.issues ?? [];
   const details = issues.map(({ cardName, code }) => {
