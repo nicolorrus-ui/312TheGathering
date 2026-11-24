@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "./Board";
 import { CardImage, CardImages } from "./CardImages";
@@ -90,6 +90,35 @@ function Lobby({ session }: { session: Session }) {
   </section>;
 }
 
+type ForgeAvailability = "warming" | "busy" | "ready";
+
+function useForgeAvailability(online: boolean): ForgeAvailability {
+  const [status, setStatus] = useState<ForgeAvailability>("warming");
+  useEffect(() => {
+    if (!online) return;
+    const controller = new AbortController();
+    let timer: number;
+    async function poll() {
+      try {
+        const response = await fetch("/forge-ready", { cache: "no-store", signal: controller.signal });
+        const payload = response.ok ? await response.json() as { status?: string } : {};
+        if (!controller.signal.aborted) {
+          setStatus(payload.status === "ready" || payload.status === "busy" ? payload.status : "warming");
+        }
+      } catch {
+        if (!controller.signal.aborted) setStatus("warming");
+      }
+      if (!controller.signal.aborted) timer = window.setTimeout(poll, 1500);
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [online]);
+  return status;
+}
+
 function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
   const [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState("");
@@ -97,6 +126,8 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
   const ownSeat = room.seats[session.seat ?? -1];
   const deck = decks.find((item) => item.id === selected);
   const online = session.connection === "online";
+  const forgeAvailability = useForgeAvailability(online);
+  const waitingForForge = !ownSeat?.ready && forgeAvailability !== "ready";
   const invite = new URL(location.pathname, location.origin);
   invite.searchParams.set("room", room.roomId);
   return <section className="panel">
@@ -122,11 +153,13 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
       }}>Use deck</button>
     </div>
     {room.ownDeckName && <p className="selected-deck">{room.ownDeckName} {ownSeat?.deckLocked ? "registered for this match" : "selected"}</p>}
-    <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected || Boolean(session.pendingReady)}
+    <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected || waitingForForge || Boolean(session.pendingReady)}
       onClick={() => session.setReady(!ownSeat?.ready)}>{session.pendingReady ? "Submitting…" : ownSeat?.ready ? "Cancel ready" : "Ready"}</button>
+    {online && ownSeat?.deckSelected && waitingForForge && !session.pendingReady &&
+      <p role="status">{forgeAvailability === "busy" ? "Forge is occupied by another match." : "Preparing Forge before Ready is available."}</p>}
     {session.pendingReady && !ownSeat?.ready && room.seats.every((seat, index) =>
       seat.occupied && (index === session.seat || seat.ready)) &&
-      <p role="status">Starting Forge… This may take a minute on a new instance.</p>}
+      <p role="status">Setting up the match…</p>}
   </section>;
 }
 
