@@ -615,8 +615,14 @@ func (h *Handler) handlePlayerReady(sess *Session, env protocol.Envelope) error 
 	}
 	var rulesState forgeStartState
 	if res.StartRulesGame {
+		if h.config.ClubMode {
+			log.Printf("club room %s: starting Forge match", r.ID)
+		}
 		rulesState, err = h.startForgeGame(r)
 		if err != nil {
+			if h.config.ClubMode {
+				log.Printf("club room %s: Forge start failed (%s)", r.ID, forgeStartFailureReason(err))
+			}
 			if !h.pauseActionClockLocked(r) {
 				return nil
 			}
