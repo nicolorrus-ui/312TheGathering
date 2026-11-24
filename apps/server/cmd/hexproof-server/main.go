@@ -230,6 +230,9 @@ func main() {
 	// Ops/tunnel health checks (Cloudflare / curl). Not part of the game protocol.
 	mux.HandleFunc("/healthz", handler.ServeHealth)
 	mux.HandleFunc("/readyz", handler.ServeReadiness)
+	if clubMode {
+		mux.HandleFunc("GET /forge-ready", handler.ServeClubForgeAvailability)
+	}
 	mux.Handle("/ws", handler)
 	if clubMode {
 		files := os.DirFS(*clubWebRoot)
