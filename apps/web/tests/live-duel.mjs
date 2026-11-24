@@ -20,6 +20,7 @@ const imageRequests = [];
 let verifiedHandAndPreview = false;
 let verifiedTable = false;
 let verifiedDecision = false;
+let verifiedStack = false;
 const seenBattlefieldOrientations = new Set();
 const forbidden = ["game.set_tapped", "room.list", "room.ai.configure", "tournament.create"];
 const stats = { actions: 0, tapped: 0, floatingMana: 0, targetedFace: 0, resolutions: 0, privateSearch: 0, reconnect: 0, drag: 0 };
@@ -166,6 +167,7 @@ async function verifyTable(peer) {
     [".own-hand", ".opponent-hand", ".table", ".phase-rail", ".action-dock"].map((selector) => page.locator(selector).boundingBox()));
   assert.ok(opponentHand.y < board.y + board.height / 2 && hand.y > board.y + board.height / 2);
   assert.ok(phases.x >= board.x + board.width && controls.x >= hand.x + hand.width);
+  assert.equal(await page.getByRole("complementary", { name: "Spell and ability stack" }).count(), 0);
   const desktop = page.viewportSize();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
@@ -184,14 +186,32 @@ async function verifyTable(peer) {
   await until(() => peer.priorityPreferences?.hold === true, "hold enabled for Forge");
   await hold.click();
   await until(() => peer.priorityPreferences?.hold === false, "hold disabled for Forge");
-  if (verifyMobileImages) {
+  if (verifyMobileImages || verifyImages) {
     const art = page.locator(".own-hand img.table-card-image").first();
     await verifyImage(art);
-    assert.match(await art.getAttribute("src"), /^\/card-art\?/);
+    if (verifyMobileImages) assert.match(await art.getAttribute("src"), /^\/card-art\?/);
     assert.equal(await art.getAttribute("loading"), "eager");
     assert.equal(await page.locator(".opponent-hand img").count(), 0);
   }
   await page.setViewportSize(desktop);
+}
+
+async function verifyStack(peer) {
+  const { page, game } = peer;
+  const tray = page.getByRole("complementary", { name: "Spell and ability stack" });
+  await tray.waitFor();
+  assert.equal(await tray.getByRole("button").count(), game.stack.length);
+  const [board, bounds, phases] = await Promise.all(
+    [page.locator(".table"), tray, page.locator(".phase-rail")].map((element) => element.boundingBox()));
+  assert.ok(bounds.x > board.x + board.width / 2 && bounds.x + bounds.width < phases.x);
+  const desktop = page.viewportSize();
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await tray.isVisible());
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  } finally {
+    await page.setViewportSize(desktop);
+  }
 }
 
 async function verifyDecisionWindow(peer, panel, selection) {
@@ -416,9 +436,13 @@ try {
     if (actor === "finished") continue;
     const other = actor === host ? guest : host;
     verifyPrivacy(actor);
-    if (verifyLayout && !verifiedTable && actor.game.turn >= 1 && actor.prompt.kind === "chooseAction") {
+    if (verifyLayout && !verifiedTable && actor.game.turn >= 1 && !actor.game.stack.length && actor.prompt.kind === "chooseAction") {
       await verifyTable(actor);
       verifiedTable = true;
+    }
+    if (verifyLayout && !verifiedStack && actor.game.stack.length && actor.prompt.kind === "chooseAction") {
+      await verifyStack(actor);
+      verifiedStack = true;
     }
     if (verifyImages && !verifiedHandAndPreview && actor.prompt.kind === "chooseAction") {
       const hand = actor.page.getByRole("region", { name: "Your hand" });
@@ -471,8 +495,8 @@ try {
   await host.page.getByRole("button", { name: "Return to room" }).waitFor();
   assert.deepEqual(pageErrors, []);
   if (verifyLayout) {
-    assert.ok(verifiedTable && verifiedDecision && seenBattlefieldOrientations.size === 2);
-    console.log("Verified phase placement, local card backs, hand fan, battlefield rotation, narrow layout, and stateful decision-window minimization");
+    assert.ok(verifiedTable && verifiedStack && verifiedDecision && seenBattlefieldOrientations.size === 2);
+    console.log("Verified phase placement, local card backs, hand fan, stack tray, battlefield rotation, narrow layout, and stateful decision-window minimization");
   }
   if (verifyImages) {
     assert.ok(verifiedHandAndPreview && imageRequests.length > 0);

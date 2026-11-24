@@ -40,15 +40,17 @@ function TableCard({ card, actionable, selected, activate, drag, dragEnd, draggi
   </div>;
 }
 
-function PlayerChip({ player, zone, zones, target, selectTarget, selectZone }: {
+function PlayerChip({ player, zone, zones, active, target, selected, selectTarget, selectZone }: {
   player: Player; zone: (name: string) => Zone | undefined; zones: string[];
-  target?: boolean; selectTarget: () => void; selectZone: (zone: Zone) => void;
+  active: boolean; target?: boolean; selected?: boolean; selectTarget: () => void; selectZone: (zone: Zone) => void;
 }) {
   return <div className="player-chip">
-    <button type="button" className="player-life" data-actionable={Boolean(target)} onClick={selectTarget}
-      disabled={!target} aria-label={`Target ${player.name}`}>
-      <span className="monogram">{player.name.slice(0, 1).toUpperCase()}</span>
-      <span className="player-name" title={player.name}>{player.name}</span><strong>{player.life}</strong>
+    <button type="button" className="player-life" data-actionable={Boolean(target)} data-active={active}
+      onClick={selectTarget} disabled={!target} aria-label={`Target ${player.name}`} aria-description={`${player.life} life`}
+      aria-pressed={target ? selected : undefined}>
+      <span className="monogram" aria-hidden="true">{player.name.slice(0, 1).toUpperCase()}</span>
+      <span className="player-name" title={player.name}>{player.name}</span>
+      <strong className="life-total">{player.life}</strong>
     </button>
     <div className="zones">{zones.map((name) => {
       const entry = zone(name);
@@ -181,6 +183,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
     const targets = decision?.targets.filter((target) => target.seat === player.seat && !target.selected) ?? [];
     return <PlayerChip player={player} zone={(zone) => zoneFor(player.seat, zone)}
       zones={own ? ["library", "graveyard", "exile"] : ["hand", "library", "graveyard", "exile"]}
+      active={!game.gameOver && game.activeSeat === player.seat}
+      selected={targets.some((target) => targetIds.includes(target.responseId))}
       target={!locked && targets.length === 1} selectTarget={() => targets.length === 1 && toggleTarget(targets[0].responseId)}
       selectZone={(zone) => setOpenedZone({ ownerSeat: zone.ownerSeat, zone: zone.zone })} />;
   };
@@ -192,7 +196,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
     !option.cardId && option.kind !== "pass" && option.responseId !== "$pass-stack") : [];
 
   return <main className="duel">
-    <section className="table" data-drag-active={Boolean(draggedId)}>
+    <section className="table" aria-label="Duel table" data-drag-active={Boolean(draggedId)}>
       <div className="player-info opponent-info">{showPlayer(opponent, false)}</div>
       <section className="hand opponent-hand" aria-label={`Opponent hand, ${opponentHandCount} cards`}>
         <div className="hand-fan" aria-hidden="true">
@@ -210,15 +214,12 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
         <div className="permanents lands">{showPermanents(opponent.seat, true)}</div>
         <div className="permanents">{showPermanents(opponent.seat, false)}</div>
       </section>
-      <div className="center-line" onDragOver={allowCardDrop} onDrop={drop}><span>Stack</span><div className="stack">
-        {game.stack.length === 0 ? <span className="empty-stack">Empty</span> : game.stack.map((object) => {
-          const target = decision?.targets.find((choice) => choice.objectId === object.id && !choice.selected);
-          return <button key={object.id} type="button" title={object.text} aria-pressed={target ? targetIds.includes(target.responseId) : undefined}
-            data-actionable={Boolean(target)} onClick={() => target ? toggleTarget(target.responseId) :
-              setReviewId(object.id)}>{object.identity.name || object.text}</button>;
-        })}
-      </div><span className="waiting">{game.gameOver ? (game.winnerSeat === undefined ? "Draw" : game.winnerSeat === seat ? "You won" : `${opponent.name} won`)
-        : locked ? "Syncing…" : decision ? "Your decision" : "Waiting for opponent"}</span></div>
+      <div className="center-line" onDragOver={allowCardDrop} onDrop={drop}>
+        <span className="waiting" role="status" data-decision={Boolean(decision && !locked)}>{
+          game.gameOver ? (game.winnerSeat === undefined ? "Draw" : game.winnerSeat === seat ? "You won" : `${opponent.name} won`)
+            : !online ? "Reconnecting…" : locked ? "Syncing…" : decision ? "Your decision" : "Waiting for opponent"
+        }</span>
+      </div>
       <section className="battlefield home" aria-label="Your battlefield" onDragOver={allowCardDrop} onDrop={drop}>
         <div className="permanents">{showPermanents(seat, false)}</div>
         <div className="permanents lands">{showPermanents(seat, true)}</div>
@@ -232,6 +233,18 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
       <section className="hand own-hand" aria-label="Your hand">
         <div className="hand-fan">{hand.map((card, index) => showCard(card, index))}</div>
       </section>
+      {game.stack.length > 0 && <aside className="stack-tray" aria-label="Spell and ability stack">
+        <div className="stack-title">Stack <span>{game.stack.length}</span></div>
+        <div className="stack">{game.stack.map((object) => {
+          const target = locked ? undefined : decision?.targets.find((choice) => choice.objectId === object.id && !choice.selected);
+          return <button key={object.id} type="button" title={object.text}
+            aria-pressed={target ? targetIds.includes(target.responseId) : undefined}
+            data-actionable={Boolean(target)} onClick={() => target ? toggleTarget(target.responseId) : setReviewId(object.id)}>
+            <CardImage identity={object.identity} className="stack-card-image" decorative compact />
+            <span>{object.identity.name || object.text}</span>
+          </button>;
+        })}</div>
+      </aside>}
       <div className="action-dock">
         {decision && !priority && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
           toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} />}

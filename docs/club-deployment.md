@@ -33,11 +33,13 @@ screen name. The server-issued seat credential grants control of a seat.
 
 ## Duel controls
 
-Your hand is at the bottom. Scroll horizontally if it does not fit, and drag
-a playable card onto the battlefield. The opponent's hand area shows card
-backs based on the public count. The web client reuses the classic Magic
-back shipped with Hexproof's desktop client. The phase track on the right
-highlights the current Forge step. Priority controls sit at the bottom right.
+Your hand fans out across the bottom of the table. Scroll horizontally if it
+does not fit, and drag a playable card onto the battlefield. The opponent's
+hand shows the classic Magic card backs based on the public count. The phase
+track on the right highlights the current Forge step. Priority controls sit
+at the bottom right.
+The stack tray appears beside the battlefield while it contains spells or
+abilities. On narrow screens it moves between the two battlefields.
 
 Forge selection windows open in the center. Use **Minimize** to free the
 board, then **Expand** near the priority controls to return to the same
@@ -156,8 +158,9 @@ page. Configure the public hostname and certificates before giving out links.
   for both turns. Stops preserve only priority windows Forge actually offers.
   **Hold priority** pauses automatic priority passing until it is turned off.
 - Run the live test with `CLUB_TEST_LAYOUT=1 CLUB_TEST_MOBILE_IMAGES=1` to verify
-  the two stop columns and a visible card image at mobile width with the
-  imported index withheld. The test server and browser need Scryfall access.
+  the two stop columns, the stack tray, and a visible card image at mobile
+  width with the imported index withheld. The test server and browser need
+  Scryfall access.
 
 - Render Logs reports match startup as `Forge ready`. Read `worker` for
   worker acquisition, `create` for deck and game setup, `first_prompt`
