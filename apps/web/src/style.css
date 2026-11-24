@@ -76,7 +76,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: .7rem; color: #f6d4b3; background: #382b22; border: 1px solid #795b40; padding: .65rem 1rem; border-radius: 8px; }
 .app-error { position: fixed; z-index: 9; right: 1rem; top: 4rem; max-width: min(580px, calc(100vw - 2rem)); }
 .duel {
-  display: grid; grid-template-columns: minmax(0, 1fr) clamp(80px, 7.9vw, 112px);
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(104px, 9.8vw, 146px);
   min-height: calc(100dvh - 58px); padding: .55rem; gap: .5rem;
 }
 .table {
@@ -211,15 +211,23 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .turn-widget { display: grid; gap: .24rem; padding: .32rem .22rem .7rem; border-bottom: 1px solid var(--line); }
 .turn-widget strong { font-size: .88rem; }
 .turn-widget small { font-size: .69rem; overflow-wrap: anywhere; }
-.phase-track { position: relative; display: grid; gap: .24rem; list-style: none; margin: .55rem 0 0; padding: 0; }
-.phase-track::before { content: ""; position: absolute; inset: .72rem auto .72rem .58rem; width: 1px; background: #536858; }
-.phase-track li { position: relative; min-height: 1.65rem; display: flex; align-items: center; padding: .25rem .14rem .25rem 1.2rem; font-size: .68rem; line-height: 1.18; color: var(--soft); border-radius: 5px; }
-.phase-track li::before {
-  content: ""; position: absolute; left: .38rem; top: 50%; translate: 0 -50%; height: .46rem; width: .46rem;
-  border: 1px solid #728777; border-radius: 50%; background: #202e26;
-}
-.phase-track li[aria-current="step"] { background: #47432d; color: #f1daa0; font-weight: 700; }
-.phase-track li[aria-current="step"]::before { border-color: var(--accent); background: var(--accent); }
+.phase-sides { display: grid; grid-template-columns: 1fr 1fr; text-align: center; margin-top: .55rem; color: var(--soft); font-size: .67rem; }
+.phase-track { display: grid; gap: .19rem; list-style: none; margin: .22rem 0 .65rem; padding: 0; }
+.phase-track li { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.phase-stop { position: relative; min-width: 0; min-height: 34px; padding: 0; border-radius: 3px; background: #1c2b22; touch-action: manipulation; }
+.phase-stop[data-side="own"] { border-radius: 6px 3px 3px 6px; }
+.phase-stop[data-side="other"] { border-radius: 3px 6px 6px 3px; }
+.phase-stop::after { content: ""; position: absolute; top: 50%; width: 6px; height: 6px; translate: 0 -50%; border-radius: 50%; border: 1px solid #849989; }
+.phase-stop[data-side="own"]::after { left: 4px; }
+.phase-stop[data-side="other"]::after { right: 4px; }
+.phase-stop[aria-pressed="true"]::after { background: var(--mint); border-color: var(--mint); }
+.phase-stop[data-active="true"] { border-color: var(--accent); background: #56492c; }
+.phase-label { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; padding: 0 13px; text-align: center; overflow-wrap: normal; font-size: .65rem; }
+.phase-track li[aria-current="step"] .phase-label { color: #f1daa0; font-weight: 700; }
+.priority-hold { width: 100%; min-height: 38px; padding: .25rem .15rem; font-size: .68rem; }
+.priority-hold::before { content: ""; display: inline-block; width: .72em; height: .72em; margin-inline-end: .35em; border: 1px solid #849989; border-radius: 50%; }
+.priority-hold[aria-checked="true"] { border-color: var(--accent); background: #56492c; }
+.priority-hold[aria-checked="true"]::before { background: var(--accent); border-color: var(--accent); }
 .action-dock { grid-area: actions; position: relative; align-self: end; min-width: 0; margin: .65rem; }
 .priority-actions { display: grid; gap: .3rem; }
 .priority-actions button { font-size: .76rem; padding: .4rem .46rem; min-height: 28px; }
@@ -274,7 +282,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .inspection p { white-space: pre-wrap; }
 .inspection .choice-grid { justify-items: center; }
 @media (max-width: 760px) {
-  .duel { grid-template-columns: minmax(0, 1fr) 68px; gap: .28rem; padding: .28rem; }
+  .duel { grid-template-columns: minmax(0, 1fr) 96px; gap: .28rem; padding: .28rem; }
   .table { grid-template-columns: 108px minmax(0, 1fr) 115px; }
   .player-info, .duel-tools, .action-dock { margin: .36rem; }
   .player-info { padding: .35rem; }
@@ -287,7 +295,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   .lobby-grid, .intro { grid-template-columns: 1fr; }
   .shell { margin-top: 1.5rem; }
   .intro { gap: 1.25rem; align-content: start; }
-  .duel { grid-template-columns: minmax(0, 1fr) 58px; }
+  .duel { grid-template-columns: minmax(0, 1fr) 94px; }
   .table {
     grid-template: "opponent tools" auto "top-hand top-hand" auto "away away" minmax(98px, 1fr)
       "stack stack" auto "home home" minmax(108px, 1fr) "bottom-hand bottom-hand" auto "owner actions" auto
@@ -297,9 +305,9 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   .own-hand .hand-fan { padding-bottom: .95rem; }
   .battlefield { padding-inline: .4rem; }
   .permanents { gap: .32rem; }
-  .phase-track li { font-size: .61rem; padding-left: .9rem; }
-  .phase-track::before { left: .36rem; }
-  .phase-track li::before { left: .16rem; }
+  .phase-stop { min-height: 42px; }
+  .phase-label { font-size: .62rem; }
+  .priority-hold { min-height: 44px; }
   .decision.collapsed { width: min(260px, calc(100vw - 75px)); }
   .choice-grid, .pile-grid { grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); }
 }
