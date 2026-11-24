@@ -3,29 +3,11 @@
 import { useEffect, useState, type CSSProperties, type DragEvent } from "react";
 import { CardImage } from "./CardImages";
 import { Decision, DecisionPanel, Options } from "./Decisions";
-import type { Card, GameMetadata, Option, Player, Prompt, Response, Snapshot, Zone } from "./protocol";
+import { PhaseControls, usePriorityStops } from "./PhaseControls";
+import type { Card, GameMetadata, Option, Player, Prompt, Response, RulesPriority, Snapshot, Zone } from "./protocol";
 
 const manaColor: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green", C: "colorless" };
 const cardDragType = "application/x-hexproof-card";
-const phases = [
-  ["untap", "Untap", "Untap"], ["upkeep", "Upkeep", "Upkeep"], ["draw", "Draw", "Draw"],
-  ["main1", "First main", "Main I"], ["combatBegin", "Beginning of combat", "Combat"],
-  ["combatDeclareAttackers", "Declare attackers", "Attack"], ["combatDeclareBlockers", "Declare blockers", "Block"],
-  ["combatFirstStrikeDamage", "First strike damage", "First strike"], ["combatDamage", "Combat damage", "Damage"],
-  ["combatEnd", "End of combat", "End combat"], ["main2", "Second main", "Main II"],
-  ["endOfTurn", "End step", "End"], ["cleanup", "Cleanup", "Cleanup"],
-] as const;
-
-function PhaseTrack({ game, turnLabel }: { game: Snapshot; turnLabel: string }) {
-  return <aside className="phase-rail" aria-label="Turn phases">
-    <header className="turn-widget"><strong>Turn {game.turn || "—"}</strong><small>{turnLabel}</small></header>
-    <ol className="phase-track">{phases.map(([id, label, short]) => <li key={id} data-phase={id}
-      aria-current={game.step === id ? "step" : undefined} aria-label={label} title={label}>
-      {short}
-    </li>)}</ol>
-  </aside>;
-}
-
 function fanPosition(index: number, count: number): CSSProperties {
   const position = count < 2 ? 0 : 2 * index / (count - 1) - 1;
   return { "--fan-angle": `${position * Math.min(12, (count - 1) * 2.3)}deg`,
@@ -49,7 +31,7 @@ function TableCard({ card, actionable, selected, activate, drag, dragEnd, draggi
         <strong>{name}</strong>
         {card.typeLine && <small>{card.typeLine}</small>}
         {card.oracle && <span className="card-text">{card.oracle}</span>}
-        <CardImage identity={card.identity} className="table-card-image" decorative />
+        <CardImage identity={card.identity} className="table-card-image" decorative eager compact />
       </>}
       {card.power !== undefined && <b className="pt">{card.power}/{card.toughness}</b>}
       {card.attacking && <span className="combat-tag">Attacking</span>}
@@ -77,10 +59,11 @@ function PlayerChip({ player, zone, zones, target, selectTarget, selectZone }: {
 }
 
 type Props = { game: Snapshot; seat: number; prompt?: Prompt; locked: boolean; metadata?: GameMetadata;
-  answer: (prompt: Prompt, response: Response) => void; concede: () => void; back: () => void; tournamentTable?: boolean };
+  answer: (prompt: Prompt, response: Response) => void; concede: () => void; back: () => void; tournamentTable?: boolean;
+  online: boolean; sendPriority: (preference: RulesPriority) => void };
 type AutoPass = { until: "step" | "turn"; turn: number; step: string };
 
-export function Board({ game, seat, prompt, locked, metadata, answer, concede, back, tournamentTable }: Props) {
+export function Board({ game, seat, prompt, locked, metadata, answer, concede, back, tournamentTable, online, sendPriority }: Props) {
   const [reviewId, setReviewId] = useState<string>();
   const [openedZone, setOpenedZone] = useState<{ zone: string; ownerSeat: number }>();
   const [actionMenu, setActionMenu] = useState<{ promptId: number; options: Option[] }>();
@@ -93,9 +76,16 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
   const draggedId = !locked && dragging?.promptId === decision?.promptId ? dragging?.id : undefined;
   const priority = decision?.kind === "chooseAction";
   const myTurn = game.activeSeat === seat;
+  const priorityStops = usePriorityStops(game.roomId, online && !game.gameOver, sendPriority);
+  const stopped = priorityStops.stops.has(`${myTurn ? "own" : "other"}:${game.step}`);
   const owner = game.players.find((player) => player.seat === seat);
   const opponent = game.players.find((player) => player.seat !== seat);
-  const autoPassCurrent = autoPass?.turn === game.turn && (autoPass.until === "turn" || autoPass.step === game.step);
+  const autoPassCurrent = !priorityStops.hold && autoPass?.turn === game.turn &&
+    (autoPass.step === game.step || (autoPass.until === "turn" && !stopped));
+
+  useEffect(() => {
+    if (autoPass && !autoPassCurrent) setAutoPass(undefined);
+  }, [autoPass, autoPassCurrent]);
   const pass = decision?.options.find((option) => option.responseId === "$pass");
 
   useEffect(() => {
@@ -251,7 +241,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
         </DecisionPanel>}
         <fieldset className="priority-actions" aria-label="Priority controls" disabled={locked}>
           {priorityOptions.length > 0 && <Options options={priorityOptions} submit={respond} />}
-          {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : priority && !game.gameOver &&
+          {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : priority && !game.gameOver && !priorityStops.hold &&
             <details className="auto-pass"><summary>Auto-pass</summary><div className="choices">
               <button type="button" onClick={() => setAutoPass({ until: "step", step: game.step, turn: game.turn })}>This step</button>
               <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
@@ -268,10 +258,10 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
         </fieldset>
       </div>
     </section>
-    <PhaseTrack game={game} turnLabel={turnLabel} />
+    <PhaseControls game={game} turnLabel={turnLabel} myTurn={myTurn} {...priorityStops} />
     {review && <section className="inspection" aria-label="Card preview"><header><h2>{review.identity?.name ?? "Face-down card"}</h2>
       <button type="button" className="quiet" onClick={() => setReviewId(undefined)}>Close</button></header>
-      {!review.faceDown && <CardImage identity={review.identity} className="preview-card-image" />}
+      {!review.faceDown && <CardImage identity={review.identity} className="preview-card-image" eager />}
       <small>{review.typeLine} {review.identity?.setCode && `· ${review.identity.setCode} ${review.identity.collectorNumber}`}</small>
       <p>{review.oracle}</p>
       {review.counters?.map((counter) => <p key={counter.name}>{counter.name} × {counter.value}</p>)}
