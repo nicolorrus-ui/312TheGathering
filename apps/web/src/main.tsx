@@ -122,8 +122,11 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
       }}>Use deck</button>
     </div>
     {room.ownDeckName && <p className="selected-deck">{room.ownDeckName} {ownSeat?.deckLocked ? "registered for this match" : "selected"}</p>}
-    <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected}
-      onClick={() => session.send("player.ready", { ready: !ownSeat?.ready })}>{ownSeat?.ready ? "Cancel ready" : "Ready"}</button>
+    <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected || Boolean(session.pendingReady)}
+      onClick={() => session.setReady(!ownSeat?.ready)}>{session.pendingReady ? "Submitting…" : ownSeat?.ready ? "Cancel ready" : "Ready"}</button>
+    {session.pendingReady && !ownSeat?.ready && room.seats.every((seat, index) =>
+      seat.occupied && (index === session.seat || seat.ready)) &&
+      <p role="status">Starting Forge… This may take a minute on a new instance.</p>}
   </section>;
 }
 
@@ -188,7 +191,8 @@ function App() {
         if (name.trim()) session.enter(name);
       }}><label>Player name<input required autoFocus maxLength={64} value={name} onChange={(event) => setName(event.target.value)} /></label>
         <button className="primary" type="submit">Enter club</button></form></section>
-    </main> : sideboard && session.metadata ? <main className="shell"><Sideboard metadata={session.metadata} session={session} /></main>
+    </main> : session.resuming && !session.room ? <main className="shell"><p role="status">Reconnecting to your duel…</p></main>
+      : sideboard && session.metadata ? <main className="shell"><Sideboard metadata={session.metadata} session={session} /></main>
       : matchSection && session.game && session.seat !== undefined ? <Board key={session.game.gameId} game={session.game}
         seat={session.seat} prompt={session.prompt} locked={!online || session.awaiting === session.prompt?.promptId && Boolean(session.prompt)}
         metadata={session.metadata} answer={session.answer}
