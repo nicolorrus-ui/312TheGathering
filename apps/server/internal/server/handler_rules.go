@@ -5,6 +5,8 @@ package server
 
 import (
 	"context"
+	"log"
+	"time"
 
 	"hexproof/server/internal/forgehost"
 	"hexproof/server/internal/protocol"
@@ -14,6 +16,7 @@ import (
 )
 
 func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error {
+	received := time.Now()
 	r := sess.Room()
 	if r == nil {
 		h.sendError(sess, env.ID, protocol.ErrNotInRoom, "not in a room")
@@ -36,6 +39,7 @@ func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error
 	}
 	defer operation.opMu.Unlock()
 	defer h.refreshPlayerHostStatus(r)
+	locked := time.Now()
 
 	if h.replayPeerReceipt(r, sess, env.ID, request) {
 		return nil
@@ -105,6 +109,7 @@ func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error
 		h.sendError(sess, env.ID, protocol.ErrGameFinished, "the action clock finished the match")
 		return nil
 	}
+	validated := time.Now()
 	ctx, cancel = context.WithTimeout(context.Background(), runtimeTimeout(game.client, forgePromptTimeout))
 	game.diagnostics.action(promptView.Kind, game.playerToSeat[playerIndex], false)
 	if remote, ok := game.client.(*forgehost.Runtime); ok {
@@ -123,12 +128,20 @@ func (h *Handler) handleRulesRespond(sess *Session, env protocol.Envelope) error
 			"Forge rejected the decision")
 		return nil
 	}
+	submitted := time.Now()
 	if err := waitForForgePromptChange(game, promptView.PromptID); err != nil {
 		h.failClosedGameProjections(r, err)
 		return nil
 	}
 
+	advanced := time.Now()
 	h.publishRulesDecision(r, game, sess.ConnectionID, env.ID, request, false, false)
+	if total := time.Since(received); h.config.ClubMode && total >= time.Second {
+		log.Printf("club room %s: slow Forge decision total=%s room_wait=%s validate=%s submit=%s next_prompt=%s publish=%s",
+			r.ID, elapsedMillis(total), elapsedMillis(locked.Sub(received)),
+			elapsedMillis(validated.Sub(locked)), elapsedMillis(submitted.Sub(validated)),
+			elapsedMillis(advanced.Sub(submitted)), elapsedMillis(time.Since(advanced)))
+	}
 	return nil
 }
 
