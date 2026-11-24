@@ -145,6 +145,12 @@ page. Configure the public hostname and certificates before giving out links.
 
 ## Browser play
 
+- The first Forge JVM stays warm after service startup. Use the Render HTTP
+  health-check path `/readyz` to publish a new instance after its probe passes.
+  An idle worker is used for the next match, and the hub warms its replacement
+  when the old process exits. Waiting rooms can submit Ready once a worker is
+  available. Between games, a BO3 owns its slot and can wait for a replacement.
+
 - Reopening the same browser profile resumes its held seat, if the server
   still has that match. The browser stores the current room credential
   and replaces it each time the server rotates the token. Leaving the room
