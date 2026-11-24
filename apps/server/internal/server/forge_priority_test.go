@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/room"
 	"hexproof/server/internal/rulesengine/forge"
 )
 
@@ -34,6 +35,21 @@ func TestShouldDelegatePriorityPass(t *testing.T) {
 	}
 	if shouldDelegatePriorityPass(priorityPreference{}, false, pass, "draw", false) {
 		t.Fatal("a seat without published preferences was passed")
+	}
+}
+
+func TestAdvanceRulesPrioritySkipsEngineWithoutDelegatedSeats(t *testing.T) {
+	h := &Handler{}
+	r := &room.Room{ID: "ROOM01"}
+	h.setPriorityPreference(r.ID, 0, priorityPreference{fullControl: true})
+	h.setPriorityPreference(r.ID, 1, priorityPreference{hold: true})
+	// With no runtime attached, any attempt at an engine RPC fails.
+	if err := h.advanceRulesPriority(r, forgeRoomGame{}); err != nil {
+		t.Fatal(err)
+	}
+	h.setPriorityPreference(r.ID, 1, priorityPreference{})
+	if !h.hasDelegatedPriority(r.ID) {
+		t.Fatal("a seat that enables smart passing must still be delegated")
 	}
 }
 
