@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "./Board";
 import { CardImage, CardImages } from "./CardImages";
 import { deckStorage, parseDeck, readDecks } from "./decks";
-import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata } from "./protocol";
+import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata, type RulesPriority } from "./protocol";
 import { useSession } from "./session";
 import { Tournaments } from "./Tournaments";
 import "./style.css";
@@ -193,6 +193,8 @@ function Sideboard({ metadata, session }: { metadata: GameMetadata; session: Ses
 
 function App() {
   const session = useSession();
+  const send = session.send;
+  const sendPriority = useCallback((preference: RulesPriority) => { send("rules.priority", preference); }, [send]);
   const [name, setName] = useState("");
   const [decks, setDecks] = useState(readDecks);
   const [tournamentScreen, setTournamentScreen] = useState(() => new URLSearchParams(location.search).has("tournament"));
@@ -228,7 +230,7 @@ function App() {
       : sideboard && session.metadata ? <main className="shell"><Sideboard metadata={session.metadata} session={session} /></main>
       : matchSection && session.game && session.seat !== undefined ? <Board key={session.game.gameId} game={session.game}
         seat={session.seat} prompt={session.prompt} locked={!online || session.awaiting === session.prompt?.promptId && Boolean(session.prompt)}
-        metadata={session.metadata} answer={session.answer}
+        metadata={session.metadata} answer={session.answer} online={online} sendPriority={sendPriority}
         concede={() => session.send("game.concede")} tournamentTable={tournamentTable}
         back={() => session.send(tournamentTable ? "room.leave" : "game.return_to_room")} />
       : session.room && session.room.phase !== "waiting" ? <main className="shell"><p role="status">Starting Forge…</p></main>
