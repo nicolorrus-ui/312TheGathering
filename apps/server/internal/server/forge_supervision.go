@@ -12,11 +12,14 @@ import (
 )
 
 // watchForgeRuntime responds to actual child exit, including an idle crash.
-// There is no automatic restart loop: only a new game can launch a replacement.
+// Club mode warms a fresh process after a lease has fully exited.
 func (h *Handler) watchForgeRuntime(client forge.Runtime) {
 	<-client.Done()
 	h.forge.mu.Lock()
 	h.forge.forgetLocked(client)
+	if client == h.forge.idle {
+		h.forge.idle = nil
+	}
 	if h.forge.closed {
 		h.forge.mu.Unlock()
 		return
@@ -28,6 +31,7 @@ func (h *Handler) watchForgeRuntime(client forge.Runtime) {
 		}
 	}
 	h.forge.mu.Unlock()
+	h.forge.prepareClubWarm(h.watchForgeRuntime)
 	for roomID, game := range affected {
 		operation, err := h.hub.lockRoomOperation(roomID)
 		if err != nil {
