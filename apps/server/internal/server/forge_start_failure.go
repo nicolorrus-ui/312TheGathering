@@ -34,6 +34,8 @@ func forgeStartFailureReason(err error) string {
 		return detail.Reason()
 	case errors.Is(err, errForgeCapacity):
 		return "capacity"
+	case errors.Is(err, errForgeWarming):
+		return "warming"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "runtime_timeout"
 	case errors.Is(err, forge.ErrStartRejected):
@@ -56,6 +58,8 @@ func forgeStartFailure(err error) (string, string) {
 	switch forgeStartFailureReason(err) {
 	case "capacity":
 		return protocol.ErrServerLimit, "Forge game capacity is full; wait for a game to finish, then ready again. Your seats and decks are kept"
+	case "warming":
+		return protocol.ErrRulesUnavailable, "Forge is still preparing an instance. Ready becomes available once it is loaded."
 	case "deck_rejected":
 		return protocol.ErrRulesUnavailable, "Forge could not load a registered deck; its owner can review the affected cards"
 	case "runtime_timeout":
