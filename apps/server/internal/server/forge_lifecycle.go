@@ -65,6 +65,10 @@ func (h *Handler) startForgeGame(r *room.Room) (forgeStartState, error) {
 		request.DeckFormat = r.DeckFormat
 	}
 	startTimeout := forgeGameStartTimeout
+	if runtime := h.config.ForgeRuntime; h.config.ClubMode && runtime != nil && runtime.StartTimeout > forgeGameStartTimeout {
+		// The room must allow time for both starting a new JVM and setting up the game.
+		startTimeout += runtime.StartTimeout
+	}
 	if r.HostingMode == "player" {
 		startTimeout += h.config.ReconnectWindow
 	}

@@ -86,6 +86,7 @@ func main() {
 	clubWebRoot := flag.String("club-web-root", os.Getenv("HEXPROOF_CLUB_WEB_ROOT"), "serve the built web client and enable private Forge-only club mode")
 	forgeOverlay := flag.String("forge-overlay", os.Getenv("HEXPROOF_FORGE_OVERLAY"), "path to a verified matching Forge overlay jar")
 	forgeHeap := flag.Int("forge-heap-mib", 1536, "maximum Forge heap in MiB for club mode")
+	forgeStartTimeout := flag.Duration("forge-start-timeout", 45*time.Second, "maximum time for a Forge process readiness probe")
 	forgeHarness := flag.String("forge-harness", forgeHarnessDefault,
 		"path to forge-harness.jar (defaults to HEXPROOF_FORGE_HARNESS; empty disables Forge rules rooms)")
 	forgeHome := flag.String("forge-home", forgeHomeDefault,
@@ -134,6 +135,9 @@ func main() {
 			log.Fatal("hexproof-server: club mode requires a Forge overlay, a heap of at least 256 MiB and dedicated Forge processes")
 		}
 	}
+	if *forgeStartTimeout <= 0 {
+		log.Fatal("hexproof-server: -forge-start-timeout must be positive")
+	}
 	var forgeRuntime *forge.ProcessConfig
 	if (*forgeHarness == "") != (*forgeHome == "") {
 		log.Fatal("hexproof-server: -forge-harness and -forge-home must be set together")
@@ -147,6 +151,7 @@ func main() {
 		if clubMode {
 			configured.Args = append([]string{fmt.Sprintf("-Xmx%dm", *forgeHeap), "-Djava.awt.headless=true"}, configured.Args...)
 		}
+		configured.StartTimeout = *forgeStartTimeout
 		forgeRuntime = &configured
 	}
 
@@ -154,6 +159,32 @@ func main() {
 	if err != nil {
 		log.Fatalf("hexproof-server: %v", err)
 	}
+	addr := net.JoinHostPort(*bind, strconv.Itoa(*port))
+	srv := &http.Server{Addr: addr, ReadHeaderTimeout: 10 * time.Second}
+	bindAndServe := func(network string, handler http.Handler) (net.Listener, <-chan error) {
+		listener, err := net.Listen(network, addr)
+		if err != nil {
+			log.Fatalf("hexproof-server: listen %s: %v", addr, err)
+		}
+		srv.Handler = handler
+		done := make(chan error, 1)
+		go func() { done <- srv.Serve(listener) }()
+		return listener, done
+	}
+
+	var listener net.Listener
+	var serveDone <-chan error
+	var startup *startupHTTPHandler
+	if clubMode {
+		startup = &startupHTTPHandler{}
+		network := "tcp"
+		if *bind == "0.0.0.0" {
+			network = "tcp4"
+		}
+		listener, serveDone = bindAndServe(network, startup)
+		log.Printf("hexproof-server: startup listener on %s; waiting for Forge readiness", listener.Addr())
+	}
+
 	handler, err := server.NewHandlerWithConfig(server.Config{
 		ClubMode:   clubMode,
 		Cluster:    clusterConfig,
@@ -214,15 +245,10 @@ func main() {
 		mux.Handle("/ai", handler)
 	}
 
-	addr := fmt.Sprintf("%s:%d", *bind, *port)
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatalf("hexproof-server: listen %s: %v", addr, err)
+	if startup != nil {
+		startup.ready.Store(mux)
+	} else {
+		listener, serveDone = bindAndServe("tcp", mux)
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM (resolves review #6: no accept-loop
@@ -245,7 +271,7 @@ func main() {
 		buildinfo.Version, listener.Addr(), protocol.ProtocolVersion)
 	log.Printf("hexproof-server %s ready on %s", buildinfo.Version, listener.Addr())
 
-	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+	if err := <-serveDone; err != nil && err != http.ErrServerClosed {
 		log.Fatalf("hexproof-server: %v", err)
 	}
 	log.Printf("hexproof-server: stopped")
