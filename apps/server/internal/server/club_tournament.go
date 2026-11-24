@@ -62,7 +62,7 @@ func (h *Handler) validateClubLineup(entry *tournamentEntry, lineup []protocol.D
 		code, message := forgeStartFailure(err)
 		return &protocolError{code: code, message: message}
 	}
-	defer client.Close()
+	defer h.forge.returnClubValidationWorker(client)
 	if err := client.ValidateDecks(ctx, format, players); err != nil {
 		var rejected *forge.StartError
 		if errors.As(err, &rejected) && len(rejected.Issues()) != 0 {
