@@ -53,6 +53,15 @@ func recordingFixture(t *testing.T) (*Handler, *room.Room, forgeRoomGame, []*Ses
 	return h, r, game, players
 }
 
+func TestClubSkipsReplayCollection(t *testing.T) {
+	h, r, game, _ := recordingFixture(t)
+	h.config.ClubMode = true
+	h.collectForgeReplay(r, game)
+	if h.forgeReplays.active[r] != nil {
+		t.Fatal("the Club should not collect replay frames")
+	}
+}
+
 func recordingRead(t *testing.T, h *Handler, sess *Session, id, token string) protocol.Envelope {
 	t.Helper()
 	env, _ := protocol.NewEnvelope(protocol.TypeForgeReplayGet, protocol.ForgeReplayGet{ReplayID: id, Token: token})
