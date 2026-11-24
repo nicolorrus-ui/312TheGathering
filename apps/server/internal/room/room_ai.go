@@ -5,6 +5,21 @@ package room
 
 import "hexproof/server/internal/protocol"
 
+// AddPassivePractice installs a server-owned seat with a deck of basics.
+// Forge owns its hand, draws and decisions like any other seat.
+func (r *Room) AddPassivePractice() error {
+	if err := r.AddForgeAI("easy"); err != nil {
+		return err
+	}
+	deck := protocol.DeckSelect{Name: "Practice basics", Format: r.Format, DeckFormat: r.DeckFormat,
+		Mainboard: []protocol.DeckCard{{Name: "Plains", Count: 60}}}
+	seated := &r.Seats[1]
+	seated.DisplayName = "Practice opponent"
+	r.Practice = true
+	seated.RegisteredDeck, seated.Deck, seated.Ready = &deck, &deck, true
+	return nil
+}
+
 // AddForgeAI reserves a room-owned controller before publication. Controller
 // identity is independent of transport membership and leaves room for future
 // separately authorized decision providers.

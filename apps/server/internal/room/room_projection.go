@@ -357,6 +357,7 @@ func (r *Room) Snapshot() protocol.RoomSnapshot {
 		spectators[i] = protocol.SpectatorProjection{DisplayName: sp.DisplayName}
 	}
 	return protocol.RoomSnapshot{
+		TournamentID:       r.TournamentID,
 		RoomID:             r.ID,
 		Name:               r.Name,
 		Format:             r.Format,

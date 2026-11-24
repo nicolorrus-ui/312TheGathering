@@ -134,7 +134,7 @@ final class NativeSession implements AutoCloseable {
     static boolean isAi(JsonObject player) {
         return player.has("ai") && player.get("ai").getAsBoolean();
     }
-    private static List<Deck> resolveDecks(JsonArray configured) {
+    static List<Deck> resolveDecks(JsonArray configured) {
         List<Deck> decks = new ArrayList<>();
         NativeDeckException.Builder failures = new NativeDeckException.Builder();
         for (int playerIndex = 0; playerIndex < configured.size(); playerIndex++) {

@@ -79,6 +79,7 @@ void WsClient::createRoom(const QString &name, const QString &format, const QStr
     p.insert(u"deckFormat"_s, deckFormat);
     p.insert(u"maxSeats"_s, formatMaxSeats(format, playtest));
     p.insert(u"playtest"_s, playtest);
+    p.insert(u"practice"_s, false);
     p.insert(u"allowSpectators"_s, playtest ? false : allowSpectators);
     p.insert(u"spectatorsSeeHands"_s, playtest ? false : allowSpectators && spectatorsSeeHands);
     p.insert(u"matchMode"_s, playtest ? kMatchBO1 : matchMode);

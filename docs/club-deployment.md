@@ -115,8 +115,10 @@ page. Configure the public hostname and certificates before giving out links.
   from `JAVA_HOME` or PATH.
 - Keep the initial cap at one active duel. Waiting rooms do not take up a game
   slot. One JVM launches per active game, and a BO3 holds its slot through
-  sideboarding. The default maximum heap is 1536 MiB. JVM resident memory can
-  exceed the heap cap. Measure Go and Java using
+  sideboarding. **Leave room** ends the match and frees its slot after the
+  JVM exits. Players in a waiting room can then press **Ready** again with
+  their existing decks. The default maximum heap is 1536 MiB. JVM resident
+  memory can exceed the heap cap. Measure Go and Java using
   `ps -C hexproof-server,java -o pid,rss,etime,comm`.
 - Build the next release as a separate directory. Schedule a maintenance
   window after matches finish, switch the `current` link, restart the unit,
@@ -134,6 +136,38 @@ page. Configure the public hostname and certificates before giving out links.
   loopback, and run `CHROMIUM=/path/to/chromium npm --prefix apps/web run test:live`
   from the source root. The test creates disposable rooms and completes a real
   Forge duel. It also checks that an invalid Modern deck is rejected.
+  With a one-game cap, add `CLUB_TEST_CAPACITY=1` to test rejection and retry
+  from a second room.
+  Run `npm --prefix apps/web run test:club` to check practice, reconnect
+  after closing a tab, drag-and-drop, and a three-match Conquest series.
+  Run the same command with `CLUB_TEST_SWISS=1` for an eight-player Swiss
+  round and its complete Top 8. Keep the local game cap at one for these tests.
+
+## Browser play
+
+- Reopening the same browser profile resumes its held seat, if the server
+  still has that match. The browser stores the current room credential
+  and replaces it each time the server rotates the token. Leaving the room
+  clears the credential. By default the server holds a disconnected seat
+  for three minutes.
+- Practice is a private BO1 against a Forge-controlled seat with a server
+  deck. The seat passes ordinary priority and declines voluntary plays and
+  combat. Forge still resolves any required game decisions. The human
+  plays their own deck and receives the ordinary prompts.
+- Swiss uses Forge results and the existing Swiss points and tiebreakers.
+  A Swiss event with Top 8 needs eight checked-in players. The organizer
+  advances the completed Swiss rounds, then starts seeded quarterfinals,
+  semifinals and a final. Elimination matches are BO3 and do not affect
+  the Swiss standings.
+- Conquest is a two-player event. Forge validates all three registered
+  decks against the selected format. Each player chooses an unlocked
+  deck per BO3. The winner's selected deck locks on a confirmed Forge
+  match win. The losing deck remains available. Three locked decks win
+  the event. The registration lists and selection remain private.
+- Events currently live in the running Go service. A service restart ends
+  the active Forge matches and clears the in-memory tournament registry.
+  On a single-slot host, pairing rooms may wait at the same time. Their
+  Forge matches and lineup validation run one at a time.
 
 Keep the base Forge distribution's corresponding source available when
 redistributing that runtime. For a distributable modified overlay source

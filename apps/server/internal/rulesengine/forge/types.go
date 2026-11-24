@@ -79,7 +79,7 @@ func (request StartGameRequest) validate() error {
 	}
 	for playerIndex, player := range request.Players {
 		if player.AI {
-			if player.AIDifficulty != "easy" && player.AIDifficulty != "normal" && player.AIDifficulty != "hard" {
+			if player.AIDifficulty != "easy" && player.AIDifficulty != "normal" && player.AIDifficulty != "hard" && player.AIDifficulty != "passive" {
 				return fmt.Errorf("player %d has an invalid AI difficulty", playerIndex)
 			}
 		} else if player.AIDifficulty != "" {

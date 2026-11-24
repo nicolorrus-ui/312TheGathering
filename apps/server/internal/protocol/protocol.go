@@ -83,6 +83,7 @@ type ErrorPayload struct {
 
 // RoomCreate is the payload of room.create (C->S).
 type RoomCreate struct {
+	Practice           bool   `json:"practice,omitempty"`
 	Name               string `json:"name"`
 	Format             string `json:"format"`
 	DeckFormat         string `json:"deckFormat"`
@@ -469,6 +470,7 @@ type SpectatorProjection struct {
 // projections. OwnDeckName is optional recipient-private display metadata;
 // card identities and opponents' deck names are never embedded here.
 type RoomSnapshot struct {
+	TournamentID       string                `json:"tournamentId,omitempty"`
 	RoomID             string                `json:"roomId"`
 	Name               string                `json:"name"`
 	OwnDeckName        string                `json:"ownDeckName,omitempty"`

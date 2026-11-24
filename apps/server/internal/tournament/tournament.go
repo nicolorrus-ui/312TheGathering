@@ -46,6 +46,8 @@ func CredentialHash(token string) [sha256.Size]byte {
 }
 
 type Config struct {
+	ClubStyle          string
+	TopEight           bool
 	Name               string
 	Format             string
 	EventType          string
@@ -69,6 +71,8 @@ type Actor struct {
 }
 
 type Participant struct {
+	Lineup         []protocol.DeckSelect
+	LockedDecks    [3]bool
 	AccountID      string `json:"-"`
 	ID             string
 	DisplayName    string
@@ -104,13 +108,14 @@ type ConfirmedResult struct {
 }
 
 type Pairing struct {
-	ID        string
-	Table     int
-	PlayerAID string
-	PlayerBID string
-	RoomID    string
-	Invited   bool
-	Group     *CasualGroup
+	LineupChoices map[string]int
+	ID            string
+	Table         int
+	PlayerAID     string
+	PlayerBID     string
+	RoomID        string
+	Invited       bool
+	Group         *CasualGroup
 	// InitialCubeTable survives short disconnects before its room opens.
 	InitialCubeTable    bool
 	AutoEntryPendingIDs []string
@@ -123,13 +128,17 @@ func (p Pairing) Bye() bool {
 }
 
 type Round struct {
-	Number    int
-	Pairings  []Pairing
-	StartedAt time.Time
+	Elimination bool
+	Number      int
+	Pairings    []Pairing
+	StartedAt   time.Time
 }
 
 // Tournament is mutated only while its registry entry lock is held.
 type Tournament struct {
+	ClubStyle               string
+	TopEight                bool
+	Champion                string
 	ID                      string
 	Name                    string
 	Format                  string
@@ -232,6 +241,12 @@ func New(id string, config Config, organizerName, organizerConnectionID string,
 		}
 	}
 	minimumCapacity := minimumPlayersFor(config.EventType, config.Coordinator)
+	if config.ClubStyle == ClubConquest {
+		minimumCapacity = 2
+	}
+	if config.TopEight {
+		minimumCapacity = 8
+	}
 	if config.MaxPlayers < minimumCapacity || config.MaxPlayers > MaxParticipants {
 		return nil, fail(ErrInvalid, "participant capacity is outside the supported range")
 	}
@@ -335,6 +350,8 @@ func New(id string, config Config, organizerName, organizerConnectionID string,
 		productView = &view
 	}
 	return &Tournament{
+		ClubStyle:             config.ClubStyle,
+		TopEight:              config.TopEight,
 		ID:                    id,
 		Name:                  config.Name,
 		Format:                config.Format,
@@ -405,6 +422,12 @@ func minimumPlayersFor(eventType, coordinator string) int {
 
 // MinimumPlayers reports the checked-in count this tournament needs to start.
 func (t *Tournament) MinimumPlayers() int {
+	if t.ClubStyle == ClubConquest {
+		return 2
+	}
+	if t.TopEight {
+		return 8
+	}
 	return minimumPlayersFor(t.EventType, t.Coordinator)
 }
 
@@ -699,6 +722,13 @@ func (t *Tournament) Start(actor Actor, seed int64, now time.Time) error {
 	if len(competing) < t.MinimumPlayers() {
 		return failMinimumPlayers(t.MinimumPlayers())
 	}
+	if t.ClubStyle == ClubConquest {
+		for _, participant := range competing {
+			if len(participant.Lineup) != 3 {
+				return fail(ErrNotReady, "both players need three validated decks")
+			}
+		}
+	}
 	random := rand.New(rand.NewSource(seed)) // #nosec G404 -- the server supplies cryptographic entropy.
 	random.Shuffle(len(competing), func(left, right int) {
 		competing[left], competing[right] = competing[right], competing[left]
@@ -898,7 +928,21 @@ func (t *Tournament) Advance(actor Actor, now time.Time) error {
 	if !t.RoundComplete() {
 		return fail(ErrRoundIncomplete, "every pairing must have a confirmed result")
 	}
+	if t.ClubStyle == ClubConquest {
+		return fail(ErrInvalid, "Conquest advances when the Forge match ends")
+	}
+	if t.TopEight && len(t.Rounds) >= t.PlannedRounds {
+		return t.advanceElimination(now.UTC())
+	}
 	if len(t.Rounds) >= t.PlannedRounds {
+		if t.ClubStyle == ClubSwiss {
+			for _, standing := range t.Standings() {
+				if !standing.Dropped {
+					t.Champion = standing.ParticipantID
+					break
+				}
+			}
+		}
 		t.Status = StatusCompleted
 		t.Stage = protocol.LimitedStageCompleted
 		if t.Limited != nil {

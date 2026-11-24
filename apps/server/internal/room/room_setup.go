@@ -582,6 +582,12 @@ func deckCommanderNames(deck protocol.DeckSelect) []string {
 	return names
 }
 
+// ValidateClubDeck checks wire structure and limits before seating a registered
+// tournament lineup. Forge separately resolves cards and checks format legality.
+func ValidateClubDeck(deck protocol.DeckSelect, format string) error {
+	return (&Room{Format: protocol.FormatModern, DeckFormat: format, ClubDuel: true}).validateDeck(deck)
+}
+
 func (r *Room) validateDeck(deck protocol.DeckSelect) error {
 	deckName := strings.TrimSpace(deck.Name)
 	roomDeckFormat := r.DeckFormat

@@ -154,38 +154,37 @@ func forgeStartRequest(r *room.Room, players []room.RulesStartPlayer) (
 			index := len(request.Players)
 			request.StartingPlayerIndex = &index
 		}
-		expand := func(entries []protocol.DeckCard) ([]forge.CardIdentity, error) {
-			cards := make([]forge.CardIdentity, 0)
-			for _, entry := range entries {
+		for _, section := range [][]protocol.DeckCard{player.Deck.Mainboard, player.Deck.Sideboard} {
+			for _, entry := range section {
 				if entry.Count <= 0 {
-					return nil, fmt.Errorf("seat %d has an invalid card quantity", player.Seat)
-				}
-				for copyIndex := 0; copyIndex < entry.Count; copyIndex++ {
-					cards = append(cards, forge.CardIdentity{
-						Name: entry.Name, SetCode: entry.SetCode, CollectorNumber: entry.CollectorNumber,
-					})
+					return forge.StartGameRequest{}, nil, fmt.Errorf("seat %d has an invalid card quantity", player.Seat)
 				}
 			}
-			return cards, nil
 		}
-		cards, err := expand(player.Deck.Mainboard)
-		if err != nil {
-			return forge.StartGameRequest{}, nil, err
-		}
-		sideboard, err := expand(player.Deck.Sideboard)
-		if err != nil {
-			return forge.StartGameRequest{}, nil, err
+		difficulty := player.AIDifficulty
+		if r.Practice && player.Controller == protocol.SeatControllerForgeAI {
+			difficulty = "passive"
 		}
 		request.Players = append(request.Players, forge.PlayerConfig{
 			Name: player.DisplayName,
-			AI:   player.Controller == protocol.SeatControllerForgeAI, AIDifficulty: player.AIDifficulty,
-			Deck:           cards,
-			Sideboard:      sideboard,
+			AI:   player.Controller == protocol.SeatControllerForgeAI, AIDifficulty: difficulty,
+			Deck:           expandDeckCards(player.Deck.Mainboard),
+			Sideboard:      expandDeckCards(player.Deck.Sideboard),
 			CommanderNames: rulesCommanderNames(player.Deck),
 		})
 		seatOrder = append(seatOrder, player.Seat)
 	}
 	return request, seatOrder, nil
+}
+
+func expandDeckCards(entries []protocol.DeckCard) []forge.CardIdentity {
+	var cards []forge.CardIdentity
+	for _, entry := range entries {
+		for range entry.Count {
+			cards = append(cards, forge.CardIdentity{Name: entry.Name, SetCode: entry.SetCode, CollectorNumber: entry.CollectorNumber})
+		}
+	}
+	return cards
 }
 
 func rulesCommanderNames(deck protocol.DeckSelect) []string {

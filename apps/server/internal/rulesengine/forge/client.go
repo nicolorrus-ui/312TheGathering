@@ -481,6 +481,22 @@ func (client *Client) StartGame(ctx context.Context,
 	return handle, nil
 }
 
+// ValidateDecks resolves the lineups and checks their format in Forge without
+// opening an interactive game. The caller owns a dedicated short-lived lease.
+func (client *Client) ValidateDecks(ctx context.Context, format string, decks []PlayerConfig) error {
+	request := StartGameRequest{GameID: "deck-validation", StartingLife: 20,
+		Variant: "Constructed", DeckFormat: format, Players: decks}
+	if err := request.validate(); err != nil {
+		return startValidationError(request, err)
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	_, err = client.call(ctx, rpcRequest{Command: "validateDecks", Payload: string(payload)}, false, false)
+	return startRequestError(err, request)
+}
+
 // SubmitAction forwards one canonical prompt response. Prompt ownership is
 // validated by the future rules-room coordinator before this method is called.
 func (client *Client) SubmitAction(ctx context.Context, sessionID string,

@@ -146,8 +146,11 @@ func (h *Handler) fanoutTournamentState(tournamentID string,
 		var projections []projection
 		if valid {
 			if previous == nil {
-				projections = append(projections, projection{protocol.TypeTournamentSnapshot,
-					tournamentSnapshot(entry.event, binding)})
+				view := tournamentSnapshot(entry.event, binding)
+				if privateID == "" {
+					view.OwnLineup, view.OwnChoice = nil, nil
+				}
+				projections = append(projections, projection{protocol.TypeTournamentSnapshot, view})
 			}
 			if snapshot := entry.event.LimitedSnapshot(privateID); snapshot != nil {
 				before, known := previous[privateID]
@@ -270,6 +273,9 @@ func tournamentSnapshot(event *tournament.Tournament,
 	if len(visiblePairings) > 0 {
 		pairings = make([]protocol.TournamentPairingView, 0, len(visiblePairings))
 		for _, pairing := range visiblePairings {
+			if pairing.PlayerAID == "" {
+				continue
+			}
 			view := protocol.TournamentPairingView{
 				PairingID: pairing.ID, Table: pairing.Table,
 				PlayerAID:   pairing.PlayerAID,
@@ -327,6 +333,10 @@ func tournamentSnapshot(event *tournament.Tournament,
 		roundStartedAt = round.StartedAt.UTC().Format(time.RFC3339)
 	}
 	return protocol.TournamentSnapshot{
+		ClubStyle: event.ClubStyle, TopEight: event.TopEight,
+		Elimination: event.CurrentRound() != nil && event.CurrentRound().Elimination,
+		Champion:    event.Champion, OwnLineup: clubLineupView(event.Participant(binding.ParticipantID)),
+		OwnChoice:    clubLineupChoice(event.CurrentPairing(binding.ParticipantID), binding.ParticipantID),
 		TournamentID: event.ID, Name: event.Name, Format: event.Format,
 		EventType: event.EventType, Coordinator: event.Coordinator, Stage: event.Stage,
 		MatchMode: event.MatchMode, RulesMode: event.RulesMode, Status: event.Status,

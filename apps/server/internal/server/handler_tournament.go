@@ -76,6 +76,15 @@ func (h *Handler) handleTournamentCreate(sess *Session, env protocol.Envelope) e
 		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
 		return nil
 	}
+	if (h.config.ClubMode && !validClubTournament(request)) ||
+		(!h.config.ClubMode && (request.TopEight || request.ClubStyle != "")) {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "Choose a supported Forge Swiss or Conquest tournament")
+		return nil
+	}
+	if h.config.ClubMode {
+		disabled := false
+		request.ActionClockEnabled = &disabled
+	}
 	operationKey, err := tournamentCreateOperationKey(request, env.ID, sess.ConnectionID)
 	if err != nil {
 		sendTournamentError(h, sess, env.ID, err)
@@ -110,6 +119,7 @@ func (h *Handler) handleTournamentCreate(sess *Session, env protocol.Envelope) e
 			return nil
 		}
 		event, err = tournament.New(id, tournament.Config{
+			ClubStyle: request.ClubStyle, TopEight: request.TopEight,
 			Name: request.Name, Format: request.Format, MatchMode: request.MatchMode,
 			RoundMinutes: request.RoundMinutes, MaxPlayers: request.MaxPlayers,
 			PlannedRounds: request.PlannedRounds, EventType: request.EventType,
@@ -315,6 +325,19 @@ func (h *Handler) handleTournamentRegister(sess *Session, env protocol.Envelope)
 	}
 	defer entry.opMu.Unlock()
 	entry.mu.Lock()
+	sess.tournamentMu.RLock()
+	_, current := tournamentProjectionIdentity(entry.event, sess, binding)
+	sess.tournamentMu.RUnlock()
+	entry.mu.Unlock()
+	if !current {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "Tournament identity is owned by another session")
+		return nil
+	}
+	if err := h.validateClubLineup(entry, request.Lineup); err != nil {
+		sendTournamentError(h, sess, env.ID, err)
+		return nil
+	}
+	entry.mu.Lock()
 	if accountRole, existing := entry.event.AccountRole(sess.Account().ID); existing != "" || (accountRole == tournament.RoleOrganizer && binding.Role != tournament.RoleOrganizer) {
 		entry.mu.Unlock()
 		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "This account is already registered; restore its participant identity")
@@ -324,6 +347,7 @@ func (h *Handler) handleTournamentRegister(sess *Session, env protocol.Envelope)
 		sess.DisplayName, sess.ConnectionID, tournament.CredentialHash(token), time.Now())
 	if registerErr == nil {
 		participant.AccountID = sess.Account().ID
+		participant.Lineup = request.Lineup
 	}
 	if registerErr == nil && binding.Role == tournament.RoleOrganizer {
 		entry.event.OrganizerParticipantID = participant.ID
@@ -617,7 +641,7 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 		h.sendError(sess, env.ID, protocol.ErrAlreadyInRoom, "already in a room")
 		return nil
 	}
-	var request protocol.TournamentPairingCommand
+	var request protocol.TournamentOpenMatch
 	if err := env.DecodePayload(&request); err != nil {
 		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
 		return nil
@@ -692,6 +716,8 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 	}
 	var lockedDeck *protocol.DeckSelect
 	participant := event.Participant(binding.ParticipantID)
+	conquest := event.ClubStyle == tournament.ClubConquest
+	choice := 0
 	constructedDeckLocked := event.EventType == protocol.LimitedEventConstructed &&
 		roundNumber > 1 && participant != nil && participant.Deck != nil
 	if event.EventType != protocol.LimitedEventConstructed &&
@@ -710,6 +736,15 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 		deckCopy.Mainboard = append([]protocol.DeckCard(nil), participant.Deck.Mainboard...)
 		deckCopy.Sideboard = append([]protocol.DeckCard(nil), participant.Deck.Sideboard...)
 		lockedDeck = &deckCopy
+	}
+	if conquest {
+		deck, index, lineupErr := event.LineupDeck(pairing, binding.ParticipantID, request.DeckIndex)
+		if lineupErr != nil {
+			entry.mu.Unlock()
+			sendTournamentError(h, sess, env.ID, lineupErr)
+			return nil
+		}
+		lockedDeck, choice, constructedDeckLocked = &deck, index, true
 	}
 	entry.mu.Unlock()
 
@@ -751,7 +786,8 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 			rulesMode:               rulesMode,
 			hostingMode:             "server",
 			maxSeats:                maxSeats,
-			allowSpectators:         true,
+			allowSpectators:         !h.config.ClubMode,
+			clubDuel:                h.config.ClubMode,
 			tournamentID:            binding.TournamentID,
 			tournamentPairing:       request.PairingID,
 			tournamentParticipantID: binding.ParticipantID,
@@ -788,6 +824,9 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 		entry.mu.Lock()
 		setErr := event.SetPairingRoom(tournamentActor(sess), request.PairingID, r.ID)
 		if setErr == nil {
+			if conquest {
+				pairing.ChooseLineupDeck(binding.ParticipantID, choice)
+			}
 			event.MarkCubeTableEntered(binding.ParticipantID, request.PairingID)
 		}
 		entry.mu.Unlock()
@@ -813,7 +852,7 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 			Settings: protocol.RoomSettings{
 				Name: r.Name, Format: r.Format, DeckFormat: r.DeckFormat,
 				MaxSeats:        r.MaxSeats,
-				AllowSpectators: true, MatchMode: r.MatchMode,
+				AllowSpectators: r.AllowSpectators, MatchMode: r.MatchMode,
 				CardLoadMode: r.CardLoadMode, RulesMode: r.RulesMode, HostingMode: r.HostingMode, HasPassword: false,
 				ActionClockEnabled: r.ActionClockEnabled,
 			},
@@ -897,6 +936,9 @@ func (h *Handler) handleTournamentOpenMatch(sess *Session, env protocol.Envelope
 		result.Broadcast = selected.Broadcast
 	}
 	entry.mu.Lock()
+	if conquest {
+		pairing.ChooseLineupDeck(binding.ParticipantID, choice)
+	}
 	event.MarkCubeTableEntered(binding.ParticipantID, request.PairingID)
 	entry.mu.Unlock()
 	opened, _ := protocol.NewEnvelope(protocol.TypeTournamentMatchOpened,

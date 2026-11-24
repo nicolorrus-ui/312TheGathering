@@ -14,6 +14,7 @@ const deck = "Deck\n12 Mountain (M11) 242\n12 Evolving Wilds (ROE) 228\n36 Light
 const matchMode = process.env.CLUB_TEST_MATCH ?? "bo1";
 const verifyLayout = process.env.CLUB_TEST_LAYOUT === "1";
 const verifyImages = process.env.CLUB_TEST_IMAGES === "1";
+const verifyCapacity = process.env.CLUB_TEST_CAPACITY === "1";
 const imageRequests = [];
 let verifiedHandAndPreview = false;
 let verifiedTable = false;
@@ -72,12 +73,41 @@ async function join(guest, roomId, password) {
   await guest.page.getByRole("button", { name: "Join private duel" }).click();
 }
 
-async function ready(peer) {
+async function selectDeck(peer) {
   const deck = peer.page.getByLabel("Your deck");
   await deck.selectOption({ label: "Browser fixture" });
   await peer.page.getByRole("button", { name: "Use deck" }).click();
+}
+
+async function ready(peer) {
   try { await peer.page.getByRole("button", { name: "Ready", exact: true }).click({ timeout: 5000 }); }
   catch (error) { throw new Error(`Could not ready ${peer.name}: ${await peer.page.locator("body").innerText()}`, { cause: error }); }
+}
+
+async function startGuestFirst(host, guest) {
+  await ready(guest);
+  await guest.page.getByRole("button", { name: "Cancel ready", exact: true }).waitFor();
+  await ready(host);
+}
+
+async function checkCapacityRejection() {
+  const contexts = await Promise.all([browser.newContext({ ignoreHTTPSErrors }), browser.newContext({ ignoreHTTPSErrors })]);
+  const [host, guest] = await Promise.all([
+    enter(contexts[0], "Waiting host", deck),
+    enter(contexts[1], "Waiting guest", deck),
+  ]);
+  const room = await create(host, "custom", "bo3");
+  await join(guest, room, "correct room password");
+  await Promise.all([selectDeck(host), selectDeck(guest)]);
+  await startGuestFirst(host, guest);
+  for (const peer of [host, guest]) {
+    await peer.page.getByRole("alert").filter({ hasText: /All Forge match slots are in use/ }).waitFor();
+    await peer.page.getByRole("button", { name: "Ready", exact: true }).waitFor();
+    assert.equal(await peer.page.locator(".room-code strong").innerText(), room);
+    assert.equal(await peer.page.locator(".selected-deck").innerText(), "Browser fixture selected");
+    assert.ok(!peer.messages.some(({ type }) => type === "match.started"));
+  }
+  return { host, guest };
 }
 
 async function until(check, label, timeout = 15000) {
@@ -307,8 +337,10 @@ try {
   assert.match(await guest.page.getByRole("alert").innerText(), /password/i);
   await join(guest, room, "correct room password");
   await guest.page.getByRole("heading", { name: "Duel room" }).waitFor();
-  await ready(host);
-  await ready(guest);
+  await Promise.all([selectDeck(host), selectDeck(guest)]);
+  await startGuestFirst(host, guest);
+  await until(() => host.game && guest.game, "guest-first Forge start", 60000);
+  const waiting = verifyCapacity ? await checkCapacityRejection() : undefined;
   const answered = new Set();
   let gamesFinished = 0;
   let sideboardMoves = 0;
@@ -423,6 +455,24 @@ try {
     console.log(`Verified hand, preview and private search with ${imageRequests.length} same-origin image requests`);
   }
 
+  if (waiting) {
+    await startGuestFirst(waiting.host, waiting.guest);
+    await until(() => waiting.host.game && waiting.guest.game, "Forge start after capacity freed", 60000);
+    for (const peer of [waiting.host, waiting.guest]) {
+      assert.equal(await peer.page.getByRole("alert").count(), 0, "stale capacity alert after retry");
+    }
+    waiting.guest.page.once("dialog", (dialog) => dialog.accept());
+    await waiting.guest.page.getByRole("button", { name: "Concede game", exact: true }).click();
+    for (const peer of [waiting.host, waiting.guest]) {
+      await peer.page.getByRole("heading", { name: "Sideboard for game 2" }).waitFor();
+    }
+    waiting.guest.page.once("dialog", (dialog) => dialog.accept());
+    await waiting.guest.page.getByRole("button", { name: "Leave room", exact: true }).click();
+    await waiting.guest.page.getByRole("heading", { name: "Club lobby" }).waitFor();
+    await waiting.host.page.getByRole("heading", { name: "Duel room" }).waitFor();
+    console.log("Verified guest-first capacity rejection, retained decks and seats, successful retry, and leaving BO3 during sideboarding");
+  }
+
   // A marked Modern deck that fails native construction checks must never start.
   const verifyContexts = await Promise.all([browser.newContext({ ignoreHTTPSErrors }), browser.newContext({ ignoreHTTPSErrors })]);
   const [legal, invalid] = await Promise.all([
@@ -431,7 +481,9 @@ try {
   ]);
   const modern = await create(legal, "modern");
   await join(invalid, modern, "correct room password");
+  await Promise.all([selectDeck(legal), selectDeck(invalid)]);
   await ready(legal);
+  await legal.page.getByRole("button", { name: "Cancel ready", exact: true }).waitFor();
   await ready(invalid);
   await invalid.page.getByText(/Forge rejected your deck for this format/).waitFor({ timeout: 20000 });
   assert.ok(!legal.messages.some(({ type }) => type === "rules.snapshot"));

@@ -3,6 +3,14 @@
   "protocol": "hexproof.v3",
   "definitions": [
     {
+      "name": "TournamentLineupDeck",
+      "goType": "TournamentLineupDeck",
+      "fields": [
+        {"name": "name", "type": "string", "required": true},
+        {"name": "locked", "type": "boolean", "required": true}
+      ]
+    },
+    {
       "name": "TournamentChatMessage",
       "goType": "TournamentChatMessage",
       "fields": [
@@ -150,6 +158,8 @@
       "direction": "clientToServer",
       "goType": "TournamentCreate",
       "fields": [
+        {"name": "clubStyle", "type": "string", "required": false},
+        {"name": "topEight", "type": "boolean", "required": false},
         {"name": "operationId", "type": "string", "required": false},
         {"name": "name", "type": "string", "required": true},
         {"name": "format", "type": "string", "required": true},
@@ -218,7 +228,10 @@
       "type": "tournament.register",
       "direction": "clientToServer",
       "goType": "TournamentRegister",
-      "fields": [{"name": "tournamentId", "type": "string", "required": true}]
+      "fields": [
+        {"name": "tournamentId", "type": "string", "required": true},
+        {"name": "lineup", "type": "array", "required": false, "items": {"type": "object", "ref": "DeckSelect"}}
+      ]
     },
     {
       "type": "tournament.registered",
@@ -299,7 +312,15 @@
     {"type": "tournament.result_corrected", "direction": "serverToClient", "goType": "TournamentChanged", "fields": [{"name": "tournamentId", "type": "string", "required": true}]},
     {"type": "tournament.next_round", "direction": "clientToServer", "goType": "EmptyPayload", "fields": []},
     {"type": "tournament.round_started", "direction": "serverToClient", "goType": "TournamentChanged", "fields": [{"name": "tournamentId", "type": "string", "required": true}]},
-    {"type": "tournament.open_match", "direction": "clientToServer", "goType": "TournamentPairingCommand", "fields": [{"name": "pairingId", "type": "string", "required": true}]},
+    {
+      "type": "tournament.open_match",
+      "direction": "clientToServer",
+      "goType": "TournamentOpenMatch",
+      "fields": [
+        {"name": "pairingId", "type": "string", "required": true},
+        {"name": "deckIndex", "type": "integer", "required": false, "goType": "*int"}
+      ]
+    },
     {
       "type": "tournament.match_opened",
       "direction": "serverToClient",
@@ -317,6 +338,12 @@
       "direction": "serverToClient",
       "goType": "TournamentSnapshot",
       "fields": [
+        {"name": "clubStyle", "type": "string", "required": false},
+        {"name": "topEight", "type": "boolean", "required": false},
+        {"name": "elimination", "type": "boolean", "required": false},
+        {"name": "champion", "type": "string", "required": false},
+        {"name": "ownChoice", "type": "integer", "required": false, "goType": "*int"},
+        {"name": "ownLineup", "type": "array", "required": false, "items": {"type": "object", "ref": "TournamentLineupDeck"}},
         {"name": "tournamentId", "type": "string", "required": true},
         {"name": "name", "type": "string", "required": true},
         {"name": "format", "type": "string", "required": true},

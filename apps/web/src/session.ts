@@ -1,24 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { protocol, type Envelope, type GameMetadata, type Prompt, type Response, type Room, type ServerError, type Snapshot, type Welcome } from "./protocol";
+import { protocol, type Envelope, type GameMetadata, type Prompt, type Response, type Room, type ServerError, type Snapshot, type Tournament, type Welcome } from "./protocol";
 
 export const identityStorage = "hexproof-club.identity.v1";
+const activeRoomStorage = "hexproof-club.active-room.v1";
 type Identity = { name: string; resumeToken?: string; roomId?: string };
 type Connection = "idle" | "connecting" | "online" | "offline";
 type SessionState = { connection: Connection; welcome?: Welcome; seat?: number; room?: Room;
-  game?: Snapshot; prompt?: Prompt; metadata?: GameMetadata; error?: string; awaiting?: number };
+  game?: Snapshot; prompt?: Prompt; metadata?: GameMetadata; error?: string; awaiting?: number; tournament?: Tournament };
 const initialState: SessionState = { connection: "idle" };
 const rotatedIdentity = (identity: Identity, token: string, roomId?: string) => ({ name: identity.name, resumeToken: token, roomId });
 
-export function readIdentity(): Identity | null {
+function readStoredIdentity(storage: Storage, key: string): Identity | null {
   try {
-    const value = JSON.parse(sessionStorage.getItem(identityStorage) ?? "null") as Identity | null;
+    const value = JSON.parse(storage.getItem(key) ?? "null") as Identity | null;
     return value?.name ? value : null;
   } catch {
     return null;
   }
 }
+
+export function readIdentity(): Identity | null {
+  return readStoredIdentity(sessionStorage, identityStorage) ?? readStoredIdentity(localStorage, activeRoomStorage);
+}
+
+const eventTokenKey = (name: string, id: string) => `hexproof-club.event-token:${name}:${id}`;
+const eventKey = (name: string) => `hexproof-club.active-event:${name}`;
 
 export function useSession() {
   const [identity, setIdentity] = useState(readIdentity);
@@ -29,9 +37,15 @@ export function useSession() {
   const inFlightDecision = useRef<{ request: string; promptId: number } | null>(null);
 
   const remember = useCallback((value: Identity | null) => {
+    const previous = latestIdentity.current;
     latestIdentity.current = value;
     if (value) sessionStorage.setItem(identityStorage, JSON.stringify(value));
     else sessionStorage.removeItem(identityStorage);
+    if (value?.roomId && value.resumeToken) {
+      localStorage.setItem(activeRoomStorage, JSON.stringify(value));
+    } else if (previous?.resumeToken && previous.resumeToken === readStoredIdentity(localStorage, activeRoomStorage)?.resumeToken) {
+      localStorage.removeItem(activeRoomStorage);
+    }
   }, []);
 
   const send = useCallback((type: string, payload = {}) => {
@@ -78,8 +92,29 @@ export function useSession() {
             inFlightDecision.current = null;
             setState({ connection: "online", welcome, seat: welcome.seat,
               error: value.roomId && !welcome.resumed ? "Your previous seat is no longer available." : undefined });
+            const event = localStorage.getItem(eventKey(value.name));
+            if (event) send("tournament.enter", { tournamentId: event, credential: localStorage.getItem(eventTokenKey(value.name, event)) ?? undefined });
             break;
           }
+          case "tournament.created":
+          case "tournament.registered":
+          case "tournament.entered": {
+            const event = payload as { tournamentId: string; organizerToken?: string; participantToken?: string };
+            const name = latestIdentity.current!.name;
+            const key = eventTokenKey(name, event.tournamentId);
+            if (event.organizerToken) localStorage.setItem(key, event.organizerToken);
+            if (event.participantToken && !localStorage.getItem(key)) localStorage.setItem(key, event.participantToken);
+            localStorage.setItem(eventKey(name), event.tournamentId);
+            setState((previous) => ({ ...previous, error: undefined }));
+            break;
+          }
+          case "tournament.snapshot":
+            setState((previous) => ({ ...previous, tournament: payload as Tournament }));
+            break;
+          case "tournament.left":
+            localStorage.removeItem(eventKey(latestIdentity.current!.name));
+            setState((previous) => ({ ...previous, tournament: undefined }));
+            break;
           case "room.created":
           case "room.joined": {
             const joined = payload as { roomId: string; hostSeat?: number; seat?: number };
@@ -94,6 +129,9 @@ export function useSession() {
               ...(room.phase === "waiting" ? { game: undefined, prompt: undefined, metadata: undefined } : {}) }));
             break;
           }
+          case "match.started":
+            setState((previous) => ({ ...previous, error: undefined }));
+            break;
           case "game.returned_to_room":
             inFlightDecision.current = null;
             setState((previous) => ({ ...previous, game: undefined, prompt: undefined, metadata: undefined, awaiting: undefined }));
@@ -103,7 +141,7 @@ export function useSession() {
           case "room.kicked":
             remember({ ...latestIdentity.current!, roomId: undefined });
             inFlightDecision.current = null;
-            setState((previous) => ({ connection: previous.connection, welcome: previous.welcome }));
+            setState((previous) => ({ connection: previous.connection, welcome: previous.welcome, tournament: previous.tournament }));
             break;
           case "rules.snapshot": {
             const game = payload as Snapshot;
@@ -174,11 +212,20 @@ export function useSession() {
     setState((previous) => ({ ...previous, awaiting: prompt.promptId, error: undefined }));
   }
 
-  return { ...state, identity: identity?.name, enter, forget, send, answer,
+  function enterTournament(id: string) {
+    const tournamentId = id.trim().toUpperCase();
+    const credential = localStorage.getItem(eventTokenKey(latestIdentity.current!.name, tournamentId)) ?? undefined;
+    send("tournament.enter", { tournamentId, credential });
+  }
+
+  return { ...state, identity: identity?.name, enter, forget, send, answer, enterTournament,
     clearError: () => setState((previous) => ({ ...previous, error: undefined })) };
 }
 
 function describeError(error: ServerError) {
+  if (error.rulesStartFailure?.reason === "capacity") {
+    return "All Forge match slots are in use. A best-of-three match keeps its slot during sideboarding. When a slot opens, press Ready again. Your seats and decks are kept.";
+  }
   const issues = error.rulesStartFailure?.issues ?? [];
   const details = issues.map(({ cardName, code }) => {
     if (code === "format_violation") {

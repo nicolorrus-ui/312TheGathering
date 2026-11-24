@@ -240,6 +240,8 @@ type roomCreateOptions struct {
 	tournamentParticipantID string
 	aiDifficulty            string
 	aiSource                string
+	practice                bool
+	clubDuel                bool
 }
 
 // createRoom generates and registers a room with its host bound to seat 0.
@@ -295,11 +297,16 @@ func (h *Hub) createRoom(options roomCreateOptions, host *Session) (*room.Room, 
 		r.LimitedDeckLocked = options.tournamentID != ""
 		r.TournamentID = options.tournamentID
 		r.TournamentPairingID = options.tournamentPairing
+		r.ClubDuel = options.clubDuel
 		source, difficulty := options.aiSource, options.aiDifficulty
 		if source == "" && difficulty != "" {
 			source = protocol.AISourceForge
 		}
-		if source != "" {
+		if options.practice {
+			if err := r.AddPassivePractice(); err != nil {
+				return nil, protocol.RoomSnapshot{}, 0, nil, mapRoomError(err)
+			}
+		} else if source != "" {
 			if err := r.AddAI(source, difficulty); err != nil {
 				return nil, protocol.RoomSnapshot{}, 0, nil, mapRoomError(err)
 			}

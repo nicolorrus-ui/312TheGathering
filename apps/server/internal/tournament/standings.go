@@ -48,7 +48,7 @@ func flooredPercentage(points, possible int) float64 {
 }
 
 func (t *Tournament) Standings() []Standing {
-	if t.Coordinator != protocol.LimitedCoordinatorSwiss {
+	if t.Coordinator != protocol.LimitedCoordinatorSwiss || t.ClubStyle == ClubConquest {
 		return []Standing{}
 	}
 	stats := make(map[string]*playerStats, len(t.Participants))
@@ -58,6 +58,9 @@ func (t *Tournament) Standings() []Standing {
 		}
 	}
 	for _, round := range t.Rounds {
+		if round.Elimination {
+			break
+		}
 		for _, pairing := range round.Pairings {
 			if pairing.Result == nil {
 				continue

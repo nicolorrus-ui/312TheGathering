@@ -7,6 +7,7 @@ import { CardImage, CardImages } from "./CardImages";
 import { deckStorage, parseDeck, readDecks } from "./decks";
 import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata } from "./protocol";
 import { useSession } from "./session";
+import { Tournaments } from "./Tournaments";
 import "./style.css";
 
 type Session = ReturnType<typeof useSession>;
@@ -59,6 +60,7 @@ function Lobby({ session }: { session: Session }) {
   const [password, setPassword] = useState("");
   const [roomId, setRoomId] = useState(() => new URLSearchParams(location.search).get("room") ?? "");
   const [matchMode, setMatchMode] = useState("bo1");
+  const [practice, setPractice] = useState(false);
   const [deckFormat, setDeckFormat] = useState<DeckFormat>("modern");
   const blocked = session.connection !== "online" || !session.welcome?.forgeRulesAvailable;
   return <section className="panel">
@@ -68,19 +70,22 @@ function Lobby({ session }: { session: Session }) {
     <form onSubmit={(event) => {
       event.preventDefault();
       if (tab === "join") session.send("room.join", { roomId, password, asSpectator: false });
-      else session.send("room.create", { name, password, deckFormat, matchMode, format: "modern", rulesMode: "forge",
+      else session.send("room.create", { name, password: practice ? "" : password, deckFormat, matchMode: practice ? "bo1" : matchMode, practice, format: "modern", rulesMode: "forge",
         maxSeats: 2, allowSpectators: false, spectatorsSeeHands: false, cardLoadMode: "background" });
     }}>
       {tab === "create" ? <>
         <label>Room name<input required maxLength={128} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label>Opponent<select value={practice ? "practice" : "player"} onChange={(event) => setPractice(event.target.value === "practice")}>
+          <option value="player">Another player</option><option value="practice">Practice opponent</option>
+        </select></label>
         <div className="form-row"><label>Format<select aria-label="Format" value={deckFormat} onChange={(event) => setDeckFormat(event.target.value as DeckFormat)}>
           {formats.map((item) => <option key={item} value={item}>{formatLabel(item)}</option>)}</select></label>
-          <label>Match<select aria-label="Match" value={matchMode} onChange={(event) => setMatchMode(event.target.value)}>
+          <label>Match<select aria-label="Match" value={practice ? "bo1" : matchMode} disabled={practice} onChange={(event) => setMatchMode(event.target.value)}>
             <option value="bo1">Best of one</option><option value="bo3">Best of three</option></select></label></div>
       </> : <label>Room code<input required minLength={6} maxLength={6} value={roomId} onChange={(event) => setRoomId(event.target.value.toUpperCase())} /></label>}
-      <label>Room password<input required type="password" maxLength={72} value={password} autoComplete="off"
-        onChange={(event) => setPassword(event.target.value)} /></label>
-      <button className="primary" type="submit" disabled={blocked}>{tab === "create" ? "Create private duel" : "Join private duel"}</button>
+      {(tab === "join" || !practice) && <label>Room password<input required type="password" maxLength={72} value={password} autoComplete="off"
+        onChange={(event) => setPassword(event.target.value)} /></label>}
+      <button className="primary" type="submit" disabled={blocked}>{tab === "create" ? (practice ? "Create practice room" : "Create private duel") : "Join private duel"}</button>
     </form>
   </section>;
 }
@@ -97,26 +102,26 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
   return <section className="panel">
     <header><div><h2>{room.name}</h2><small>{formatLabel(room.deckFormat)} · {room.matchMode.toUpperCase()}</small></div>
       <button className="quiet" type="button" onClick={() => session.send("room.leave")} disabled={!online}>Leave</button></header>
-    <div className="room-code"><span>Room code</span><strong>{room.roomId}</strong>
+    {!room.tournamentId && !room.aiSource && <div className="room-code"><span>Room code</span><strong>{room.roomId}</strong>
       <button type="button" className="quiet" onClick={async () => {
         try { await navigator.clipboard.writeText(invite.href); setCopied(true); }
         catch { setCopied(false); }
-      }}>{copied ? "Copied" : "Copy invite"}</button></div>
+      }}>{copied ? "Copied" : "Copy invite"}</button></div>}
     <ul className="seats">{room.seats.map((seat, index) => <li key={index}>
       <strong>{seat.displayName || "Open seat"}{index === session.seat ? " (you)" : ""}</strong>
       <small>{seat.ready ? "Ready" : seat.deckSelected ? "Deck selected" : seat.occupied ? "Choosing a deck" : "Awaiting player"}</small>
     </li>)}</ul>
     <div className="form-row">
-      <label>Your deck<select aria-label="Your deck" value={selected} disabled={!online || ownSeat?.ready} onChange={(event) => setSelected(event.target.value)}>
+      <label>Your deck<select aria-label="Your deck" value={selected} disabled={!online || ownSeat?.ready || ownSeat?.deckLocked} onChange={(event) => setSelected(event.target.value)}>
         <option value="">Select a deck</option>{decks.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select></label>
-      <button type="button" disabled={!online || !deck || ownSeat?.ready} onClick={() => {
+      <button type="button" disabled={!online || !deck || ownSeat?.ready || ownSeat?.deckLocked} onClick={() => {
         if (!deck) return;
         session.send("deck.select", { name: deck.name, mainboard: deck.mainboard, sideboard: deck.sideboard,
           format: "modern", deckFormat: room.deckFormat });
       }}>Use deck</button>
     </div>
-    {room.ownDeckName && <p className="selected-deck">{room.ownDeckName} selected</p>}
+    {room.ownDeckName && <p className="selected-deck">{room.ownDeckName} {ownSeat?.deckLocked ? "registered for this match" : "selected"}</p>}
     <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected}
       onClick={() => session.send("player.ready", { ready: !ownSeat?.ready })}>{ownSeat?.ready ? "Cancel ready" : "Ready"}</button>
   </section>;
@@ -154,9 +159,12 @@ function App() {
   const session = useSession();
   const [name, setName] = useState("");
   const [decks, setDecks] = useState(readDecks);
+  const [tournamentScreen, setTournamentScreen] = useState(() => new URLSearchParams(location.search).has("tournament"));
   const matchSection = session.room?.phase === "started";
   const online = session.connection === "online";
   const sideboard = session.metadata?.sideboard && session.metadata.result && !session.metadata.result.matchFinished;
+  const tournamentTable = Boolean(session.room?.tournamentId);
+  const inTournament = tournamentScreen || Boolean(session.tournament);
   function saveDecks(next: Deck[]) {
     localStorage.setItem(deckStorage, JSON.stringify(next));
     setDecks(next);
@@ -165,7 +173,11 @@ function App() {
     <header className="topbar">
       <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
       {session.identity && <div className="account"><span className={`connection ${session.connection}`}>{session.connection}</span>
-        <span>{session.identity}</span>{!session.room && <button type="button" className="quiet" onClick={session.forget}>Sign out</button>}</div>}
+        <span>{session.identity}</span>
+        {matchSection && <button type="button" className="quiet" disabled={!online} onClick={() => {
+          if (session.metadata?.result?.matchFinished || window.confirm("Leave the room and end this match?")) session.send("room.leave");
+        }}>Leave room</button>}
+        {!session.room && <button type="button" className="quiet" onClick={session.forget}>Sign out</button>}</div>}
     </header>
     {session.error && <div className="notice app-error" role="alert">{session.error}
       <button type="button" className="quiet" onClick={session.clearError}>Dismiss</button></div>}
@@ -180,11 +192,17 @@ function App() {
       : matchSection && session.game && session.seat !== undefined ? <Board key={session.game.gameId} game={session.game}
         seat={session.seat} prompt={session.prompt} locked={!online || session.awaiting === session.prompt?.promptId && Boolean(session.prompt)}
         metadata={session.metadata} answer={session.answer}
-        concede={() => session.send("game.concede")} back={() => session.send("game.return_to_room")} />
+        concede={() => session.send("game.concede")} tournamentTable={tournamentTable}
+        back={() => session.send(tournamentTable ? "room.leave" : "game.return_to_room")} />
       : session.room && session.room.phase !== "waiting" ? <main className="shell"><p role="status">Starting Forge…</p></main>
-      : <main className="shell"><div className="lobby-title"><h1>{session.room ? "Duel room" : "Club lobby"}</h1></div>
+      : <main className="shell"><div className="lobby-title"><h1>{session.room ? "Duel room" : inTournament ? "Tournaments" : "Club lobby"}</h1></div>
+        {!session.room && !session.tournament && <nav className="tabs lobby-nav" aria-label="Club lobby">
+          <button type="button" aria-pressed={!inTournament} onClick={() => setTournamentScreen(false)}>Duels</button>
+          <button type="button" aria-pressed={inTournament} onClick={() => setTournamentScreen(true)}>Tournaments</button>
+        </nav>}
         <div className="lobby-grid">{session.room ? <RoomPanel key={session.room.roomId} session={session} decks={decks} />
-          : <Lobby session={session} />}<DeckLibrary decks={decks} save={saveDecks} /></div>
+          : inTournament ? <Tournaments session={session} decks={decks} /> : <Lobby session={session} />}
+          <DeckLibrary decks={decks} save={saveDecks} /></div>
       </main>}
   </>;
 }

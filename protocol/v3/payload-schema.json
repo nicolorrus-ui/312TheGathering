@@ -347,6 +347,7 @@
       "direction": "clientToServer",
       "goType": "RoomCreate",
       "fields": [
+        {"name": "practice", "type": "boolean", "required": false},
         {
           "name": "name",
           "type": "string",

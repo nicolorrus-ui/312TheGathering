@@ -6,6 +6,7 @@ import { Decision, DecisionPanel, Options } from "./Decisions";
 import type { Card, GameMetadata, Option, Player, Prompt, Response, Snapshot, Zone } from "./protocol";
 
 const manaColor: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green", C: "colorless" };
+const cardDragType = "application/x-hexproof-card";
 const phases = [
   ["untap", "Untap", "Untap"], ["upkeep", "Upkeep", "Upkeep"], ["draw", "Draw", "Draw"],
   ["main1", "First main", "Main I"], ["combatBegin", "Beginning of combat", "Combat"],
@@ -31,17 +32,18 @@ function fanPosition(index: number, count: number): CSSProperties {
     "--fan-offset": `${position ** 2 * Math.min(12, (count - 1) * 2.5)}px` } as CSSProperties;
 }
 
-function TableCard({ card, actionable, selected, activate, drag, inspect, style }: {
+function TableCard({ card, actionable, selected, activate, drag, dragEnd, dragging, inspect, style }: {
   card: Card; actionable?: boolean; selected?: boolean; activate?: () => void;
   drag?: (event: DragEvent) => void; inspect: () => void; style?: CSSProperties;
+  dragEnd?: () => void; dragging?: boolean;
 }) {
   const showBack = !card.visible || Boolean(card.faceDown);
   const name = (card.visible ? card.identity?.name : undefined) ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
-  return <div className={`card-slot ${card.tapped ? "tapped" : ""}`} style={style}>
+  return <div className={`card-slot ${card.tapped ? "tapped" : ""}`} data-dragging={dragging || undefined} style={style}>
     <button type="button" className={`table-card ${card.land ? "land" : ""} ${showBack ? "card-back" : ""}`}
       data-card-id={card.id} data-actionable={Boolean(actionable)} data-tapped={Boolean(card.tapped)}
       aria-label={name} aria-pressed={selected || undefined} title={card.typeLine ? `${name} · ${card.typeLine}` : name}
-      draggable={Boolean(drag)} onDragStart={drag} onClick={activate ?? inspect}
+      draggable={Boolean(drag)} onDragStart={drag} onDragEnd={dragEnd} onClick={activate ?? inspect}
       onContextMenu={(event) => { event.preventDefault(); inspect(); }}>
       {!showBack && <>
         <strong>{name}</strong>
@@ -75,18 +77,20 @@ function PlayerChip({ player, zone, zones, target, selectTarget, selectZone }: {
 }
 
 type Props = { game: Snapshot; seat: number; prompt?: Prompt; locked: boolean; metadata?: GameMetadata;
-  answer: (prompt: Prompt, response: Response) => void; concede: () => void; back: () => void };
+  answer: (prompt: Prompt, response: Response) => void; concede: () => void; back: () => void; tournamentTable?: boolean };
 type AutoPass = { until: "step" | "turn"; turn: number; step: string };
 
-export function Board({ game, seat, prompt, locked, metadata, answer, concede, back }: Props) {
+export function Board({ game, seat, prompt, locked, metadata, answer, concede, back, tournamentTable }: Props) {
   const [reviewId, setReviewId] = useState<string>();
   const [openedZone, setOpenedZone] = useState<{ zone: string; ownerSeat: number }>();
   const [actionMenu, setActionMenu] = useState<{ promptId: number; options: Option[] }>();
   const [targetSelection, setTargetSelection] = useState<{ promptId: number; ids: string[] }>();
   const [autoPass, setAutoPass] = useState<AutoPass>();
+  const [dragging, setDragging] = useState<{ id: string; promptId: number }>();
   const targetIds = targetSelection && targetSelection.promptId === prompt?.promptId ? targetSelection.ids : [];
   const isCurrent = prompt?.gameId === game.gameId;
   const decision = isCurrent && prompt?.pending ? prompt : undefined;
+  const draggedId = !locked && dragging?.promptId === decision?.promptId ? dragging?.id : undefined;
   const priority = decision?.kind === "chooseAction";
   const myTurn = game.activeSeat === seat;
   const owner = game.players.find((player) => player.seat === seat);
@@ -146,16 +150,41 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
       selected={targets.some((target) => targetIds.includes(target.responseId))}
       activate={() => activateCard(card)} inspect={() => setReviewId(card.id)}
       style={handIndex === undefined ? undefined : fanPosition(handIndex, hand.length)}
+      dragging={draggedId === card.id}
+      dragEnd={() => setDragging(undefined)}
       drag={handIndex !== undefined && !locked && options.length > 0 ? (event) => {
+        if (!decision) return;
         event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("application/x-hexproof-card", card.id);
+        event.dataTransfer.setData(cardDragType, card.id);
+        const source = event.currentTarget as HTMLElement;
+        const bounds = source.getBoundingClientRect();
+        const preview = source.cloneNode(true) as HTMLElement;
+        preview.classList.add("drag-card-preview");
+        preview.setAttribute("aria-hidden", "true");
+        preview.style.left = `${bounds.left}px`;
+        preview.style.top = `${bounds.top}px`;
+        preview.style.setProperty("--card-width", `${source.offsetWidth}px`);
+        preview.style.setProperty("--card-height", `${source.offsetHeight}px`);
+        document.body.append(preview);
+        event.dataTransfer.setDragImage(preview, source.offsetWidth / 2, source.offsetHeight / 3);
+        requestAnimationFrame(() => preview.remove());
+        setDragging({ id: card.id, promptId: decision.promptId });
       } : undefined} />;
+  }
+
+  function allowCardDrop(event: DragEvent) {
+    if (!locked && event.dataTransfer.types.includes(cardDragType)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    }
   }
 
   function drop(event: DragEvent) {
     event.preventDefault();
-    const card = hand.find((entry) => entry.id === event.dataTransfer.getData("application/x-hexproof-card"));
-    if (card && decision?.options.some((option) => option.cardId === card.id)) activateCard(card);
+    setDragging(undefined);
+    const id = event.dataTransfer.getData(cardDragType);
+    const card = hand.find((entry) => entry.id === id);
+    if (!locked && card && decision?.options.some((option) => option.cardId === card.id)) activateCard(card);
   }
 
   const showPlayer = (player: Player, own: boolean) => {
@@ -173,9 +202,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
     !option.cardId && option.kind !== "pass" && option.responseId !== "$pass-stack") : [];
 
   return <main className="duel">
-    <section className="table" onDragOver={(event) => {
-      if (event.dataTransfer.types.includes("application/x-hexproof-card")) event.preventDefault();
-    }} onDrop={drop}>
+    <section className="table" data-drag-active={Boolean(draggedId)}>
       <div className="player-info opponent-info">{showPlayer(opponent, false)}</div>
       <section className="hand opponent-hand" aria-label={`Opponent hand, ${opponentHandCount} cards`}>
         <div className="hand-fan" aria-hidden="true">
@@ -193,7 +220,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
         <div className="permanents lands">{showPermanents(opponent.seat, true)}</div>
         <div className="permanents">{showPermanents(opponent.seat, false)}</div>
       </section>
-      <div className="center-line"><span>Stack</span><div className="stack">
+      <div className="center-line" onDragOver={allowCardDrop} onDrop={drop}><span>Stack</span><div className="stack">
         {game.stack.length === 0 ? <span className="empty-stack">Empty</span> : game.stack.map((object) => {
           const target = decision?.targets.find((choice) => choice.objectId === object.id && !choice.selected);
           return <button key={object.id} type="button" title={object.text} aria-pressed={target ? targetIds.includes(target.responseId) : undefined}
@@ -202,7 +229,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
         })}
       </div><span className="waiting">{game.gameOver ? (game.winnerSeat === undefined ? "Draw" : game.winnerSeat === seat ? "You won" : `${opponent.name} won`)
         : locked ? "Syncing…" : decision ? "Your decision" : "Waiting for opponent"}</span></div>
-      <section className="battlefield home" aria-label="Your battlefield">
+      <section className="battlefield home" aria-label="Your battlefield" onDragOver={allowCardDrop} onDrop={drop}>
         <div className="permanents">{showPermanents(seat, false)}</div>
         <div className="permanents lands">{showPermanents(seat, true)}</div>
       </section>
@@ -230,7 +257,9 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
               <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
             </div></details>}
           {stackPass && <button type="button" onClick={() => respond({ responseId: "$pass-stack" })}>Pass until stack resolves</button>}
-          {game.gameOver && metadata?.result?.matchFinished ? <button className="primary" type="button" onClick={back}>Return to room</button> : <>
+          {game.gameOver && metadata?.result?.matchFinished ? <button className="primary" type="button" onClick={back}>
+            {tournamentTable ? "Return to tournament" : "Return to room"}
+          </button> : <>
             <button type="button" className="primary" disabled={!priority || !pass}
               onClick={() => pass && respond({ responseId: pass.responseId })}>Pass priority</button>
             <button type="button" className="quiet concede" disabled={game.gameOver}

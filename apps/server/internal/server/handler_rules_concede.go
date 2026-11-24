@@ -131,6 +131,7 @@ func (h *Handler) handleForgeConcede(sess *Session, env protocol.Envelope,
 	h.send(sess, *result.Reply)
 	h.sendRulesTable(projections, prompts)
 	if gameOver {
+		h.recordClubForgeResult(r)
 		h.fanout(r, result.Broadcast)
 		if !result.SideboardDeadline.IsZero() {
 			h.scheduleSideboardExpiration(r, result.SideboardDeadline)

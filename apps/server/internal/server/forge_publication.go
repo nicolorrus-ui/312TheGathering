@@ -74,6 +74,7 @@ func (h *Handler) sendForgePublication(r *room.Room, state forgeStartState) {
 		h.fanoutRulesMetadata(r)
 	}
 	if state.gameOver {
+		h.recordClubForgeResult(r)
 		h.fanout(r, state.resultBroadcast)
 		if !state.sideboardDeadline.IsZero() {
 			h.scheduleSideboardExpiration(r, state.sideboardDeadline)

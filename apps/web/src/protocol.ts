@@ -46,8 +46,23 @@ export type Response = {
   damageOrderIds?: string[]; damageAssignments?: { targetId: string; damage: number }[];
 };
 export type Room = {
+  tournamentId?: string;
+  aiSource?: string;
   roomId: string; name: string; deckFormat: DeckFormat; matchMode: string; phase: string; ownDeckName?: string;
-  seats: { occupied: boolean; displayName?: string; ready?: boolean; deckSelected?: boolean }[];
+  seats: { occupied: boolean; displayName?: string; ready?: boolean; deckSelected?: boolean; deckLocked?: boolean }[];
+};
+export type Tournament = {
+  tournamentId: string; name: string; format: DeckFormat; clubStyle: "swiss" | "conquest";
+  topEight?: boolean; elimination?: boolean; champion?: string; currentRound: number; plannedRounds: number;
+  status: string; stage: string; matchMode: string; role: string; participantId?: string; canRegister: boolean;
+  checkedIn: number; minimumPlayers: number; roundComplete: boolean;
+  ownLineup?: { name: string; locked: boolean }[];
+  ownChoice?: number;
+  participants: { participantId: string; displayName: string; checkedIn: boolean }[];
+  pairings: { pairingId: string; playerAId: string; playerAName: string; playerBId?: string; playerBName?: string;
+    roomId?: string; playerAWins: number; playerBWins: number; drawnGames: number; bye: boolean; status: string }[];
+  standings: { rank: number; participantId: string; displayName: string; wins: number;
+    losses: number; draws: number; matchPoints: number; oppMatchWin: number; gameWin: number; oppGameWin: number }[];
 };
 export type GameMetadata = {
   roomId: string; gameNumber: number; score: number[];

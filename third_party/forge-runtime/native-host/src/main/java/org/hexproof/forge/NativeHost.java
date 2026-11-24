@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets;
 public final class NativeHost {
     public static final String FORGE_COMMIT = "0485ad49fb10c8ef5b3eda2a002c963d59be71dc";
     // Adapter 31 adds bounded crash capsules and immutable diagnostic producer IDs.
-    static final int ADAPTER_REVISION = 31;
+    static final int ADAPTER_REVISION = 35;
     static final Gson JSON = new Gson();
     private NativeHost() { }
 
@@ -71,6 +71,12 @@ public final class NativeHost {
                     if (command.equals("reset")) {
                         if (session != null) throw new IllegalStateException("A process cannot reset an existing game");
                         result = "{\"capabilities\":[\"forge-ai-v1\",\"forge-duel-ai-v1\",\"forge-crash-diagnostics-v1\"],\"adapterRevision\":" + ADAPTER_REVISION + "}";
+                    } else if (command.equals("validateDecks")) {
+                        if (session != null) throw new IllegalStateException("Game already exists");
+                        var setup = JsonParser.parseString(request.get("payload").getAsString()).getAsJsonObject();
+                        NativeClubDeckValidation.validate(setup.get("deckFormat").getAsString(),
+                                NativeSession.resolveDecks(setup.getAsJsonArray("players")));
+                        result = "{}";
                     } else if (command.equals("startGame")) {
                         if (session != null) throw new IllegalStateException("A process hosts one game only");
                         session = new NativeSession(JsonParser.parseString(request.get("payload").getAsString()).getAsJsonObject(), base);

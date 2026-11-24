@@ -752,6 +752,7 @@
       "direction": "serverToClient",
       "goType": "RoomSnapshot",
       "fields": [
+        {"name": "tournamentId", "type": "string", "required": false},
         {
           "name": "ownDeckName",
           "type": "string",

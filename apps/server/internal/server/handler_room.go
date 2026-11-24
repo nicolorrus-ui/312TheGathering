@@ -73,6 +73,10 @@ func (h *Handler) handleRoomCreate(sess *Session, env protocol.Envelope) error {
 		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "private, password-protected server Forge duels only")
 		return nil
 	}
+	if rc.Practice && (!h.config.ClubMode || !h.forgeAIAvailable()) {
+		h.sendError(sess, env.ID, protocol.ErrRulesUnavailable, "Practice requires the club Forge runtime")
+		return nil
+	}
 	rc.Name = strings.TrimSpace(rc.Name)
 	if rc.Name == "" || utf8.RuneCountInString(rc.Name) > protocol.MaxRoomNameRunes ||
 		hasControlCharacters(rc.Name) || len(rc.Password) > protocol.MaxPasswordBytes {
@@ -187,6 +191,7 @@ func (h *Handler) handleRoomCreate(sess *Session, env protocol.Envelope) error {
 		password:           rc.Password,
 		aiDifficulty:       rc.AIDifficulty,
 		aiSource:           rc.AISource,
+		practice:           rc.Practice,
 	}, sess)
 	if err != nil {
 		code, _ := ErrCode(err)
@@ -592,6 +597,10 @@ func (h *Handler) handlePlayerReady(sess *Session, env protocol.Envelope) error 
 	defer operation.opMu.Unlock()
 	if request.Ready && h.playerHostPaused(r) {
 		h.sendError(sess, env.ID, protocol.ErrRulesActionRejected, "Wait for the creator to connect local Forge")
+		return nil
+	}
+	if request.Ready && !h.clubPairingOpen(r) {
+		h.sendError(sess, env.ID, protocol.ErrTournamentForbidden, "This tournament match is complete. Return to the tournament.")
 		return nil
 	}
 	res, err := h.hub.SetReady(sess.ConnectionID, request.Ready, r)

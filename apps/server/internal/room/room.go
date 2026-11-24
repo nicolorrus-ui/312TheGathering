@@ -119,6 +119,8 @@ type Room struct {
 	DeckFormat string
 	// ClubDuel enables Forge-resolved deck imports and player-chosen BO3 play order.
 	ClubDuel bool
+	// Practice gives the server-owned seat a passive Forge controller.
+	Practice bool
 	// LimitedDeckLocked is set only by the server's pool-contained table installer.
 	LimitedDeckLocked   bool
 	MaxSeats            int

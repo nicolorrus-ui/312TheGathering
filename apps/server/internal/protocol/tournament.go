@@ -29,6 +29,8 @@ type TournamentListed struct {
 }
 
 type TournamentCreate struct {
+	ClubStyle   string `json:"clubStyle,omitempty"`
+	TopEight    bool   `json:"topEight,omitempty"`
 	OperationID string `json:"operationId,omitempty"`
 	Name        string `json:"name"`
 	Format      string `json:"format"`
@@ -73,7 +75,8 @@ type TournamentLeft struct {
 }
 
 type TournamentRegister struct {
-	TournamentID string `json:"tournamentId"`
+	TournamentID string       `json:"tournamentId"`
+	Lineup       []DeckSelect `json:"lineup,omitempty"`
 }
 
 type TournamentRegistered struct {
@@ -104,6 +107,16 @@ type TournamentResultCommand struct {
 
 type TournamentPairingCommand struct {
 	PairingID string `json:"pairingId"`
+}
+
+type TournamentOpenMatch struct {
+	PairingID string `json:"pairingId"`
+	DeckIndex *int   `json:"deckIndex,omitempty"`
+}
+
+type TournamentLineupDeck struct {
+	Name   string `json:"name"`
+	Locked bool   `json:"locked"`
 }
 
 type TournamentMatchOpened struct {
@@ -170,6 +183,12 @@ type TournamentStandingView struct {
 }
 
 type TournamentSnapshot struct {
+	ClubStyle          string                      `json:"clubStyle,omitempty"`
+	TopEight           bool                        `json:"topEight,omitempty"`
+	Elimination        bool                        `json:"elimination,omitempty"`
+	Champion           string                      `json:"champion,omitempty"`
+	OwnLineup          []TournamentLineupDeck      `json:"ownLineup,omitempty"`
+	OwnChoice          *int                        `json:"ownChoice,omitempty"`
 	TournamentID       string                      `json:"tournamentId"`
 	Name               string                      `json:"name"`
 	Format             string                      `json:"format"`
