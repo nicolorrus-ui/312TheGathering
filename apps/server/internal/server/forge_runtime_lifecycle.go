@@ -25,6 +25,8 @@ type forgeRuntimeLifecycle struct {
 	mu           sync.Mutex
 	config       *forge.ProcessConfig
 	pool         *forge.Pool
+	clubWarm     bool
+	idle         *forge.Client
 	nativeAI     bool
 	nativeDuelAI bool
 	maxGames     int
@@ -40,6 +42,7 @@ func newForgeRuntimeLifecycle(config Config) (*forgeRuntimeLifecycle, error) {
 	var runtimeConfig *forge.ProcessConfig
 	var forgeNativeAI, forgeNativeDuelAI bool
 	var forgePool *forge.Pool
+	var idle *forge.Client
 	if config.ForgeRuntime != nil {
 		var probe *forge.Client
 		var probeErr error
@@ -59,7 +62,9 @@ func newForgeRuntimeLifecycle(config Config) (*forgeRuntimeLifecycle, error) {
 		}
 		forgeNativeAI = probe.SupportsAI()
 		forgeNativeDuelAI = probe.SupportsDuelAI()
-		if closeErr := probe.Close(); closeErr != nil {
+		if config.ClubMode {
+			idle = probe
+		} else if closeErr := probe.Close(); closeErr != nil {
 			if forgePool != nil {
 				_ = forgePool.Close()
 			}
@@ -70,13 +75,17 @@ func newForgeRuntimeLifecycle(config Config) (*forgeRuntimeLifecycle, error) {
 		copy.Env = append([]string(nil), config.ForgeRuntime.Env...)
 		runtimeConfig = &copy
 	}
-	return &forgeRuntimeLifecycle{
-		config: runtimeConfig, pool: forgePool,
+	lifecycle := &forgeRuntimeLifecycle{
+		config: runtimeConfig, pool: forgePool, clubWarm: config.ClubMode, idle: idle,
 		nativeAI: forgeNativeAI, nativeDuelAI: forgeNativeDuelAI,
 		maxGames:     config.MaxForgeGames,
 		clients:      make(map[forge.Runtime]struct{}),
 		reservations: make(map[string]forge.Runtime),
-	}, nil
+	}
+	if idle != nil {
+		lifecycle.trackLocked(idle)
+	}
+	return lifecycle, nil
 }
 
 func (f *forgeRuntimeLifecycle) capabilities() (rules, ai, duelAI bool) {
@@ -128,7 +137,7 @@ func (f *forgeRuntimeLifecycle) start(ctx context.Context, roomID string, dedica
 			return nil, err
 		}
 		f.mu.Lock()
-		if f.closed || f.config == nil || time.Now().Before(f.retryAfter) {
+		if f.closed || f.config == nil || (!f.clubWarm && time.Now().Before(f.retryAfter)) {
 			f.mu.Unlock()
 			return nil, errForgeRuntimeUnavailable
 		}
@@ -136,7 +145,8 @@ func (f *forgeRuntimeLifecycle) start(ctx context.Context, roomID string, dedica
 		// until Wait has reaped it, even if it is unhealthy or closing. Check
 		// Done directly so a next game need not wait for its old watcher.
 		occupied := f.occupiedLocked()
-		if previous, reserved := f.reservations[roomID]; reserved {
+		previous, reserved := f.reservations[roomID]
+		if reserved {
 			// Keep the same match's slot across sideboarding/restart, but
 			// never overlap its previous JVM with the replacement.
 			select {
@@ -152,9 +162,36 @@ func (f *forgeRuntimeLifecycle) start(ctx context.Context, roomID string, dedica
 				}
 			}
 		}
+		if f.clubWarm && f.starting != nil {
+			// The prewarming process is an unclaimed worker, not a match.
+			occupied--
+		}
 		if occupied >= f.maxGames {
 			f.mu.Unlock()
 			return nil, errForgeCapacity
+		}
+		if f.clubWarm {
+			if idle := f.idle; idle != nil && idle.Healthy() {
+				f.idle = nil
+				delete(f.reservations, roomID)
+				f.mu.Unlock()
+				return idle, nil
+			}
+			starting := f.starting
+			f.mu.Unlock()
+			f.prepareClubWarm(onExit)
+			if roomID != "" && !reserved {
+				return nil, errForgeWarming
+			}
+			// A BO3 continuation already owns its slot. Deck validation
+			// can also wait for a free slot's worker to finish warming.
+			select {
+			case <-starting:
+			case <-time.After(250 * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			continue
 		}
 		if starting := f.starting; starting != nil {
 			f.mu.Unlock()
@@ -210,7 +247,8 @@ func (f *forgeRuntimeLifecycle) start(ctx context.Context, roomID string, dedica
 	}
 }
 
-// Caller holds mu. Count each live/cold/reserved lease exactly once.
+// Caller holds mu. Count live, starting, and reserved match leases.
+// The idle Club worker is already available to be claimed.
 func (f *forgeRuntimeLifecycle) occupiedLocked() int {
 	occupied := len(f.reservations)
 	reservedClients := make(map[forge.Runtime]bool, occupied)
@@ -221,7 +259,7 @@ func (f *forgeRuntimeLifecycle) occupiedLocked() int {
 		if _, local := client.(*forge.Client); !local {
 			continue
 		}
-		if reservedClients[client] {
+		if client == f.idle || reservedClients[client] {
 			continue
 		}
 		select {
@@ -245,6 +283,7 @@ func (f *forgeRuntimeLifecycle) beginCloseLocked() forgeRuntimeShutdown {
 		f.startCancel()
 	}
 	shutdown := forgeRuntimeShutdown{starting: f.starting, clients: f.clients, pool: f.pool}
+	f.idle = nil
 	f.clients = make(map[forge.Runtime]struct{})
 	f.reservations = make(map[string]forge.Runtime)
 	return shutdown
