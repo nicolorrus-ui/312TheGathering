@@ -14,6 +14,7 @@ const deck = "Deck\n12 Mountain (M11) 242\n12 Evolving Wilds (ROE) 228\n36 Light
 const matchMode = process.env.CLUB_TEST_MATCH ?? "bo1";
 const verifyLayout = process.env.CLUB_TEST_LAYOUT === "1";
 const verifyImages = process.env.CLUB_TEST_IMAGES === "1";
+const verifyMobileImages = process.env.CLUB_TEST_MOBILE_IMAGES === "1";
 const verifyCapacity = process.env.CLUB_TEST_CAPACITY === "1";
 const imageRequests = [];
 let verifiedHandAndPreview = false;
@@ -30,6 +31,10 @@ function collect(page, name) {
     if (request.resourceType() === "image") imageRequests.push(request.url());
   });
   page.on("pageerror", (error) => pageErrors.push(String(error)));
+  page.on("websocket", (ws) => ws.on("framesent", ({ payload }) => {
+    const frame = JSON.parse(payload.toString());
+    if (frame.type === "rules.priority") peer.priorityPreferences = frame.payload;
+  }));
   page.on("websocket", (ws) => ws.on("framereceived", ({ payload }) => {
     const frame = JSON.parse(payload.toString());
     peer.messages.push(frame);
@@ -49,6 +54,9 @@ async function fillDeck(peer, text) {
 
 async function enter(context, name, list) {
   const peer = collect(await context.newPage(), name);
+  if (verifyMobileImages) {
+    await peer.page.route("**/assets/cards/index.json", (route) => route.fulfill({ status: 404 }));
+  }
   await peer.page.goto(baseURL);
   await peer.page.getByLabel("Player name").fill(name);
   await peer.page.getByRole("button", { name: "Enter club" }).click();
@@ -161,6 +169,28 @@ async function verifyTable(peer) {
   const desktop = page.viewportSize();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+  const mine = page.getByRole("button", { name: "My turn · Upkeep stop", exact: true });
+  const theirs = page.getByRole("button", { name: "Opponent's turn · Upkeep stop", exact: true });
+  assert.equal(await mine.getAttribute("aria-pressed"), "true");
+  assert.equal(await theirs.getAttribute("aria-pressed"), "true");
+  assert.equal(await page.getByRole("button", { name: "Opponent's turn · Draw stop", exact: true }).getAttribute("aria-pressed"), "false");
+  assert.ok((await mine.boundingBox()).x < (await theirs.boundingBox()).x);
+  await mine.click();
+  await until(() => peer.priorityPreferences && !peer.priorityPreferences.stops.includes("own:upkeep"), "left stop sent to Forge");
+  assert.equal(await theirs.getAttribute("aria-pressed"), "true");
+  await mine.click();
+  const hold = page.getByRole("switch", { name: "Hold priority" });
+  await hold.click();
+  await until(() => peer.priorityPreferences?.hold === true, "hold enabled for Forge");
+  await hold.click();
+  await until(() => peer.priorityPreferences?.hold === false, "hold disabled for Forge");
+  if (verifyMobileImages) {
+    const art = page.locator(".own-hand img.table-card-image").first();
+    await verifyImage(art);
+    assert.match(await art.getAttribute("src"), /^\/card-art\?/);
+    assert.equal(await art.getAttribute("loading"), "eager");
+    assert.equal(await page.locator(".opponent-hand img").count(), 0);
+  }
   await page.setViewportSize(desktop);
 }
 
@@ -448,10 +478,10 @@ try {
     assert.ok(verifiedHandAndPreview && imageRequests.length > 0);
     assert.ok(imageRequests.every((url) => {
       const image = new URL(url);
-      return image.origin === new URL(baseURL).origin &&
-        (image.pathname.startsWith("/assets/cards/") || /^\/assets\/card-back-[\w-]+\.jpg$/.test(image.pathname));
+      return image.origin === "https://cards.scryfall.io" || (image.origin === new URL(baseURL).origin &&
+        (image.pathname === "/card-art" || image.pathname.startsWith("/assets/cards/") || /^\/assets\/card-back-[\w-]+\.jpg$/.test(image.pathname)));
     }));
-    console.log(`Verified hand, preview and private search with ${imageRequests.length} same-origin image requests`);
+    console.log(`Verified hand, preview and private search with ${imageRequests.length} approved image requests`);
   }
 
   if (waiting) {
