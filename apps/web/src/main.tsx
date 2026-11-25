@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "./Board";
+import { Brand } from "./Brand";
 import { CardImage, CardImages } from "./CardImages";
 import { deckStorage, parseDeck, readDecks } from "./decks";
 import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata, type RulesCrashReport, type RulesPriority } from "./protocol";
@@ -260,7 +261,7 @@ function PlayerApp() {
   }
   return <>
     <header className="topbar">
-      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
+      <Brand />
       {session.identity && <div className="account"><span className={`connection ${session.connection}`}>{session.connection}</span>
         <span>{session.identity}</span>
         {matchSection && session.room?.allowSpectators && session.room.spectatorsSeeHands &&

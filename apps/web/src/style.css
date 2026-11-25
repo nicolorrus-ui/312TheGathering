@@ -49,7 +49,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   padding: .55rem clamp(.8rem, 3vw, 2.6rem); border-bottom: 1px solid var(--line); background: #131b17;
 }
 .brand { display: flex; align-items: center; gap: 8px; color: var(--ink); text-decoration: none; font: 1.32rem Georgia, serif; white-space: nowrap; }
-.brand > span:last-child, .brand-mark { color: var(--accent); }
+.brand img { flex: none; }
 .account, .connection { display: flex; align-items: center; gap: .65rem; }
 .connection { text-transform: capitalize; color: var(--soft); font-size: .77rem; }
 .connection::before { content: ""; height: 7px; width: 7px; border-radius: 50%; background: var(--accent); }
