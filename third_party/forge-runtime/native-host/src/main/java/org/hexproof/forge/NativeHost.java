@@ -75,7 +75,7 @@ public final class NativeHost {
                         if (session != null) throw new IllegalStateException("Game already exists");
                         var setup = JsonParser.parseString(request.get("payload").getAsString()).getAsJsonObject();
                         NativeClubDeckValidation.validate(setup.get("deckFormat").getAsString(),
-                                NativeSession.resolveDecks(setup.getAsJsonArray("players")));
+                                NativeSession.resolveDecksForValidation(setup.getAsJsonArray("players")));
                         result = "{}";
                     } else if (command.equals("startGame")) {
                         if (session != null) throw new IllegalStateException("A process hosts one game only");

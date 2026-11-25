@@ -7,5 +7,5 @@
     "file": "native-hooks.patch",
     "sha256": "bbf42b4a12f8772e4288b42b9a32ccdfd2511991e945bb2fd4904012cd7b763b"
   },
-  "diagnosticSymbolsSha256": "9c10d58d7c3fdc8ee30d64efd3915f8bbe242cd33366e5cabd22afdbe66d3a8b"
+  "diagnosticSymbolsSha256": "ca8a1fed20c9ba81c4a2c70cbdadfa9bde8a97db457d471399c74f174c836285"
 }
