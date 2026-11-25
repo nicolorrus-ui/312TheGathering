@@ -124,15 +124,15 @@ repeated-ability sources, recursive Prismite/Sol Ring refunds, completed casts,
 land-play preservation, and native priority/phase guards. A held native UI queue
 lets a second real activation change the history, or a native priority pass
 replace the input, after response preparation. The old request must preserve
-the sources and republish the correct input,
-which remains usable for subsequent undos. These are isolated constructed
-boards, and assertions inspect tap state and exact mana, not only the native
-undo return value. The opt-in Go `TestLiveForgePriorityManaUndo` uses natural
-hands and legal land drops in a synthetic deck for twenty priority tap/undo
-cycles. It preserves the same priority window, validates exact projected pool
-counts and viewer redaction, keeps a subsequent land play and its used quota,
-and completes and resolves a spell paid from floating mana. It is a bounded
-engine-boundary regression, not a completed match or native Qt interaction.
+the sources and republish the correct input. Undo remains available for newer
+reversible sources in the same priority window. A pass commits that history.
+The Exploration fixture tests two successive land undos and restoration of the
+hand, land allowance, and battlefield-entry history. These are isolated
+constructed boards with assertions on the resulting game state. The opt-in Go
+`TestLiveForgePriorityManaUndo` uses natural hands and legal land drops in a
+synthetic deck. It covers twenty priority tap/undo cycles, viewer redaction,
+undoing and replaying a land drop, undoing two later sources in reverse order,
+and resolving a spell paid from floating mana.
 
 `NativePrintingAliasRegressionTest` resolves every bundled alias and starts a
 deck containing Ancient Tomb LTC 387z alongside ordinary LTC 387 and TMP 315

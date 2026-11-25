@@ -33,16 +33,40 @@ screen name. The server-issued seat credential grants control of a seat.
 
 ## Duel controls
 
-Your hand is at the bottom. Scroll horizontally if it does not fit, and drag
-a playable card onto the battlefield. The opponent's hand area shows card
-backs based on the public count. The web client reuses the classic Magic
-back shipped with Hexproof's desktop client. The phase track on the right
-highlights the current Forge step. Priority controls sit at the bottom right.
+Your hand fans out across the bottom of the table. Scroll horizontally if it
+does not fit. To play a land or cast a spell, drag the card onto your
+battlefield and release it. Moving the card back over your hand before
+release cancels the drag. Hover over a visible card to see its larger art
+on the left. The opponent's hand shows card backs based on the public count.
+The phase track on the right highlights the current Forge step. Priority
+controls sit at the bottom right.
+The stack tray appears beside the battlefield while it contains spells or
+abilities. On narrow screens it moves between the two battlefields.
+
+**Undo land** and **Undo mana** appear in the priority controls when Forge
+can reverse the last eligible action of that kind. Undo is available with
+an empty stack during the same priority window. When several actions
+qualify, select Undo repeatedly to reverse them in order. Forge commits
+land plays that also change other game state, such as paying life
+while the land enters.
 
 Forge selection windows open in the center. Use **Minimize** to free the
 board, then **Expand** near the priority controls to return to the same
 selection. With a board-target decision minimized, you can still select a
 target on the board and confirm it at the bottom right.
+
+## Live duels
+
+Enable **Live mode** when creating a two-player duel, then share **Copy watch
+link** with viewers. The watch link or room code allows spectators to see
+both hands without a password. Players still use the regular invite and room
+password to take a seat. Viewers can hover over visible cards for a close-up.
+The spectator view shows the active phase with disabled phase stops and
+priority controls. Deck contents, private decision prompts, and sideboards
+remain private.
+
+Run `node apps/web/tests/live-interactions.mjs` against the local bundle
+to check spectator visibility, reload, and repeated Forge undo in Chromium.
 
 ## Card image packs
 
@@ -156,8 +180,9 @@ page. Configure the public hostname and certificates before giving out links.
   for both turns. Stops preserve only priority windows Forge actually offers.
   **Hold priority** pauses automatic priority passing until it is turned off.
 - Run the live test with `CLUB_TEST_LAYOUT=1 CLUB_TEST_MOBILE_IMAGES=1` to verify
-  the two stop columns and a visible card image at mobile width with the
-  imported index withheld. The test server and browser need Scryfall access.
+  the two stop columns, the stack tray, and a visible card image at mobile
+  width with the imported index withheld. The test server and browser need
+  Scryfall access.
 
 - Render Logs reports match startup as `Forge ready`. Read `worker` for
   worker acquisition, `create` for deck and game setup, `first_prompt`

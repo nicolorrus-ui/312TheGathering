@@ -50,6 +50,8 @@ export type Response = {
 export type Room = {
   tournamentId?: string;
   aiSource?: string;
+  allowSpectators?: boolean;
+  spectatorsSeeHands?: boolean;
   roomId: string; name: string; deckFormat: DeckFormat; matchMode: string; phase: string; ownDeckName?: string;
   seats: { occupied: boolean; displayName?: string; ready?: boolean; deckSelected?: boolean; deckLocked?: boolean }[];
 };
@@ -75,7 +77,7 @@ export type GameMetadata = {
   };
   log: { id: number; kind: string; text: string }[];
 };
-export type Welcome = { resumeToken: string; resumed?: boolean; roomId?: string; seat?: number; forgeRulesAvailable: boolean };
+export type Welcome = { resumeToken: string; resumed?: boolean; roomId?: string; role?: string; seat?: number; forgeRulesAvailable: boolean };
 export type Envelope = { type: string; id?: string; payload: unknown };
 export type RulesCrashReport = {
   schemaVersion: number; reportId: string; revision: number; occurredAt: string; collectionState: string;

@@ -20,6 +20,7 @@ import forge.util.FSerializableFunction;
 import forge.util.Localizer;
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import static org.hexproof.forge.NativeSession.*;
 
@@ -35,7 +36,7 @@ final class NativeGuiGame implements InvocationHandler {
     private CardView messageCard;
     private Input messageInput;
     private boolean okEnabled, cancelEnabled, scheduled;
-    private volatile boolean priorityManaUndoPending;
+    private volatile boolean priorityUndoPending;
     private record CardSelectionBounds(Set<Integer> ids, int min, int max) { }
     private volatile CardSelectionBounds cardSelectionBounds;
     private InputChooseStartingHand startingHandInput;
@@ -166,7 +167,7 @@ final class NativeGuiGame implements InvocationHandler {
     }
     private void renderInput() {
         Input current = human.getInputProxy().getInput();
-        if (priorityManaUndoPending) return;
+        if (priorityUndoPending) return;
         if (current == null || current instanceof InputLockUI || session.game.isGameOver()) return;
         if (current instanceof InputSyncronizedBase waiting && !waiting.isAwaitingInput()) return;
         if (current instanceof InputPayMana paying && paying.isPaymentActionPending()) return;
@@ -253,11 +254,11 @@ final class NativeGuiGame implements InvocationHandler {
                 options.add(action);
                 actions.put(actionId, () -> select(c));
             }
-            Map<String, SpellAbility> undoAbilities = new LinkedHashMap<>();
+            Map<String, BooleanSupplier> undoChecks = new LinkedHashMap<>();
             if (paying)
-                addUndoManaActions((InputPayMana) current, options, actions, undoAbilities);
+                addUndoManaActions((InputPayMana) current, options, actions, undoChecks);
             else
-                addPriorityUndoManaAction((InputPassPriority) current, options, actions, undoAbilities);
+                addPriorityUndoActions((InputPassPriority) current, options, actions, undoChecks);
             if (paying) {
                 InputPayMana payment = (InputPayMana) current;
                 String paymentId = paymentIdentity(payment);
@@ -282,18 +283,16 @@ final class NativeGuiGame implements InvocationHandler {
                 }
             }
             input.add("actions", options);
-            if (!paying) input.addProperty("autoPassEligible", NativePriority.autoPassEligible(owner(), priorityAbilities));
+            if (!paying) input.addProperty("autoPassEligible", undoChecks.isEmpty() && NativePriority.autoPassEligible(owner(), priorityAbilities));
             prepare = raw -> {
                 String type = text(raw, "type", "");
                 if (type.equals("act")) {
                     String actionId = text(raw, "actionId", "");
                     Runnable action = actions.get(actionId);
                     if (action == null) throw new IllegalArgumentException("Action unavailable");
-                    if (undoAbilities.containsKey(actionId) && (paying
-                            ? !((InputPayMana) current).canUndoManaAbility(undoAbilities.get(actionId))
-                            : human.getInputProxy().getInput() != current
-                                || !NativePriorityManaUndo.canUndo(owner(), undoAbilities.get(actionId))))
-                        throw new IllegalArgumentException("Mana source is no longer retractable");
+                    BooleanSupplier undoCheck = undoChecks.get(actionId);
+                    if (undoCheck != null && (human.getInputProxy().getInput() != current || !undoCheck.getAsBoolean()))
+                        throw new IllegalArgumentException("Action is no longer retractable");
                     return action;
                 }
                 if (paying && type.equals("cancel") && cancelEnabled) return () -> button(false);
@@ -400,39 +399,55 @@ final class NativeGuiGame implements InvocationHandler {
         return "";
     }
 
-    private void addPriorityUndoManaAction(InputPassPriority priority, JsonArray options,
-            Map<String, Runnable> actions, Map<String, SpellAbility> undoAbilities) {
+    private void addPriorityUndoActions(InputPassPriority priority, JsonArray options,
+            Map<String, Runnable> actions, Map<String, BooleanSupplier> undoChecks) {
         Player player = owner();
-        SpellAbility source = NativePriorityManaUndo.source(player);
-        if (source == null || !mayExpose(source.getHostCard())) return;
-        String actionId = "undo:" + source.getHostCard().getId();
-        JsonObject action = object("id", actionId);
-        action.addProperty("type", "undoMana");
-        action.addProperty("cardId", cardId(source.getHostCard()));
-        action.addProperty("label", "Undo mana");
-        options.add(action);
-        undoAbilities.put(actionId, source);
-        actions.put(actionId, () -> {
-            priorityManaUndoPending = true;
-            session.game.getAction().invoke(() -> {
-                try {
-                    if (human.getInputProxy().getInput() == priority && priority.isAwaitingInput()
-                            && NativePriorityManaUndo.canUndo(player, source))
-                        session.game.getStack().undo();
-                } finally {
-                    priorityManaUndoPending = false;
-                    // Refresh the actual current input if priority changed while
-                    // the response was queued; never turn undo into pass/end turn.
-                    Input current = human.getInputProxy().getInput();
-                    if (current == priority && priority.isAwaitingInput()) priority.showMessageInitial();
-                    else scheduleInput();
-                }
-            });
+        SpellAbility mana = NativePriorityManaUndo.source(player);
+        if (mana != null && mayExpose(mana.getHostCard())) {
+            String id = "undo:" + mana.getHostCard().getId();
+            options.add(undoAction(id, "undoMana", mana.getHostCard(), "Undo mana"));
+            BooleanSupplier valid = () -> NativePriorityManaUndo.canUndo(player, mana);
+            undoChecks.put(id, valid);
+            actions.put(id, () -> runPriorityUndo(priority, valid, () -> session.game.getStack().undo()));
+        }
+        if (human instanceof NativeDecisionController controller) {
+            NativeLandUndo.Entry land = controller.landUndo.source();
+            if (land != null && mayExpose(land.card())) {
+                String id = "undo:land:" + land.card().getId();
+                options.add(undoAction(id, "undoLand", land.card(), "Undo land"));
+                BooleanSupplier valid = () -> controller.landUndo.source() == land;
+                undoChecks.put(id, valid);
+                actions.put(id, () -> runPriorityUndo(priority, valid, () -> controller.landUndo.undo(land)));
+            }
+        }
+    }
+
+    private JsonObject undoAction(String id, String type, Card card, String label) {
+        JsonObject action = object("id", id);
+        action.addProperty("type", type);
+        action.addProperty("cardId", cardId(card));
+        action.addProperty("label", label);
+        return action;
+    }
+
+    private void runPriorityUndo(InputPassPriority priority, BooleanSupplier valid, Runnable undo) {
+        priorityUndoPending = true;
+        session.game.getAction().invoke(() -> {
+            try {
+                if (human.getInputProxy().getInput() == priority && priority.isAwaitingInput() && valid.getAsBoolean())
+                    undo.run();
+            } finally {
+                priorityUndoPending = false;
+                // Refresh the current input if priority changed while queued.
+                Input current = human.getInputProxy().getInput();
+                if (current == priority && priority.isAwaitingInput()) priority.showMessageInitial();
+                else scheduleInput();
+            }
         });
     }
 
     private void addUndoManaActions(InputPayMana payment, JsonArray options,
-            Map<String, Runnable> actions, Map<String, SpellAbility> undoAbilities) {
+            Map<String, Runnable> actions, Map<String, BooleanSupplier> undoChecks) {
         MagicStack stack = session.game.getStack();
         if (!stack.canUndo(owner()))
             return;
@@ -447,13 +462,9 @@ final class NativeGuiGame implements InvocationHandler {
             if (undoable == null)
                 continue;
             String actionId = "undo:" + card.getId();
-            JsonObject action = object("id", actionId);
-            action.addProperty("type", "undoMana");
-            action.addProperty("cardId", cardId(card));
-            action.addProperty("label", "Undo mana");
-            options.add(action);
+            options.add(undoAction(actionId, "undoMana", card, "Undo mana"));
             SpellAbility source = undoable;
-            undoAbilities.put(actionId, source);
+            undoChecks.put(actionId, () -> payment.canUndoManaAbility(source));
             actions.put(actionId, () -> {
                 if (!payment.undoManaAbility(source))
                     payment.showMessage();

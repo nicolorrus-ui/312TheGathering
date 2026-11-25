@@ -8,6 +8,7 @@ import { deckStorage, parseDeck, readDecks } from "./decks";
 import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata, type RulesCrashReport, type RulesPriority } from "./protocol";
 import { useSession } from "./session";
 import { Tournaments } from "./Tournaments";
+import { Watch } from "./Watch";
 import "./style.css";
 
 type Session = ReturnType<typeof useSession>;
@@ -84,17 +85,20 @@ function Lobby({ session }: { session: Session }) {
   const [roomId, setRoomId] = useState(() => new URLSearchParams(location.search).get("room") ?? "");
   const [matchMode, setMatchMode] = useState("bo1");
   const [practice, setPractice] = useState(false);
+  const [live, setLive] = useState(false);
   const [deckFormat, setDeckFormat] = useState<DeckFormat>("modern");
   const blocked = session.connection !== "online" || !session.welcome?.forgeRulesAvailable;
+  const broadcast = !practice && live;
   return <section className="panel">
     <div className="tabs"><button type="button" aria-pressed={tab === "create"} onClick={() => { setTab("create"); setPassword(""); }}>Create room</button>
-      <button type="button" aria-pressed={tab === "join"} onClick={() => { setTab("join"); setPassword(""); }}>Join room</button></div>
+      <button type="button" aria-pressed={tab === "join"} onClick={() => { setTab("join"); setPassword(""); }}>Join room</button>
+      <a className="watch-link" href="?watch">Watch live</a></div>
     {session.connection === "online" && !session.welcome?.forgeRulesAvailable && <p role="alert">Forge is unavailable.</p>}
     <form onSubmit={(event) => {
       event.preventDefault();
       if (tab === "join") session.send("room.join", { roomId, password, asSpectator: false });
       else session.send("room.create", { name, password: practice ? "" : password, deckFormat, matchMode: practice ? "bo1" : matchMode, practice, format: "modern", rulesMode: "forge",
-        maxSeats: 2, allowSpectators: false, spectatorsSeeHands: false, cardLoadMode: "background" });
+        maxSeats: 2, allowSpectators: broadcast, spectatorsSeeHands: broadcast, cardLoadMode: "background" });
     }}>
       {tab === "create" ? <>
         <label>Room name<input required maxLength={128} value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -108,9 +112,29 @@ function Lobby({ session }: { session: Session }) {
       </> : <label>Room code<input required minLength={6} maxLength={6} value={roomId} onChange={(event) => setRoomId(event.target.value.toUpperCase())} /></label>}
       {(tab === "join" || !practice) && <label>Room password<input required type="password" maxLength={72} value={password} autoComplete="off"
         onChange={(event) => setPassword(event.target.value)} /></label>}
-      <button className="primary" type="submit" disabled={blocked}>{tab === "create" ? (practice ? "Create practice room" : "Create private duel") : "Join private duel"}</button>
+      {tab === "create" && !practice && <div>
+        <label className="checkbox"><input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)}
+          aria-describedby="live-mode-details" /> Live mode</label>
+        <small id="live-mode-details">Anyone with the room code can watch and see both hands.</small>
+      </div>}
+      <button className="primary" type="submit" disabled={blocked}>{tab === "create" ? (practice ? "Create practice room" :
+        broadcast ? "Create live duel" : "Create private duel") : "Join duel"}</button>
     </form>
   </section>;
+}
+
+function WatchInvite({ roomId }: { roomId: string }) {
+  const [copied, setCopied] = useState(false);
+  const url = new URL(location.pathname, location.origin);
+  url.searchParams.set("watch", roomId);
+  return <button type="button" className="quiet" onClick={async () => {
+    try {
+      await navigator.clipboard.writeText(url.href);
+      setCopied(true);
+    } catch {
+      window.prompt("Copy this watch link", url.href);
+    }
+  }}>{copied ? "Watch link copied" : "Copy watch link"}</button>;
 }
 
 type ForgeAvailability = "warming" | "busy" | "ready";
@@ -161,6 +185,10 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
         try { await navigator.clipboard.writeText(invite.href); setCopied(true); }
         catch { setCopied(false); }
       }}>{copied ? "Copied" : "Copy invite"}</button></div>}
+    {room.allowSpectators && room.spectatorsSeeHands && <div className="notice">
+      <span><strong>Live duel.</strong> Viewers with the room code can see both hands.</span>
+      <WatchInvite roomId={room.roomId} />
+    </div>}
     <ul className="seats">{room.seats.map((seat, index) => <li key={index}>
       <strong>{seat.displayName || "Open seat"}{index === session.seat ? " (you)" : ""}</strong>
       <small>{seat.ready ? "Ready" : seat.deckSelected ? "Deck selected" : seat.occupied ? "Choosing a deck" : "Awaiting player"}</small>
@@ -214,7 +242,7 @@ function Sideboard({ metadata, session }: { metadata: GameMetadata; session: Ses
   </section>;
 }
 
-function App() {
+function PlayerApp() {
   const session = useSession();
   const send = session.send;
   const sendPriority = useCallback((preference: RulesPriority) => { send("rules.priority", preference); }, [send]);
@@ -235,6 +263,8 @@ function App() {
       <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
       {session.identity && <div className="account"><span className={`connection ${session.connection}`}>{session.connection}</span>
         <span>{session.identity}</span>
+        {matchSection && session.room?.allowSpectators && session.room.spectatorsSeeHands &&
+          <WatchInvite key={session.room.roomId} roomId={session.room.roomId} />}
         {matchSection && <button type="button" className="quiet" disabled={!online} onClick={() => {
           if (session.metadata?.result?.matchFinished || window.confirm("Leave the room and end this match?")) session.send("room.leave");
         }}>Leave room</button>}
@@ -249,7 +279,8 @@ function App() {
         event.preventDefault();
         if (name.trim()) session.enter(name);
       }}><label>Player name<input required autoFocus maxLength={64} value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <button className="primary" type="submit">Enter club</button></form></section>
+        <button className="primary" type="submit">Enter club</button>
+        <a className="watch-link" href="?watch">Watch live</a></form></section>
     </main> : session.resuming && !session.room ? <main className="shell"><p role="status">Reconnecting to your duel…</p></main>
       : sideboard && session.metadata ? <main className="shell"><Sideboard metadata={session.metadata} session={session} /></main>
       : matchSection && session.game && session.seat !== undefined ? <Board key={session.game.gameId} game={session.game}
@@ -270,4 +301,7 @@ function App() {
   </>;
 }
 
-createRoot(document.getElementById("root")!).render(<CardImages><App /></CardImages>);
+const watch = new URLSearchParams(location.search).get("watch");
+createRoot(document.getElementById("root")!).render(<CardImages>
+  {watch === null ? <PlayerApp /> : <Watch roomId={watch.trim().toUpperCase()} />}
+</CardImages>);

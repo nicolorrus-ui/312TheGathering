@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useId, useState, type ReactNode } from "react";
-import { CardImage } from "./CardImages";
+import { CardImage, type CardHover } from "./CardImages";
 import type { Option, Prompt, Response } from "./protocol";
 
 export function DecisionPanel({ title, children, compactActions }: {
@@ -25,9 +25,9 @@ export function Options({ options, submit }: { options: Option[]; submit: (respo
 const within = (value: number, min: number, max: number) => value >= min && value <= max;
 
 type Props = { prompt: Prompt; targetIds: string[]; toggleTarget: (id: string) => void;
-  submit: (response: Response) => void; disabled: boolean };
+  submit: (response: Response) => void; disabled: boolean; hoverCard: CardHover };
 
-export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: Props) {
+export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, hoverCard }: Props) {
   const [cards, setCards] = useState<string[]>([]);
   const [choices, setChoices] = useState<string[]>([]);
   const [order, setOrder] = useState(() => (prompt.kind === "chooseDamageAssignmentOrder"
@@ -76,6 +76,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
           value={filter} onChange={(event) => setFilter(event.target.value)} />}{!reveal && <span>{cards.length} selected</span>}</div>
         <div className="choice-grid">{prompt.cards.filter((card) => card.name.toLowerCase().includes(filter.toLowerCase())).map((card) =>
           <button className="choice-card" type="button" key={card.id} disabled={reveal || card.readOnly}
+            onMouseEnter={(event) => hoverCard(card, event.currentTarget)} onMouseLeave={() => hoverCard()}
             aria-pressed={card.selected || cards.includes(card.id)} onClick={() => toggleCard(card.id)}>
             <CardImage identity={card} className="choice-card-image" decorative />
             <strong>{card.name}</strong><small>{card.setCode} {card.collectorNumber}</small>
@@ -119,7 +120,8 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
           <h3>{zone}</h3><ol className="order-list">{scry[zone].map((id) => {
             const card = prompt.cards.find((entry) => entry.id === id);
             const label = card?.name ?? id;
-            return <li key={id}><div><CardImage identity={card} className="choice-card-image" decorative />{label}<select aria-label={`Destination for ${label}`} value={zone} onChange={(event) => {
+          return <li key={id}><div onMouseEnter={(event) => hoverCard(card, event.currentTarget)} onMouseLeave={() => hoverCard()}>
+            <CardImage identity={card} className="choice-card-image" decorative />{label}<select aria-label={`Destination for ${label}`} value={zone} onChange={(event) => {
               const destination = event.target.value;
               setScry({ ...scry, [zone]: scry[zone].filter((cardId) => cardId !== id), [destination]: [...scry[destination], id] });
             }}>{prompt.scryDestinations.map((destination) => <option key={destination}>{destination}</option>)}</select></div>
@@ -175,7 +177,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
         {content}
       </div>
       {prompt.supported && <footer>
-        <Options options={prompt.options.filter((option) => !option.cardId)} submit={submit} />
+        <Options options={prompt.options.filter((option) => !option.cardId || option.kind === "undoMana")} submit={submit} />
         {confirmButton}
         {prompt.cancellable && !prompt.options.some((option) => option.responseId === "$cancel") &&
           <button className="quiet" type="button" onClick={() => submit({ responseId: "$cancel" })}>Cancel action</button>}

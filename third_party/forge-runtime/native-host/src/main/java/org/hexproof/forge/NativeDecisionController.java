@@ -20,11 +20,13 @@ import java.util.function.Supplier;
 final class NativeDecisionController extends PlayerControllerHuman {
     private final NativeSession session;
     private final Integer starts;
+    final NativeLandUndo landUndo;
 
     NativeDecisionController(NativeSession session, Game game, Player player, LobbyPlayer lobby, Integer starts) {
         super(game, player, lobby);
         this.session = session;
         this.starts = starts;
+        this.landUndo = new NativeLandUndo(game, player);
     }
 
     private <T> T deciding(SpellAbility ability, Supplier<T> action) {
@@ -108,12 +110,24 @@ final class NativeDecisionController extends PlayerControllerHuman {
             return org.apache.commons.lang3.tuple.ImmutablePair.of(result.get(0), result.get(1));
         });
     }
+    @Override public List<SpellAbility> chooseSpellAbilityToPlay() {
+        landUndo.finishLand();
+        List<SpellAbility> choices = super.chooseSpellAbilityToPlay();
+        if (choices == null || choices.isEmpty()) {
+            landUndo.clear();
+            if (getGame().getStack().canUndo(getPlayer())) getGame().getStack().clearUndoStack();
+        }
+        return choices;
+    }
     @Override public boolean playChosenSpellAbility(SpellAbility ability) {
         // Affordability previews can leave a planned color on the reusable ability.
         // Manual activation of an irreversible source must ask the player again.
         if (ability.isManaAbility() && !ability.isUndoable())
             ability.setManaExpressChoice(ColorSet.fromMask(0));
-        return deciding(ability, () -> super.playChosenSpellAbility(ability));
+        landUndo.begin(ability);
+        boolean played = deciding(ability, () -> super.playChosenSpellAbility(ability));
+        landUndo.finishMana(ability, played);
+        return played;
     }
     @Override public void playSpellAbilityNoStack(SpellAbility ability, boolean canSetupTargets) {
         deciding(ability, () -> { super.playSpellAbilityNoStack(ability, canSetupTargets); return null; });

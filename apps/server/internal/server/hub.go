@@ -361,7 +361,7 @@ func (h *Hub) ResumeRoom(oldConnID string, sess *Session,
 		}
 		return room.ReconnectInfo{}, nil, mapRoomError(err)
 	}
-	if entry.tournamentID != "" && info.Role == protocol.RoleSpectator {
+	if (r.ClubDuel || entry.tournamentID != "") && info.Role == protocol.RoleSpectator {
 		publicEnvelopes := make([]protocol.Envelope, 0, len(envelopes))
 		for _, envelope := range envelopes {
 			if envelope.Type != protocol.TypeMatchLoadRequired {

@@ -760,6 +760,8 @@ func normalizeActions(actions []promptAction) ([]PromptOption, error) {
 				label = "Activate ability"
 			case "undoMana":
 				label = "Undo mana payment"
+			case "undoLand":
+				label = "Undo land"
 			default:
 				label = "Choose action"
 			}

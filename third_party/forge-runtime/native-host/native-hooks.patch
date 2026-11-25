@@ -763,6 +763,18 @@ diff --git a/forge-game/src/main/java/forge/game/player/Player.java b/forge-game
 index 9ea2491a2af69543d58763847aa4fb2977792b60..c3fe3bc6f8749838152c7958f99fd4b3e79ddc71 100644
 --- a/forge-game/src/main/java/forge/game/player/Player.java
 +++ b/forge-game/src/main/java/forge/game/player/Player.java
+@@ -2238,6 +2238,11 @@
+         achievementTracker.landsPlayed++;
+         view.updateNumLandThisTurn(this);
+     }
++    public final void undoLandPlayedThisTurn() {
++        landsPlayedThisTurn--;
++        achievementTracker.landsPlayed--;
++        view.updateNumLandThisTurn(this);
++    }
+     public final void resetLandsPlayedThisTurn() {
+         landsPlayedThisTurn = 0;
+         view.updateNumLandThisTurn(this);
 @@ -3176,6 +3176,11 @@ public class Player extends GameEntity implements Comparable<Player> {
  
          SpellAbility fakeSa = new SpellAbility.EmptySa(ApiType.CompanionChoose, legalCompanions.get(0), this);
@@ -1047,6 +1059,38 @@ index 35ea040cc89fd8105635f3426031a44bfaa117c5..ef68d3bb09c7b836f526d165a77c1f5d
              final Map<AbilityKey, Object> runParams = AbilityKey.mapFromCard(source);
              runParams.put(AbilityKey.SpellAbility, sa);
              game.getTriggerHandler().runTrigger(TriggerType.AbilityResolves, runParams, false);
+diff --git a/forge-game/src/main/java/forge/game/zone/Zone.java b/forge-game/src/main/java/forge/game/zone/Zone.java
+--- a/forge-game/src/main/java/forge/game/zone/Zone.java
++++ b/forge-game/src/main/java/forge/game/zone/Zone.java
+@@ -246,6 +246,28 @@
+         return Lists.newArrayList(cardsAdded.values());
+     }
+ 
++    /** Erase the exact entry of a reverted zone change without creating a new one. */
++    public final void removeRollbackEntry(Card card, ZoneType origin) {
++        if (!cardsAddedThisTurn.get(origin).removeIf(added -> added.equalsWithGameTimestamp(card))) {
++            return;
++        }
++        // The live card ID can have an earlier entry in this zone this turn.
++        // Restore its origin using the latest remaining zone-change timestamp.
++        enteredFromThisTurn.keySet().removeIf(added -> added.equals(card));
++        Card previous = null;
++        ZoneType previousOrigin = null;
++        for (var entry : cardsAddedThisTurn.entries()) {
++            Card added = entry.getValue();
++            if (added.equals(card) && (previous == null || added.getGameTimestamp() > previous.getGameTimestamp())) {
++                previous = added;
++                previousOrigin = entry.getKey();
++            }
++        }
++        if (previous != null) {
++            enteredFromThisTurn.put(previous, previousOrigin);
++        }
++    }
++
+     public final void resetCardsAddedThisTurn() {
+         cardsAddedLastTurn.clear();
+         cardsAddedLastTurn.putAll(cardsAddedThisTurn);
 diff --git a/forge-game/src/main/java/forge/trackable/TrackableTypes.java b/forge-game/src/main/java/forge/trackable/TrackableTypes.java
 index a6cf5f1521e668b160713ead14aa16096aaa8c3c..9d05fe8a973eb0f15a490f3a26f00fac2ca9d1b5 100644
 --- a/forge-game/src/main/java/forge/trackable/TrackableTypes.java
