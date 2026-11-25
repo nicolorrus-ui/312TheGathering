@@ -163,7 +163,7 @@ final class NativeSnapshot {
             if (zone == ZoneType.Command && card.isImmutable()) continue;
             int position = count++;
             // Bulk library order and hidden card IDs never cross the boundary.
-            if (zone == ZoneType.Library && position != 0) continue;
+            if (zone == ZoneType.Library && (position != 0 || NativeDecisionController.hidesSearchTop(card, viewer))) continue;
             if (zone.isHidden() && !canSee(card, viewer)) continue;
             cards.add(card(game, card, viewer, zone == ZoneType.Battlefield));
         }

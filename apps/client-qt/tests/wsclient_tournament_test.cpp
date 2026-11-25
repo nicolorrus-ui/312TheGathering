@@ -822,7 +822,9 @@ void TestWsClient::startRetryRecoveryNeedsConfirmedReadinessChange() const
     client.tournamentSession()->applySnapshot(snapshot);
     const auto initial = start();
     QVERIFY(!operation(initial).isEmpty());
-    reject(Envelope{.id = u"unrelated"_s}, kErrTournamentNotReady);
+    Envelope unrelated;
+    unrelated.id = u"unrelated"_s;
+    reject(unrelated, kErrTournamentNotReady);
     QTRY_VERIFY(!client.lastError().isEmpty());
     seats.append(QJsonObject{{u"participantId"_s, u"b"_s}, {u"checkedIn"_s, true}});
     snapshot.insert(u"participants"_s, seats);

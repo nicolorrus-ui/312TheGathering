@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CardImage } from "./CardImages";
+import { CardImage, cardArtURL } from "./CardImages";
 import "./deck-builder.css";
 import { changeCopies, formatDeckList, parseDeck, parseDeckList, printingKey, type DeckList, type DeckZone } from "./decks";
 import type { Deck, DeckCard, Identity } from "./protocol";
@@ -124,12 +124,63 @@ function CardEditor({ card, zone, close, change }: {
   </dialog>;
 }
 
+function DeckArtDownload({ list, refresh }: { list: DeckList; refresh: () => void }) {
+  const active = useRef<AbortController | null>(null);
+  const [running, setRunning] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => () => { active.current?.abort(); active.current = null; }, []);
+
+  async function download() {
+    if (active.current) {
+      active.current.abort();
+      return;
+    }
+    const controller = new AbortController();
+    active.current = controller;
+    setRunning(true);
+    const printings = new Map([...list.mainboard, ...list.sideboard].map((card) => [printingKey(card), card]));
+    let available = 0;
+    let checked = 0;
+    const summary = () => `${available} of ${printings.size} printings available offline.`;
+    try {
+      for (const card of printings.values()) {
+        setMessage(`Getting artwork · ${checked} / ${printings.size}`);
+        let complete = true;
+        for (const name of card.name.split(" // ")) {
+          try {
+            const response = await fetch(cardArtURL({ ...card, name }), { signal: controller.signal, cache: "no-store" });
+            if (!response.ok || !response.headers.get("Content-Type")?.startsWith("image/jpeg")) complete = false;
+            await response.arrayBuffer();
+          } catch {
+            complete = false;
+          }
+          if (controller.signal.aborted) return;
+        }
+        if (complete) available++;
+        checked++;
+      }
+    } finally {
+      if (active.current === controller) {
+        active.current = null;
+        setRunning(false);
+        setMessage(controller.signal.aborted ? `Download stopped. ${summary()}` : summary());
+        if (available) refresh();
+      }
+    }
+  }
+  return <div className="deck-art-download">
+    <button type="button" className="quiet" onClick={download}>{running ? "Cancel download" : "Download deck art"}</button>
+    {message && <small role="status">{message}</small>}
+  </div>;
+}
+
 export function DeckBuilder({ decks, save }: { decks: Deck[]; save: (next: Deck[]) => void }) {
   const [draft, setDraft] = useState<Draft>(blank);
   const [inputMode, setInputMode] = useState<"search" | "import">("search");
   const [selection, setSelection] = useState<{ zone: DeckZone; card: DeckCard }>();
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [artRevision, setArtRevision] = useState(0);
   const current = decks.find((deck) => deck.id === draft.id);
   const dirty = draft.name !== (current?.name ?? "") || draft.text !== (current?.text ?? "");
   const parsed = useMemo(() => {
@@ -180,11 +231,13 @@ export function DeckBuilder({ decks, save }: { decks: Deck[]; save: (next: Deck[
       </div>
       {(parsed.error || error) && <p className="notice" role="alert">{parsed.error || error}</p>}
       {status && <small className="builder-status" role="status">{status}</small>}
+      {import.meta.env.MODE === "club-debug" && list && Boolean(list.mainboard.length || list.sideboard.length) &&
+        <DeckArtDownload key={draft.id + "\n" + draft.text} list={list} refresh={() => setArtRevision((value) => value + 1)} />}
       {list && zones.map((zone) => <section key={zone} className="deck-gallery" aria-label={zoneNames[zone]}>
         <h3>{zoneNames[zone]} <small>{total(list[zone])}</small></h3>
         {list[zone].length ? <ul>{list[zone].map((card) => <li key={printingKey(card)}><button type="button"
           aria-label={`${card.count} × ${card.name}, ${edition(card)}`} onClick={() => setSelection({ zone, card })}>
-          <span className="deck-art-frame"><CardImage className="deck-card-art" identity={card} decorative compact />
+          <span className="deck-art-frame"><CardImage className="deck-card-art" identity={card} revision={artRevision} decorative compact />
             <b className="deck-quantity">×{card.count}</b></span>
           <strong>{card.name}</strong><small>{edition(card)}</small>
         </button></li>)}</ul> : <p>No cards.</p>}

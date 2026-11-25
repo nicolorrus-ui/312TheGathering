@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2026 Hexproof contributors
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -29,7 +30,7 @@ trap 'rm -rf -- "$stage"' EXIT
 cd "$root"
 npm --prefix apps/web ci --no-audit --no-fund
 if [[ -n "$offline" ]]; then
-  npm --prefix apps/web run build -- --sourcemap
+  npm --prefix apps/web run build -- --mode club-debug --sourcemap
 else
   npm --prefix apps/web run build
 fi

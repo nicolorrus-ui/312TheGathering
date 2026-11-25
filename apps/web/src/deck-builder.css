@@ -44,3 +44,4 @@
   .deck-card-tools { grid-template-columns: minmax(0, 1fr); }
   .deck-card-preview { width: min(48%, 8rem); margin-inline: auto; }
 }
+.deck-art-download { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }

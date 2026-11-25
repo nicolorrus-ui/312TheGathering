@@ -12,28 +12,29 @@ import (
 )
 
 func TestShouldDelegatePriorityPass(t *testing.T) {
+	h := &Handler{}
 	pass := forge.PromptView{Kind: "chooseAction", Supported: true, AutoPassEligible: true,
 		Options: []forge.PromptOption{{ResponseID: "$pass"}}}
 	prefs := priorityPreference{}
-	if !shouldDelegatePriorityPass(prefs, true, pass, "main1", true) {
+	if !h.shouldDelegatePriorityPass(prefs, true, pass, "main1", true) {
 		t.Fatal("smart priority did not pass an eligible prompt")
 	}
 	prefs.fullControl = true
-	if shouldDelegatePriorityPass(prefs, true, pass, "main1", true) {
+	if h.shouldDelegatePriorityPass(prefs, true, pass, "main1", true) {
 		t.Fatal("full control was passed by the hub")
 	}
 	prefs = priorityPreference{stops: map[string]bool{"own:main1": true}}
-	if shouldDelegatePriorityPass(prefs, true, pass, "main1", true) {
+	if h.shouldDelegatePriorityPass(prefs, true, pass, "main1", true) {
 		t.Fatal("an owned phase stop was passed")
 	}
-	if !shouldDelegatePriorityPass(prefs, true, pass, "main1", false) {
+	if !h.shouldDelegatePriorityPass(prefs, true, pass, "main1", false) {
 		t.Fatal("another player's main phase was held by an owned stop")
 	}
 	prefs.hold = true
-	if shouldDelegatePriorityPass(prefs, true, pass, "draw", false) {
+	if h.shouldDelegatePriorityPass(prefs, true, pass, "draw", false) {
 		t.Fatal("a held prompt was passed")
 	}
-	if shouldDelegatePriorityPass(priorityPreference{}, false, pass, "draw", false) {
+	if h.shouldDelegatePriorityPass(priorityPreference{}, false, pass, "draw", false) {
 		t.Fatal("a seat without published preferences was passed")
 	}
 }
@@ -50,6 +51,35 @@ func TestAdvanceRulesPrioritySkipsEngineWithoutDelegatedSeats(t *testing.T) {
 	h.setPriorityPreference(r.ID, 1, priorityPreference{})
 	if !h.hasDelegatedPriority(r.ID) {
 		t.Fatal("a seat that enables smart passing must still be delegated")
+	}
+}
+
+func TestClubPassesPriorityAfterOwnStackAction(t *testing.T) {
+	h := &Handler{config: Config{ClubMode: true}}
+	view := forge.PromptView{Kind: "chooseAction", Supported: true, AfterOwnStackAction: true,
+		Options: []forge.PromptOption{{ResponseID: "$pass"}}}
+	prefs := priorityPreference{stops: map[string]bool{"own:main1": true, "other:combatDamage": true}}
+	if !h.shouldDelegatePriorityPass(prefs, true, view, "main1", true) ||
+		!h.shouldDelegatePriorityPass(prefs, true, view, "combatDamage", false) {
+		t.Fatal("post-action priority must pass once, including in a stopped step and on the opponent's turn")
+	}
+	prefs.hold = true
+	if h.shouldDelegatePriorityPass(prefs, true, view, "main1", true) {
+		t.Fatal("Hold priority must allow a response to the player's own action")
+	}
+	prefs.hold, prefs.fullControl = false, true
+	if h.shouldDelegatePriorityPass(prefs, true, view, "main1", true) {
+		t.Fatal("full control must preserve the post-action window")
+	}
+	prefs.fullControl = false
+	view.AfterOwnStackAction = false
+	if h.shouldDelegatePriorityPass(prefs, true, view, "main1", true) {
+		t.Fatal("the next regular priority window must be preserved")
+	}
+	view.AfterOwnStackAction = true
+	h.config.ClubMode = false
+	if h.shouldDelegatePriorityPass(prefs, true, view, "main1", true) {
+		t.Fatal("Club priority preferences must be scoped to Club")
 	}
 }
 

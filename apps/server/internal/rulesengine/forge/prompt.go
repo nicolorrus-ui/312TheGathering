@@ -145,6 +145,7 @@ type PromptView struct {
 	Kind                 string
 	Supported            bool
 	AutoPassEligible     bool
+	AfterOwnStackAction  bool
 	PaymentID            string
 	Title                string
 	Detail               string
@@ -203,6 +204,7 @@ type promptInput struct {
 	Type                    string                         `json:"type"`
 	Actions                 []promptAction                 `json:"actions"`
 	AutoPassEligible        *bool                          `json:"autoPassEligible"`
+	AfterOwnStackAction     bool                           `json:"afterOwnStackAction"`
 	Presentation            promptPresentation             `json:"presentation"`
 	CardName                string                         `json:"cardName"`
 	ManaCost                string                         `json:"manaCost"`
@@ -369,6 +371,7 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 	case "chooseAction":
 		view.Supported = true
 		view.AutoPassEligible = input.AutoPassEligible != nil && *input.AutoPassEligible
+		view.AfterOwnStackAction = input.AfterOwnStackAction
 		if view.Title == "" {
 			view.Title = "Choose an action"
 		}

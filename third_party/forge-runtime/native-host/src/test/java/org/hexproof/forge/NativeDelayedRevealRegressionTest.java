@@ -30,7 +30,7 @@ public final class NativeDelayedRevealRegressionTest {
                 prefs.setPref(FPref.UI_SELECT_FROM_CARD_DISPLAYS, false);
                 return null;
             });
-            for (String scenario : List.of("company", "single", "fetch", "discard", "no-discard", "no-choice")) {
+            for (String scenario : List.of("company", "single", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice")) {
                 JsonObject config = JsonParser.parseString("{\"gameId\":\"delayed-reveal-test\",\"seed\":42,\"variant\":\"constructed\",\"startingLife\":20,\"players\":[{\"name\":\"Reveal A\",\"deck\":[{\"name\":\"Forest\"}]},{\"name\":\"Reveal B\",\"deck\":[{\"name\":\"Forest\"}]}]}").getAsJsonObject();
                 try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
                     base.setTestSession(session);
@@ -40,7 +40,7 @@ public final class NativeDelayedRevealRegressionTest {
                     session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, owner, false, 1);
                     switch (scenario) {
                         case "company", "single" -> run(session, owner, scenario.equals("single"));
-                        case "fetch" -> fetch(session, owner);
+                        case "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search" -> fetch(session, owner, scenario);
                         case "discard", "no-discard" -> discard(session, owner, scenario.equals("no-discard"));
                         case "no-choice" -> noChoice(session, owner);
                         default -> throw new AssertionError(scenario);
@@ -62,7 +62,10 @@ public final class NativeDelayedRevealRegressionTest {
         Card privateHand = card(session.game, owner, "Solitude", ZoneType.Hand);
         Card opposingHand = card(session.game, session.game.getPlayers().get(1), "Thoughtseize", ZoneType.Hand);
         Card company = card(session.game, owner, "Collected Company", ZoneType.Hand);
-        List<Card> topSix = List.of(bears, elves, bolt, forest, dreadmaw, mountain);
+        List<Card> topSix = List.of(bolt, bears, forest, elves, dreadmaw, mountain);
+        List<Card> arranged = new ArrayList<>(topSix);
+        arranged.add(unlooked);
+        owner.getZone(ZoneType.Library).setCards(arranged);
         Set<String> lookedNames = new HashSet<>();
         for (Card c : topSix) lookedNames.add(c.getName());
         SpellAbility ability = company.getSpellAbilities().get(0);
@@ -105,6 +108,8 @@ public final class NativeDelayedRevealRegressionTest {
             if (decision == 0) {
                 require(type.equals("chooseCards"), "Private look must be part of the choice without an acknowledgement");
                 checkCards(input, lookedNames, Set.of("Grizzly Bears", "Llanowar Elves"));
+                require(shownNames(input).equals(topSix.stream().map(Card::getName).toList()),
+                        "Looking at top cards reordered a non-search choice");
                 rejectCard(session, forest);
                 JsonObject response = NativeSession.object("type", "chooseCardsDecision");
                 JsonArray chosen = new JsonArray();
@@ -152,30 +157,76 @@ public final class NativeDelayedRevealRegressionTest {
         require(rejected && original.equals(session.prompt(0)), "Read-only card submission consumed the choice");
     }
 
-    private static void fetch(NativeSession session, Player owner) throws Exception {
+    private static List<String> shownNames(JsonObject input) {
+        return input.getAsJsonArray("cards").asList().stream().map(item ->
+                item.getAsJsonObject().getAsJsonObject("identity").get("name").getAsString()).toList();
+    }
+
+    private static void fetch(NativeSession session, Player owner, String scenario) throws Exception {
+        boolean limited = scenario.equals("limited-fetch"), multiple = scenario.equals("multi-search");
+        boolean knownTop = scenario.equals("public-top-fetch"), continued = scenario.equals("continued-fetch");
+        Player opponent = session.game.getPlayers().get(1);
         Card swamp = card(session.game, owner, "Swamp", ZoneType.Library);
-        card(session.game, owner, "Island", ZoneType.Library);
-        Card forest = card(session.game, owner, "Forest", ZoneType.Library);
-        card(session.game, owner, "Grizzly Bears", ZoneType.Library);
-        Card source = card(session.game, owner, "Polluted Delta", ZoneType.Battlefield);
+        Card island = card(session.game, owner, "Island", ZoneType.Library);
+        Card bolt = card(session.game, owner, "Lightning Bolt", ZoneType.Library);
+        Card bears = card(session.game, owner, "Grizzly Bears", ZoneType.Library);
+        List<Card> arranged = new ArrayList<>(continued ? List.of(island, bolt, swamp, bears) : List.of(bolt, swamp, bears, island));
+        if (knownTop) card(session.game, owner, "Oracle of Mul Daya", ZoneType.Battlefield);
+        if (limited) {
+            card(session.game, opponent, "Aven Mindcensor", ZoneType.Battlefield);
+            arranged.add(card(session.game, owner, "Watery Grave", ZoneType.Library));
+        }
+        owner.getZone(ZoneType.Library).setCards(arranged);
+        Card source = card(session.game, owner, multiple ? "Explosive Vegetation" : "Polluted Delta",
+                multiple ? ZoneType.Hand : ZoneType.Battlefield);
         SpellAbility ability = source.getSpellAbilities().stream()
                 .filter(sa -> sa.getApi() == forge.game.ability.ApiType.ChangeZone).findFirst().orElseThrow();
         ability.setActivatingPlayer(owner);
         AtomicInteger decisions = new AtomicInteger();
         drive(session, owner, () -> {
+            session.game.getAction().checkStaticAbilities();
+            require(arranged.getFirst().getView().canBeShownTo(owner.getView()) == knownTop,
+                    "Unexpected fixture permission before the search");
+            if (continued) {
+                // Later picks of a different-names search reuse its authorized candidates
+                // without a new DelayedReveal. The top candidate is still not a known top.
+                Card chosen = owner.getController().chooseSingleCardForZoneChange(ZoneType.Hand,
+                        List.of(ZoneType.Library), ability, new CardCollection(List.of(island, swamp)),
+                        null, "Choose the next land", true, owner);
+                require(chosen == swamp, "Search continuation lost the selected object");
+                return;
+            }
             AbilityUtils.resolve(ability);
-            require(owner.getCardsIn(ZoneType.Battlefield).stream().anyMatch(c -> c.getId() == swamp.getId()), "Fetch failed to move the selected land");
-            require(forest.isInZone(ZoneType.Library), "Fetch moved a nonselectable card");
+            require(owner.getCardsIn(ZoneType.Battlefield).stream().anyMatch(c -> c.getId() == swamp.getId()), "Search failed to move the selected land");
+            require(bolt.isInZone(ZoneType.Library), "Search moved a nonselectable card");
         }, input -> {
-            require(input.get("type").getAsString().equals("chooseCards"), "Fetch required a separate reveal");
-            checkCards(input, Set.of("Swamp", "Island", "Forest", "Grizzly Bears"), Set.of("Swamp", "Island"));
+            require(input.get("type").getAsString().equals("chooseCards"), "Search required a separate reveal");
+            if (continued) {
+                checkCards(input, Set.of("Swamp", "Island"), Set.of("Swamp", "Island"));
+            } else {
+                checkCards(input, Set.of("Swamp", "Island", "Lightning Bolt", "Grizzly Bears"), Set.of("Swamp", "Island"));
+                require(shownNames(input).equals(List.of("Island", "Swamp", "Grizzly Bears", "Lightning Bolt")),
+                        "Expected legal choices first in a stable display order independent of library order");
+            }
+            JsonObject snapshot = JsonParser.parseString(session.snapshot(0)).getAsJsonObject();
+            JsonObject library = snapshot.getAsJsonArray("zones").asList().stream()
+                    .map(JsonElement::getAsJsonObject).filter(z -> z.get("zone").getAsString().equals("library")
+                            && z.get("ownerId").getAsString().equals("player-0")).findFirst().orElseThrow();
+            JsonArray visible = library.getAsJsonArray("cards");
+            if (knownTop) {
+                require(visible.size() == 1 && visible.get(0).getAsJsonObject().get("id").getAsString().equals(NativeSession.cardId(bolt)),
+                        "Independent Oracle of Mul Daya permission was removed during the search");
+            } else require(visible.isEmpty(), "Temporary search look disclosed the physical library top");
+            require(new ArrayList<>(owner.getCardsIn(ZoneType.Library)).equals(arranged),
+                    "Presenting the search changed the physical library order");
+            require(!input.toString().contains("Watery Grave"), "Restricted search disclosed an unsearched land");
             require(!session.snapshot(1).contains("Grizzly Bears") && !session.snapshot(-1).contains("Grizzly Bears"),
-                    "Fetch look escaped the deciding seat");
-            rejectCard(session, forest);
+                    "Search look escaped the deciding seat");
+            rejectCard(session, bolt);
             decisions.incrementAndGet();
             return choose(swamp);
         });
-        require(decisions.get() == 1, "Fetch should need only one choice");
+        require(decisions.get() == 1, "Search should need only one choice");
     }
 
     private static void discard(NativeSession session, Player owner, boolean noChoice) throws Exception {

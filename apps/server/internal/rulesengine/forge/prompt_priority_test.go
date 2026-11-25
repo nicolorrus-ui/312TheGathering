@@ -38,3 +38,13 @@ func TestPriorityAutomaticPassRequiresExplicitNativeHint(t *testing.T) {
 		t.Fatalf("Non-priority hint was accepted: %+v, %v", view, err)
 	}
 }
+
+func TestAfterOwnStackActionIsAPriorityOnlyHint(t *testing.T) {
+	for _, kind := range []string{"chooseAction", "payManaCost", "mulligan"} {
+		raw := json.RawMessage(fmt.Sprintf(`{"promptId":7,"decidingPlayerId":"player-1","input":{"type":%q,"actions":[],"afterOwnStackAction":true}}`, kind))
+		view, err := NormalizePrompt(raw)
+		if err != nil || view.AfterOwnStackAction != (kind == "chooseAction") || view.AutoPassEligible {
+			t.Fatalf("priority hint for %s: %+v, %v", kind, view, err)
+		}
+	}
+}

@@ -113,7 +113,7 @@ final class NativeGuiGame implements InvocationHandler {
                 DelayedReveal delayed = (DelayedReveal) a[2];
                 if (delayed != null && choices.stream().allMatch(CardView.class::isInstance)) {
                     List<?> chosen = choose((String) a[0], (Boolean) a[3] ? 0 : 1, 1,
-                            choices, null, delayed.getCards());
+                            choices, null, NativeLibrarySearch.visibleChoices(delayed, choices));
                     yield chosen.isEmpty() ? null : chosen.get(0);
                 }
                 delayedReveal(delayed);
@@ -125,7 +125,7 @@ final class NativeGuiGame implements InvocationHandler {
                 boolean cardChoice = choices.stream().allMatch(CardView.class::isInstance);
                 if (!cardChoice) delayedReveal(delayed);
                 yield NativeOrdering.order(session, owner(), (String) a[0], choices.size() - (Integer) a[3], choices.size() - (Integer) a[2], choices, null,
-                        cardChoice && delayed != null ? delayed.getCards() : List.of()).ordered();
+                        cardChoice && delayed != null ? NativeLibrarySearch.visibleChoices(delayed, choices) : List.of()).ordered();
             }
             case "reveal" -> { reveal((String) a[0], (List<?>) a[1]); yield null; }
             case "message" -> { acknowledge((String) a[0]); yield null; }
@@ -283,7 +283,11 @@ final class NativeGuiGame implements InvocationHandler {
                 }
             }
             input.add("actions", options);
-            if (!paying) input.addProperty("autoPassEligible", undoChecks.isEmpty() && NativePriority.autoPassEligible(owner(), priorityAbilities));
+            if (!paying) {
+                input.addProperty("autoPassEligible", undoChecks.isEmpty() && NativePriority.autoPassEligible(owner(), priorityAbilities));
+                if (human instanceof NativeDecisionController controller && controller.priorityAfterOwnStackAction())
+                    input.addProperty("afterOwnStackAction", true);
+            }
             prepare = raw -> {
                 String type = text(raw, "type", "");
                 if (type.equals("act")) {
@@ -601,66 +605,48 @@ final class NativeGuiGame implements InvocationHandler {
     }
     private void renderCombat(Input current) {
         Combat combat = session.game.getCombat();
-        boolean attack = current instanceof InputAttack;
-        JsonObject in = input(attack ? "chooseAttackers" : "chooseBlockers", attack ? "Declare attackers" : "Declare blockers");
+        if (current instanceof InputAttack) {
+            renderAttackers(current, combat);
+            return;
+        }
+        JsonObject in = input("chooseBlockers", "Declare blockers");
         JsonArray attackers = new JsonArray();
         Map<String, Card> cards = new HashMap<>();
         Map<String, GameEntity> defenders = new HashMap<>();
         Map<String, Integer> assignmentLimits = new HashMap<>();
         Map<String, Set<String>> validAssignments = new HashMap<>();
-        if (attack) {
-            JsonArray targets = new JsonArray();
-            for (GameEntity defender : combat.getDefenders()) {
-                String id = defender instanceof Player p ? session.playerId(p) : cardId((Card) defender);
-                JsonObject target = object("id", id);
-                target.addProperty("kind", defender instanceof Player ? "player" : ((Card) defender).isBattle() ? "battle" : "planeswalker");
-                target.addProperty("label", defender.getName()); targets.add(target); defenders.put(id, defender);
+        JsonArray blockers = new JsonArray(), limits = new JsonArray();
+        for (Card blocker : owner().getCreaturesInPlay()) if (CombatUtil.canBlock(blocker, combat)) {
+            String id = cardId(blocker);
+            blockers.add(id); cards.put(id, blocker);
+            int maximum = blocker.canBlockAny() ? combat.getAttackers().size()
+                    : (int) Math.min(combat.getAttackers().size(), Math.max(1L, 1L + blocker.canBlockAdditional()));
+            assignmentLimits.put(id, maximum);
+            validAssignments.put(id, new HashSet<>());
+            JsonObject limit = object("blockerId", id); limit.addProperty("maxAssignments", maximum); limits.add(limit);
+        }
+        in.add("availableBlockerIds", blockers);
+        in.add("blockerAssignmentLimits", limits);
+        for (Card attacker : combat.getAttackers()) {
+            JsonObject entry = object("attackerId", cardId(attacker));
+            JsonArray valid = new JsonArray();
+            for (Card blocker : cards.values()) if (CombatUtil.canBlock(attacker, blocker, combat)) {
+                valid.add(cardId(blocker));
+                validAssignments.get(cardId(blocker)).add(cardId(attacker));
             }
-            for (Card c : owner().getCreaturesInPlay()) {
-                JsonArray valid = new JsonArray();
-                for (Map.Entry<String, GameEntity> defender : defenders.entrySet()) if (CombatUtil.canAttack(c, defender.getValue())) valid.add(defender.getKey());
-                if (valid.isEmpty()) continue;
-                JsonObject entry = object("attackerId", cardId(c)); entry.add("validTargetIds", valid); attackers.add(entry); cards.put(cardId(c), c);
-                assignmentLimits.put(cardId(c), 1);
-                Set<String> legal = new HashSet<>();
-                for (JsonElement target : valid) legal.add(target.getAsString());
-                validAssignments.put(cardId(c), legal);
-            }
-            in.add("attackTargets", targets);
-        } else {
-            JsonArray blockers = new JsonArray(), limits = new JsonArray();
-            for (Card blocker : owner().getCreaturesInPlay()) if (CombatUtil.canBlock(blocker, combat)) {
-                String id = cardId(blocker);
-                blockers.add(id); cards.put(id, blocker);
-                int maximum = blocker.canBlockAny() ? combat.getAttackers().size()
-                        : (int) Math.min(combat.getAttackers().size(), Math.max(1L, 1L + blocker.canBlockAdditional()));
-                assignmentLimits.put(id, maximum);
-                validAssignments.put(id, new HashSet<>());
-                JsonObject limit = object("blockerId", id); limit.addProperty("maxAssignments", maximum); limits.add(limit);
-            }
-            in.add("availableBlockerIds", blockers);
-            in.add("blockerAssignmentLimits", limits);
-            for (Card attacker : combat.getAttackers()) {
-                JsonObject entry = object("attackerId", cardId(attacker));
-                JsonArray valid = new JsonArray();
-                for (Card blocker : cards.values()) if (CombatUtil.canBlock(attacker, blocker, combat)) {
-                    valid.add(cardId(blocker));
-                    validAssignments.get(cardId(blocker)).add(cardId(attacker));
-                }
-                entry.add("validBlockerIds", valid);
-                entry.addProperty("minBlockers", CombatUtil.getMinNumBlockersForAttacker(attacker, owner()));
-                attackers.add(entry); defenders.put(cardId(attacker), attacker);
-            }
+            entry.add("validBlockerIds", valid);
+            entry.addProperty("minBlockers", CombatUtil.getMinNumBlockersForAttacker(attacker, owner()));
+            attackers.add(entry); defenders.put(cardId(attacker), attacker);
         }
         in.add("attackers", attackers);
         session.publish(owner(), in, guarded(current, raw -> {
-            requireType(raw, attack ? "declareAttackers" : "declareBlockers");
+            requireType(raw, "declareBlockers");
             List<Runnable> actions = new ArrayList<>();
             Map<String, Set<String>> chosen = new HashMap<>();
             for (JsonElement element : raw.getAsJsonArray("assignments")) {
                 JsonObject assignment = element.getAsJsonObject();
-                String sourceId = text(assignment, attack ? "attackerId" : "blockerId", "");
-                String targetId = text(assignment, attack ? "targetId" : "attackerId", "");
+                String sourceId = text(assignment, "blockerId", "");
+                String targetId = text(assignment, "attackerId", "");
                 Card source = cards.get(sourceId);
                 GameEntity target = defenders.get(targetId);
                 if (source == null || target == null) throw new IllegalArgumentException("Invalid combat assignment");
@@ -674,6 +660,81 @@ final class NativeGuiGame implements InvocationHandler {
                 });
             }
             return () -> { for (Runnable action : actions) action.run(); button(true); };
+        }), true);
+    }
+    private void renderAttackers(Input current, Combat combat) {
+        JsonObject input = input("chooseAttackers", "Declare attackers");
+        JsonArray sources = new JsonArray(), targets = new JsonArray();
+        Map<String, Card> cards = new LinkedHashMap<>();
+        Map<String, GameEntity> defenders = new LinkedHashMap<>();
+        Map<Card, Set<String>> allowed = new LinkedHashMap<>();
+        AttackConstraints constraints = combat.getAttackConstraints();
+        for (GameEntity defender : combat.getDefenders()) {
+            String id = defender instanceof Player p ? session.playerId(p) : cardId((Card)defender);
+            defenders.put(id, defender);
+        }
+        Set<String> availableTargets = new LinkedHashSet<>();
+        for (Card card : combat.getAttackingPlayer().getCreaturesInPlay()) {
+            AttackRestriction restriction = constraints.getRestrictions().get(card);
+            Set<String> legal = new LinkedHashSet<>();
+            for (var target : defenders.entrySet()) {
+                if (CombatUtil.canAttack(card, target.getValue())
+                        && (restriction == null || restriction.canAttack(target.getValue()))
+                        && constraints.getGlobalRestrictions().isLegal(Map.of(card, target.getValue()))) {
+                    legal.add(target.getKey());
+                }
+            }
+            if (legal.isEmpty()) continue;
+            availableTargets.addAll(legal);
+            allowed.put(card, legal);
+            String id = cardId(card);
+            cards.put(id, card);
+            JsonObject source = object("attackerId", id);
+            JsonArray options = new JsonArray();
+            legal.forEach(options::add);
+            source.add("validTargetIds", options);
+            sources.add(source);
+        }
+        for (var entry : defenders.entrySet()) {
+            if (!availableTargets.contains(entry.getKey())) continue;
+            GameEntity defender = entry.getValue();
+            JsonObject target = object("id", entry.getKey());
+            target.addProperty("kind", defender instanceof Player ? "player" : ((Card)defender).isBattle() ? "battle" : "planeswalker");
+            target.addProperty("label", defender.getName());
+            targets.add(target);
+        }
+        input.add("attackers", sources);
+        input.add("attackTargets", targets);
+        session.publish(owner(), input, guarded(current, raw -> {
+            requireType(raw, "declareAttackers");
+            Map<Card, GameEntity> declared = new LinkedHashMap<>();
+            for (JsonElement element : raw.getAsJsonArray("assignments")) {
+                JsonObject assignment = element.getAsJsonObject();
+                Card source = cards.get(text(assignment, "attackerId", ""));
+                String targetId = text(assignment, "targetId", "");
+                if (source == null || !allowed.get(source).contains(targetId)
+                        || declared.putIfAbsent(source, defenders.get(targetId)) != null)
+                    throw new IllegalArgumentException("Invalid attacker or defender");
+            }
+            // Cards already put into combat without being declared can be ineligible for selection.
+            for (Card attacker : combat.getAttackers())
+                if (!allowed.containsKey(attacker)) declared.put(attacker, combat.getDefenderByAttacker(attacker));
+            // Apply the same whole-declaration check as CombatUtil.validateAttackers before
+            // consuming the prompt. A rejected draft leaves both combat and the prompt intact.
+            int violations = constraints.countViolations(declared);
+            if (violations < 0 || violations > constraints.getLegalAttackers().getRight())
+                throw new IllegalArgumentException("Illegal attack declaration");
+            return () -> {
+                for (Card previous : combat.getAttackers())
+                    if (!declared.containsKey(previous)) combat.removeFromCombat(previous);
+                declared.forEach((attacker, defender) -> {
+                    if (combat.getDefenderByAttacker(attacker) != defender) {
+                        if (combat.isAttacking(attacker)) combat.removeFromCombat(attacker);
+                        combat.addAttacker(attacker, defender);
+                    }
+                });
+                button(true);
+            };
         }), true);
     }
     private Object chooseOne(String title, List<?> choices, boolean optional, Object display) {

@@ -1587,6 +1587,13 @@ and prompt-local `reveal:N` display ids; neither those ids nor their engine ids
 are accepted as selections. Bounds count only eligible cards. The native adapter
 and server both retain candidate-membership validation. No disclosure is inferred
 from a zone, a previous prompt or another player's snapshot.
+For a library search, the chooser sees legal candidates first, followed by
+the remaining cards Forge allowed them to look at. Each group uses visible
+card name and stable object ID for display order, independently of physical
+library position. The snapshot shows the physical top during that choice only
+if it was already visible to that viewer before the search. A restricted
+search uses only its authorized subset. Other
+looks, such as the top six cards for Collected Company, keep Forge's order.
 The 1v1 Qt browser defaults to all cards in this current authorized list, labels
 ineligible cards **Not selectable**, and offers **Selectable only** alongside the
 existing selected-only view. Filtering does not change selected identities,

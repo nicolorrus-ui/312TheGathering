@@ -10,6 +10,15 @@ type Printing = { front: string; faces: Record<string, string> };
 type ImagePack = { version: 1; printings: Record<string, Printing>; names: Record<string, string> };
 const ImagePackContext = createContext<ImagePack | null | undefined>(undefined);
 
+export function cardArtURL(card: Identity, compact = false, revision = 0) {
+  const query = new URLSearchParams({ name: card.name.trim().normalize("NFC").toLowerCase(),
+    set: card.setCode?.trim().toLowerCase() ?? "", number: card.collectorNumber?.trim().toLowerCase() ?? "",
+    size: compact ? "small" : "normal" });
+  if (card.token) query.set("token", "1");
+  if (revision) query.set("refresh", String(revision));
+  return "/card-art?" + query;
+}
+
 export function CardImages({ children }: { children: ReactNode }) {
   const [pack, setPack] = useState<ImagePack | null>();
   useEffect(() => {
@@ -25,8 +34,8 @@ export function CardImages({ children }: { children: ReactNode }) {
   return <ImagePackContext.Provider value={pack}>{children}</ImagePackContext.Provider>;
 }
 
-export function CardImage({ identity, className, decorative = false, eager = false, compact = false }: {
-  identity?: Identity; className: string; decorative?: boolean; eager?: boolean; compact?: boolean;
+export function CardImage({ identity, className, decorative = false, eager = false, compact = false, revision }: {
+  identity?: Identity; className: string; decorative?: boolean; eager?: boolean; compact?: boolean; revision?: number;
 }) {
   const pack = useContext(ImagePackContext);
   const [failed, setFailed] = useState<string[]>([]);
@@ -38,12 +47,14 @@ export function CardImage({ identity, className, decorative = false, eager = fal
   const set = identity.setCode?.trim().toLowerCase() ?? "";
   const number = identity.collectorNumber?.trim().toLowerCase() ?? "";
   const printing = pack?.printings[`${prefix}${set}/${number}`];
-  const query = new URLSearchParams({ name, set, number, size: compact ? "small" : "normal" });
-  const remote = `/card-art?${query}`;
+  const remote = cardArtURL(identity, compact, revision);
   const local = (file?: string) => file && /^[0-9a-f-]{36}(?:-b)?\.jpg$/.test(file) ? directory + file : undefined;
   const named = local(pack?.names[prefix + name]);
-  const sources = [local(printing?.faces?.[name]), local(printing?.front),
-    ...(set && number ? [remote, named] : [named, remote])];
+  const printedFace = local(printing?.faces?.[name]);
+  const printedFront = local(printing?.front);
+  const sources = import.meta.env.MODE === "club-debug" && (set || number)
+    ? [printing?.faces && Object.keys(printing.faces).length ? printedFace : printedFront, remote]
+    : [printedFace, printedFront, ...(set && number ? [remote, named] : [named, remote])];
   const src = sources.find((source) => source && !failed.includes(source));
   if (!src) return null;
 

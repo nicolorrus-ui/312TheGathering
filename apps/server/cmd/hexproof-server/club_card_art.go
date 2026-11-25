@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Hexproof contributors
 
 package main
 
@@ -184,14 +185,19 @@ func (a *clubCardArt) requestJSON(ctx context.Context, address string, limit int
 }
 
 type scryfallCard struct {
+	Layout          string  `json:"layout"`
+	FlavorName      string  `json:"flavor_name"`
+	PrintedName     string  `json:"printed_name"`
 	Name            string  `json:"name"`
 	Set             string  `json:"set"`
 	SetName         string  `json:"set_name"`
 	CollectorNumber string  `json:"collector_number"`
 	Images          artURLs `json:"image_uris"`
 	Faces           []struct {
-		Name   string  `json:"name"`
-		Images artURLs `json:"image_uris"`
+		Name        string  `json:"name"`
+		FlavorName  string  `json:"flavor_name"`
+		PrintedName string  `json:"printed_name"`
+		Images      artURLs `json:"image_uris"`
 	} `json:"card_faces"`
 }
 

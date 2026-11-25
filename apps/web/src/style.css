@@ -252,6 +252,16 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .pt, .combat-tag { position: absolute; background: #151a29; border: 1px solid #e5d6bc58; padding: .12rem .2rem; border-radius: 3px; }
 .pt { right: 3px; bottom: 3px; }
 .combat-tag { top: 3px; left: 3px; color: var(--accent); }
+.table-card[data-attack-state="choosing"], .table-card[data-attack-state="attacking"] {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent);
+}
+:is(.player-life, .table-card)[data-attack-state="target"] {
+  outline: 2px dashed var(--mint); outline-offset: 2px; box-shadow: 0 0 12px #a0e8de88;
+}
+:is(.player-life, .table-card)[data-attack-state="defending"] { border-color: var(--accent); }
+.player-life[data-attack-state="target"] .monogram { display: grid; }
+.attack-shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; }
+
 .duel-tools { grid-area: tools; justify-self: end; align-self: start; margin: .75rem; min-width: 0; }
 .score { font-size: .76rem; text-align: right; margin: .15rem 0 .45rem; }
 .log { position: relative; padding: .42rem .5rem; border-radius: 7px; border: 1px solid var(--line); background: var(--paper); }
@@ -296,6 +306,9 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .duel button:hover:not(:disabled, .table-card, .player-life, .primary) { background-color: #3c4059; }
 .duel :is(input, select) { background: #151827; }
 .priority-actions .choices button { flex: 1; }
+.mana-payment { display: grid; gap: .35rem; max-height: min(35dvh, 15rem); overflow-y: auto; scrollbar-width: thin; }
+.mana-payment strong { color: var(--accent); font-size: .8rem; overflow-wrap: anywhere; }
+.mana-payment .choices { gap: .24rem; }
 .topbar .concede { color: #efbab3; border-color: #735651; }
 .auto-pass { text-align: right; }
 .auto-pass .choices { margin-top: .26rem; }

@@ -1,11 +1,11 @@
-Hexproof Club 离线调试版
+Hexproof Club 本地调试版
 
 启动
-先将整个压缩包解压到可写目录。Windows 建议使用短路径，例如 C:\Club。
+先将整个压缩包解压到可写目录。Windows 建议使用短英文路径，例如 C:\Club。
 Windows x64 双击 Start-Club.cmd。Linux x64 在解压目录运行 ./start-club.sh。
 包内已附 Java 21、Forge、网页、卡牌及印次目录。启动后保持终端窗口打开。
 等待默认浏览器打开 http://127.0.0.1:57325/ 。也可以手动输入此地址。
-按 Ctrl+C 停止服务。网络可以全程断开。
+对局由本机 Forge 运行。首次获取缺少的卡图需要联网。按 Ctrl+C 停止服务。
 
 试一局
 1. 输入牌手名字，进入 Deck builder。打开 Import decklist，把随包
@@ -25,6 +25,9 @@ Windows x64 双击 Start-Club.cmd。Linux x64 在解压目录运行 ./start-club
 会保留终端服务，可手动打开地址。CLUB_STATE_DIR 可指定服务端数据目录。
 
 卡牌与图片
-搜索和换版使用随包 Forge 数据。本地图包已有对应插画时显示插画，
-其余牌显示离线文字卡面。自有兼容图包可复制到 web/assets/cards/，
-保留 index.json 和其中引用的 JPG，然后重启服务、刷新页面。
+搜索和换版使用随包 Forge 数据。显示牌时优先读取本地图包和已缓存的卡图，
+缺图时从 Scryfall 获取并保存到 state/card-art/。要一次备齐某套牌的卡图，
+在 Deck builder 中打开牌表，点击 Download deck art，可查看主牌和备牌的下载进度。
+断网后仍能使用已有卡图和全部对局功能。
+暂时取不到图片的印次会显示带规则文字的卡面。自有兼容图包可复制到
+web/assets/cards/，保留 index.json 和其中引用的 JPG，然后重启服务、刷新页面。
