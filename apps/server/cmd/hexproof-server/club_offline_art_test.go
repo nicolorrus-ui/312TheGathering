@@ -33,14 +33,14 @@ func TestOfflineArtHonorsRequestedPrinting(t *testing.T) {
 	const front = "004c709b-d53d-4691-bbc8-2438fb8847e0.jpg"
 	const back = "004c709b-d53d-4691-bbc8-2438fb8847e0-b.jpg"
 	const other = "de75a2a6-9b0f-4b23-b400-9ea0d4d18310.jpg"
-	const index = `{"version":1,"printings":{"neo/266":{"front":"` + front + `","faces":{"vessel":"` + back + `"}}},"names":{"vessel":"` + other + `"}}`
+	const index = `{"version":1,"printings":{"neo/266":{"front":"` + front + `","faces":{"front":"` + front + `","vessel":"` + back + `"}}},"names":{"vessel":"` + other + `"}}`
 	files := fstest.MapFS{
 		"assets/cards/index.json": {Data: []byte(index)},
 		"assets/cards/" + front:   {Data: offlineTestJPEG(t, 60)},
 		"assets/cards/" + back:    {Data: offlineTestJPEG(t, 120)},
 		"assets/cards/" + other:   {Data: offlineTestJPEG(t, 200)},
 	}
-	art, err := newClubOfflineArt(files, nil)
+	art, err := newClubOfflineArt(files, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,12 +56,16 @@ func TestOfflineArtHonorsRequestedPrinting(t *testing.T) {
 			t.Fatalf("%s: expected JPEG %s, got %d %s", tc.query, tc.image, w.Code, w.Header().Get("Content-Type"))
 		}
 	}
-	delete(files, "assets/cards/"+front)
 	delete(files, "assets/cards/"+back)
 	w := httptest.NewRecorder()
 	art.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-art?name=Vessel&set=NEO&number=266", nil))
 	if !strings.HasPrefix(w.Header().Get("Content-Type"), "image/svg+xml") || !strings.Contains(w.Body.String(), "NEO 266") {
 		t.Fatal("missing exact printing should show a text card with the requested printing")
+	}
+	w = httptest.NewRecorder()
+	art.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-art?name=Unknown&set=NEO&number=266", nil))
+	if !strings.HasPrefix(w.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Fatal("unknown face must not use the front of the printing")
 	}
 	w = httptest.NewRecorder()
 	art.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-art?name=Vessel&set=OTH&number="+url.QueryEscape("9∞"), nil))
@@ -85,7 +89,7 @@ func TestOfflineArtWithoutPackRendersEscapedMetadata(t *testing.T) {
 			t.Fatalf("unexpected lookup %q", name)
 		}
 		return &offlineCardInfo{Name: title, ManaCost: "{2}{U/R}", TypeLine: typeLine, Oracle: oracle, Power: "*", Toughness: "1+*"}
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +109,7 @@ func TestOfflineArtWithoutPackRendersEscapedMetadata(t *testing.T) {
 		}
 	}
 
-	art, err = newClubOfflineArt(fstest.MapFS{}, nil)
+	art, err = newClubOfflineArt(fstest.MapFS{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +128,7 @@ func TestOfflineArtWithoutPackRendersEscapedMetadata(t *testing.T) {
 func TestOfflineArtRejectsMalformedManifest(t *testing.T) {
 	for _, content := range []string{`{`, `{"version":2}`, `{}`} {
 		files := fstest.MapFS{"assets/cards/index.json": {Data: []byte(content)}}
-		if _, err := newClubOfflineArt(files, nil); err == nil {
+		if _, err := newClubOfflineArt(files, nil, nil); err == nil {
 			t.Fatalf("accepted %s", content)
 		}
 	}

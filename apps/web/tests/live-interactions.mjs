@@ -119,6 +119,7 @@ async function progress(player) {
       return click(player, "Confirm");
     }
     case "chooseAttackers":
+      return click(player, "No Attack");
     case "chooseBlockers":
       return click(player, "Confirm");
     case "acknowledge":
@@ -213,7 +214,7 @@ try {
   await button(host, "Ready").click({ timeout: 60000 });
   await until(() => peers.every((player) => player.game), "players' opening hands", 60000);
   const actor = await progressUntil((player) => normalMain(player) &&
-    zoneFor(player, "hand").some((entry) => entry.identity?.name === "Exploration") &&
+    zoneFor(player, "hand").filter((entry) => entry.identity?.name === "Exploration").length >= 2 &&
     zoneFor(player, "hand").filter((entry) => entry.identity?.name === "Forest").length >= 3, "first main with test cards");
 
   await checkSpectator(viewer, host);
@@ -245,12 +246,23 @@ try {
   await playFromHand(actor, "Exploration");
   await requireNextFor(actor);
   assert.equal(actor.prompt.kind, "payManaCost");
-  const paymentControl = actor.page.getByRole("group", { name: "Priority controls" })
-    .getByRole("button", { name: "Auto Pay", exact: true });
+  const dock = actor.page.getByRole("group", { name: "Priority controls" });
+  const paymentControl = dock.getByRole("button", { name: "Auto Pay", exact: true });
   await paymentControl.waitFor();
+  assert.equal(await actor.page.locator(".decision, .inspection").count(), 0, "payment keeps the board clear");
   assert.equal(await button(actor, "Auto Pay").count(), 1);
   assert.ok(forests(actor).every(({ tapped }) => !tapped), "dropping a spell waits for payment");
+  await answer(actor, () => dock.getByRole("button", { name: "Cancel", exact: true }).click());
+  await requireNextFor(actor);
+  assert.equal(actor.prompt.kind, "chooseAction");
+  assert.equal(actor.game.stack.length, 0);
+  assert.ok(forests(actor).every(({ tapped }) => !tapped), "cancelling preserves mana sources");
+  await playFromHand(actor, "Exploration");
+  await requireNextFor(actor);
   await answer(actor, () => paymentControl.click());
+  const responder = await nextDecision();
+  assert.notEqual(responder.name, actor.name, "the caster yields the first response unless holding priority");
+  assert.ok(responder.game.stack.some(({ identity }) => identity.name === "Exploration"));
   const nextTurn = actor.game.turn + 2;
   let sawStack = false;
   await progressUntil((player) => player === actor && normalMain(player) && player.game.turn >= nextTurn, "next main with Exploration",
@@ -294,9 +306,19 @@ try {
   assert.equal(mana(actor), 0);
   assert.ok(forests(actor).every(({ tapped }) => !tapped));
   await button(actor, "Undo mana").waitFor({ state: "hidden" });
+  await actor.page.getByRole("switch", { name: "Hold priority" }).click();
+  await until(() => actor.received.some(({ type, payload }) => type === "rules.priority" && payload.hold), "Hold priority acknowledged");
+  await playFromHand(actor, "Exploration");
+  await requireNextFor(actor);
+  assert.equal(actor.prompt.kind, "payManaCost");
+  assert.equal(await actor.page.locator(".decision").count(), 0);
+  await tapForest(actor);
+  await requireNextFor(actor);
+  assert.equal(actor.prompt.kind, "chooseAction");
+  assert.ok(actor.game.stack.some(({ identity }) => identity.name === "Exploration"), "manual payment retains held priority");
   assert.ok(viewer.received.some(({ type }) => type === "rules.snapshot"));
   assert.deepEqual([host, guest, viewer].flatMap(({ errors }) => errors), []);
-  console.log("Verified consecutive Forge land and mana undo");
+  console.log("Verified battlefield mana payment, default and held priority, and consecutive Forge land and mana undo");
   await button(viewer, "Leave live view").click();
   await viewer.page.getByRole("heading", { name: "Watch a live duel" }).waitFor();
   actor.page.once("dialog", (dialog) => dialog.accept());

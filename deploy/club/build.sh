@@ -30,7 +30,7 @@ trap 'rm -rf -- "$stage"' EXIT
 cd "$root"
 npm --prefix apps/web ci --no-audit --no-fund
 if [[ -n "$offline" ]]; then
-  npm --prefix apps/web run build -- --sourcemap
+  npm --prefix apps/web run build -- --mode club-debug --sourcemap
 else
   npm --prefix apps/web run build
 fi

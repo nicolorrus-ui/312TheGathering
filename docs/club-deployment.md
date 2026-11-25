@@ -50,9 +50,16 @@ Extract the whole archive to a writable directory. On Windows x64 double-click
 `Start-Club.cmd`. On Linux x64 run `./start-club.sh`. The launcher opens
 `http://127.0.0.1:57325/` after the server is ready. Search, practice matches,
 two-player rooms, and the spectator view run on the same computer while offline.
-Use separate browser profiles to control both seats. Missing artwork is rendered
-locally with the card's rules text. To use your own compatible art pack, place
-its index and images in `web/assets/cards/` and restart.
+Use separate browser profiles to control both seats. The local server downloads
+missing artwork from Scryfall as cards are viewed and caches successful downloads
+under `state/card-art/` for future sessions. In the portable deck builder,
+**Download deck art** fetches the distinct main-deck and sideboard printings in
+one pass and reports how many are ready for offline use.
+Artwork requests identify a printing by set and collector number, or by card
+name for entries without a printing. The game and deck catalog stay on loopback.
+With no network connection, existing images remain available
+and missing images show a local rules-text card face. To use your own compatible
+art pack, place its index and images in `web/assets/cards/` and restart.
 
 Inspect the browser's developer tools for client and WebSocket activity.
 The server writes `state/club-debug.log`. Set `CLUB_STATE_DIR` to move the
@@ -80,9 +87,13 @@ The phase track on the right highlights the current Forge step. Priority
 controls sit at the bottom right. **Concede game** is in the upper-right
 corner of the game page and asks for confirmation.
 After dragging a spell onto the battlefield, choose its targets and modes
-if prompted. When Forge offers automatic payment, **Auto Pay** appears in
-the usual **Pass priority** position. Click it to pay, or select mana
-sources on the board to pay manually. Auto Pay first tries to leave enough
+if prompted. Mana payment stays on the battlefield. When Forge offers
+automatic payment, **Auto Pay** appears in the usual **Pass priority** position.
+Click it to pay, or select mana sources on the board to pay manually.
+After you cast a spell or activate an ability that uses the stack, priority
+passes to the opponent. Turn on **Hold priority** to respond to your own action.
+You can still respond when an opponent's spell or ability goes on top of it.
+Auto Pay first tries to leave enough
 mana to cast the most spells from your remaining hand together. Ties favor
 access to more colors, then sources that cost less life to use later. The
 search has a work limit for large boards. Forge checks the payment and handles
@@ -97,7 +108,16 @@ qualify, select Undo repeatedly to reverse them in order. Forge commits
 land plays that also change other game state, such as paying life
 while the land enters.
 
-Forge selection windows open in the center. Use **Minimize** to free the
+During **Declare attackers**, click a creature on the battlefield. If it has
+one legal defender the board assigns it immediately. With multiple defenders,
+click the highlighted opposing avatar, planeswalker, or battle. **All Strike**
+assigns eligible creatures to the opposing player. **Confirm** submits your
+plan, **Cancel** clears it, and **No Attack** submits an empty declaration.
+Forge enforces attack requirements when you submit the declaration.
+
+Library search displays eligible cards first. The rest of the cards Forge
+lets the searching player see follow them. Forge selection windows open in the
+center. Use **Minimize** to free the
 board, then **Expand** near the priority controls to return to the same
 selection. With a board-target decision minimized, you can still select a
 target on the board and confirm it at the bottom right.
@@ -233,6 +253,8 @@ page. Configure the public hostname and certificates before giving out links.
   turn. Upkeep, both main phases, all combat steps, and the end step start on
   for both turns. Stops preserve only priority windows Forge actually offers.
   **Hold priority** pauses automatic priority passing until it is turned off.
+- Run `node apps/web/tests/declare-attackers.mjs` against a built Club client
+  to check player, planeswalker and battle targeting at desktop and phone widths.
 - Run the live test with `CLUB_TEST_LAYOUT=1 CLUB_TEST_MOBILE_IMAGES=1` to verify
   the two stop columns, the stack tray, and a visible card image at mobile
   width with the imported index withheld. The test server and browser need

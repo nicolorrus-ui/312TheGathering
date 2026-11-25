@@ -128,7 +128,6 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
               {orderControls(scry[zone], id, (next) => setScry({ ...scry, [zone]: next }), label)}</li>;
           })}</ol></section>)}</div>, true, { scryPiles: prompt.scryDestinations.map((destination) =>
             ({ destination, cardIds: scry[destination] })) }] as const;
-      case "chooseAttackers":
       case "chooseBlockers":
         return [<div className="choice-grid">{prompt.combatSources.map((source) => <section key={source.responseId} className="combat-source">
           <strong>{source.label || source.name}</strong>
@@ -138,7 +137,6 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
             const chosen = combat.some(matches);
             return <button key={target.responseId} type="button" aria-pressed={chosen} onClick={() => {
               if (chosen) setCombat(combat.filter((value) => !matches(value)));
-              else if (prompt.kind === "chooseAttackers") setCombat([...combat.filter((value) => value.sourceId !== source.responseId), assignment]);
               else setCombat([...combat, assignment]);
             }}>{target.label}</button>;
           })}
@@ -154,7 +152,6 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
           </label>)}</>, total === prompt.totalDamage && assigned.every((target) => Number.isInteger(target.damage) && target.damage >= 0),
           { damageAssignments: assigned }] as const;
       }
-      case "payManaCost":
       case "mulligan":
       case "acknowledge":
       case "diceRolled":
@@ -164,7 +161,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
     }
   })();
   const submitKinds = ["chooseBoardTargets", "chooseCards", "mulliganPutBack", "chooseBoolean", "chooseColor", "chooseFromSelection",
-    "chooseNumber", "chooseCardName", "reorder", "chooseDamageAssignmentOrder", "scry", "chooseAttackers",
+    "chooseNumber", "chooseCardName", "reorder", "chooseDamageAssignmentOrder", "scry",
     "chooseBlockers", "chooseCombatDamageAssignment"];
   const confirmButton = prompt.supported && submitKinds.includes(prompt.kind) &&
     <button className="primary" type="button" disabled={disabled || !enabled} onClick={() => confirm(response)}>Confirm</button>;
@@ -177,8 +174,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
         {content}
       </div>
       {prompt.supported && <footer>
-        <Options options={prompt.options.filter((option) => option.responseId !== "$auto-pay"
-          && (!option.cardId || option.kind === "undoMana"))} submit={submit} />
+        <Options options={prompt.options.filter((option) => !option.cardId || option.kind === "undoMana")} submit={submit} />
         {confirmButton}
         {prompt.cancellable && !prompt.options.some((option) => option.responseId === "$cancel") &&
           <button className="quiet" type="button" onClick={() => submit({ responseId: "$cancel" })}>Cancel action</button>}

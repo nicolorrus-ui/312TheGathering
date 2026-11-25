@@ -13,9 +13,7 @@ import (
 	"hexproof/server/internal/rulesinput"
 )
 
-// priorityPreference is the seat's published smart-pass choice. The hub uses
-// it only for chooseAction prompts the engine marked auto-pass eligible.
-// Yields and holding the next prompt stay on the client.
+// priorityPreference is the seat's published choice for delegated priority.
 type priorityPreference struct {
 	fullControl bool
 	hold        bool
@@ -80,16 +78,18 @@ func (h *Handler) priorityPreferenceFor(roomID string, seat int) (priorityPrefer
 	return prefs, ok
 }
 
-func shouldDelegatePriorityPass(prefs priorityPreference, known bool, view forge.PromptView, step string, ownTurn bool) bool {
-	if !known || prefs.fullControl || prefs.hold || view.Kind != "chooseAction" || !view.Supported || !view.AutoPassEligible {
+func (h *Handler) shouldDelegatePriorityPass(prefs priorityPreference, known bool, view forge.PromptView, step string, ownTurn bool) bool {
+	if !known || prefs.fullControl || prefs.hold || view.Kind != "chooseAction" || !view.Supported {
 		return false
 	}
-	prefix := "other:"
-	if ownTurn {
-		prefix = "own:"
-	}
-	if prefs.stops[prefix+step] {
-		return false
+	if !(h.config.ClubMode && view.AfterOwnStackAction) {
+		prefix := "other:"
+		if ownTurn {
+			prefix = "own:"
+		}
+		if !view.AutoPassEligible || (step != "" && prefs.stops[prefix+step]) {
+			return false
+		}
 	}
 	for _, option := range view.Options {
 		if option.ResponseID == "$pass" {
@@ -147,22 +147,21 @@ func (h *Handler) delegatePriorityPasses(r *room.Room, game forgeRoomGame, view 
 			return view, nil
 		}
 		prefs, known := h.priorityPreferenceFor(r.ID, seat)
-		if !shouldDelegatePriorityPass(prefs, known, *view, "", true) && len(prefs.stops) == 0 {
+		if !h.shouldDelegatePriorityPass(prefs, known, *view, "", true) {
 			return view, nil
 		}
-		step, ownTurn := "", true
-		if len(prefs.stops) > 0 {
+		if len(prefs.stops) > 0 && !(h.config.ClubMode && view.AfterOwnStackAction) {
 			ctx, cancel := context.WithTimeout(context.Background(), runtimeTimeout(game.client, forgeSnapshotTimeout))
 			snapshot, err := game.client.SnapshotView(ctx, game.sessionID, view.PlayerIndex)
 			cancel()
 			if err != nil {
 				return nil, err
 			}
-			step = normalizedRulesStep(snapshot.Step)
-			ownTurn = snapshot.ActivePlayerID == fmt.Sprintf("player-%d", view.PlayerIndex)
-		}
-		if !shouldDelegatePriorityPass(prefs, known, *view, step, ownTurn) {
-			return view, nil
+			step := normalizedRulesStep(snapshot.Step)
+			ownTurn := snapshot.ActivePlayerID == fmt.Sprintf("player-%d", view.PlayerIndex)
+			if !h.shouldDelegatePriorityPass(prefs, known, *view, step, ownTurn) {
+				return view, nil
+			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), runtimeTimeout(game.client, forgePromptTimeout))
 		raw, err := game.client.Prompt(ctx, game.sessionID, view.PlayerIndex)

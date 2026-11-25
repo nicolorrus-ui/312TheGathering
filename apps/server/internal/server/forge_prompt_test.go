@@ -235,13 +235,14 @@ func TestProjectedRulesPromptCombatUsesViewerProjection(t *testing.T) {
 		Title: "Declare attackers",
 		CombatSources: []forge.PromptCombatSource{{
 			ResponseID: "combat-source:0", ID: "card-a",
-			ValidTargetIDs:   []string{"combat-target:0", "combat-target:1"},
+			ValidTargetIDs:   []string{"combat-target:0", "combat-target:1", "combat-target:2"},
 			Maximum:          1,
 			MustAssignIfAble: true,
 		}},
 		CombatTargets: []forge.PromptCombatTarget{
 			{ResponseID: "combat-target:0", Kind: "player", ID: "player-1", Maximum: 1},
 			{ResponseID: "combat-target:1", Kind: "planeswalker", ID: "card-w", Maximum: 1},
+			{ResponseID: "combat-target:2", Kind: "battle", ID: "card-b", Maximum: 1},
 		},
 	}, game, &forge.GameView{
 		Players: []forge.PlayerView{{ID: "player-0", Name: "Alice"},
@@ -254,16 +255,21 @@ func TestProjectedRulesPromptCombatUsesViewerProjection(t *testing.T) {
 				{Visibility: "visible", ID: "card-w", Identity: &forge.CardIdentityView{
 					Name: "Jace", SetCode: "WWK", CardNumber: "31",
 				}},
+				{Visibility: "visible", ID: "card-b", Identity: &forge.CardIdentityView{
+					Name: "Invasion of Zendikar", SetCode: "MOM", CardNumber: "194",
+				}},
 			}}},
 	})
 	if err != nil {
 		t.Fatalf("projectedRulesPrompt: %v", err)
 	}
 	if len(prompt.CombatSources) != 1 || prompt.CombatSources[0].Name != "Goblin Guide" ||
-		!prompt.CombatSources[0].MustAssignIfAble || len(prompt.CombatTargets) != 2 ||
+		!prompt.CombatSources[0].MustAssignIfAble || len(prompt.CombatTargets) != 3 ||
 		prompt.CombatSources[0].Maximum == nil || *prompt.CombatSources[0].Maximum != 1 ||
 		prompt.CombatTargets[0].Label != "Bob · Seat 1" || prompt.CombatTargets[0].Seat == nil || *prompt.CombatTargets[0].Seat != 0 ||
-		prompt.CombatTargets[1].Name != "Jace" {
+		prompt.CombatTargets[1].Name != "Jace" || prompt.CombatTargets[1].ObjectID != "card-w" ||
+		prompt.CombatTargets[2].Kind != "battle" || prompt.CombatTargets[2].ObjectID != "card-b" ||
+		prompt.CombatTargets[2].Name != "Invasion of Zendikar" {
 		t.Fatalf("combat prompt = %+v", prompt)
 	}
 	encoded, err := json.Marshal(prompt)

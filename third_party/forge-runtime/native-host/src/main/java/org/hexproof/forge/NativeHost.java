@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets;
 public final class NativeHost {
     public static final String FORGE_COMMIT = "0485ad49fb10c8ef5b3eda2a002c963d59be71dc";
     // Adapter 31 adds bounded crash capsules and immutable diagnostic producer IDs.
-    static final int ADAPTER_REVISION = 37;
+    static final int ADAPTER_REVISION = 38;
     static final Gson JSON = new Gson();
     private NativeHost() { }
 

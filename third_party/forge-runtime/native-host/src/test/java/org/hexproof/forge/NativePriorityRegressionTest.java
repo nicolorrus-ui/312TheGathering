@@ -41,6 +41,84 @@ public final class NativePriorityRegressionTest {
                     "sacrifice-mana", "floating-mana", "phyrexian")) run(base, scenario);
             for (String scenario : List.of("payable-instant", "alternative-cost", "no-action"))
                 necrodominance(base, scenario);
+            activationInResponse(base);
+            opposingTriggerOnCast(base);
+        }
+    }
+
+    private static void activationInResponse(NativeGuiBase base) throws Exception {
+        try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("priority-response", 42), base);
+                var scope = session.context.enter()) {
+            base.setTestSession(session);
+            Player owner = session.game.getPlayers().get(0), opponent = session.game.getPlayers().get(1);
+            session.game.setAge(GameStage.Play);
+            session.game.setStartingPlayer(opponent);
+            session.game.getPhaseHandler().devModeSet(PhaseType.MAIN2, opponent, false, 4);
+            Card vial = card(session.game, owner, "Aether Vial", ZoneType.Battlefield);
+            var spell = card(session.game, owner, "Pact of the Titan", ZoneType.Hand).getFirstSpellAbility();
+            var response = card(session.game, opponent, "Pact of the Titan", ZoneType.Hand).getFirstSpellAbility();
+            session.game.getPhaseHandler().setPriority(owner);
+            AtomicInteger choices = new AtomicInteger();
+            drive(session, owner, () -> {
+                var human = owner.getController();
+                require(human.playChosenSpellAbility(spell) && human.chooseSpellAbilityToPlay() == null,
+                        "Could not cast and pass on the opponent's turn");
+                session.game.getPhaseHandler().setPriority(opponent);
+                require(opponent.getController().playChosenSpellAbility(response)
+                        && session.game.getStack().size() == 2, "Opponent could not cast a response");
+                session.game.getPhaseHandler().setPriority(owner);
+                var selected = human.chooseSpellAbilityToPlay();
+                require(selected != null && selected.size() == 1 && selected.getFirst().getHostCard() == vial,
+                        "Could not respond to the opponent's spell with Aether Vial");
+                require(human.playChosenSpellAbility(selected.getFirst()) && vial.isTapped()
+                        && session.game.getStack().size() == 3, "Aether Vial activation failed");
+                require(human.chooseSpellAbilityToPlay() == null && human.chooseSpellAbilityToPlay() == null,
+                        "Expected explicit passes with the ability still on the stack");
+            }, input -> {
+                require(input.get("type").getAsString().equals("chooseAction"), "Expected native priority: " + input);
+                int step = choices.getAndIncrement();
+                require(input.has("afterOwnStackAction") == (step == 0 || step == 2),
+                        "Only priority immediately after our own spell or activation should pass: " + input);
+                if (step != 1) return NativeSession.object("type", "pass");
+                JsonObject action = NativeSession.object("type", "act");
+                action.addProperty("actionId", "card:" + vial.getId());
+                return action;
+            });
+            require(choices.get() == 4, "Missing opponent response or post-activation priority window");
+            System.out.println("PASS native priority activation in response");
+        }
+    }
+
+    private static void opposingTriggerOnCast(NativeGuiBase base) throws Exception {
+        try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("priority-trigger", 42), base);
+                var scope = session.context.enter()) {
+            base.setTestSession(session);
+            Player owner = session.game.getPlayers().get(0), opponent = session.game.getPlayers().get(1);
+            session.game.setAge(GameStage.Play);
+            session.game.setStartingPlayer(owner);
+            session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, owner, false, 2);
+            var chalice = card(session.game, opponent, "Chalice of the Void", ZoneType.Battlefield);
+            var spell = card(session.game, owner, "Ornithopter", ZoneType.Hand).getFirstSpellAbility();
+            card(session.game, owner, "Aether Vial", ZoneType.Battlefield);
+            session.game.getTriggerHandler().resetActiveTriggers();
+            AtomicInteger decisions = new AtomicInteger();
+            drive(session, owner, () -> {
+                var human = owner.getController();
+                require(human.playChosenSpellAbility(spell), "Could not cast Ornithopter");
+                var stack = session.game.getStack();
+                stack.addAllTriggeredAbilitiesToStack();
+                var trigger = stack.peekAbility();
+                require(stack.size() == 2 && trigger.isTrigger() && trigger.getHostCard() == chalice
+                        && trigger.getActivatingPlayer() == opponent, "Opponent's Chalice did not trigger above the spell");
+                require(human.chooseSpellAbilityToPlay() == null, "Could not respond to Chalice");
+            }, input -> {
+                require(input.get("type").getAsString().equals("chooseAction") && !input.has("afterOwnStackAction")
+                        && !input.get("autoPassEligible").getAsBoolean(), "Chalice was about to resolve without a response: " + input);
+                decisions.incrementAndGet();
+                return NativeSession.object("type", "pass");
+            });
+            require(decisions.get() == 1, "Missing priority after the Chalice trigger");
+            System.out.println("PASS native priority opposing trigger above own cast");
         }
     }
 

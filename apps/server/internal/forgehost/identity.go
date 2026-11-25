@@ -5,7 +5,7 @@ package forgehost
 
 // RuntimeID covers native sources, reviewed patches, and the diagnostic generator.
 // Verify changes with third_party/forge-runtime/build-overlay.py --identity.
-const RuntimeID = "0485ad49fb10c8ef5b3eda2a002c963d59be71dc-adapter37-7137f654b800095815eb2f9dcad736fc0d8e82038a5e42b7072d6b421d50237c"
+const RuntimeID = "0485ad49fb10c8ef5b3eda2a002c963d59be71dc-adapter38-e1f5233783267a162043fef828b1889d0ba48d9086ea53da16c8324dbaa97dc8"
 
 // BaseRuntimeID is the immutable downloadable resource/dependency distribution.
 // The packaged overlay supersedes its old adapter classes before starting Java.

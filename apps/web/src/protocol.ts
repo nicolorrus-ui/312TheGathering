@@ -34,8 +34,8 @@ export type Prompt = {
   minSelections: number; maxSelections: number; minCardSelections: number; maxCardSelections: number;
   minChoiceTotal: number; maxChoiceTotal: number; minNumber: number; maxNumber: number;
   scryDestinations: string[]; orderItems: (Identity & { responseId: string; oracle?: string })[];
-  combatSources: (Identity & { responseId: string; objectId: string; validTargetIds: string[]; label: string })[];
-  combatTargets: Target[]; damageSource?: { label: string }; damageTargets: (Target & { lethalDamage: number })[];
+  combatSources: (Identity & { responseId: string; objectId: string; validTargetIds: string[]; label: string; maxAssignments?: number })[];
+  combatTargets: (Target & { maxAssignments?: number })[]; damageSource?: { label: string }; damageTargets: (Target & { lethalDamage: number })[];
   totalDamage: number; damageAssignmentMode?: string;
 };
 export type RulesPriority = { roomId: string; hold: boolean; stops: string[] };

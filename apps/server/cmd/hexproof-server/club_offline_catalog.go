@@ -46,7 +46,7 @@ type offlineCatalog struct {
 	faces  map[string]*offlineCardInfo
 }
 
-func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool) error {
+func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool, artwork *clubImageCache) error {
 	if !offline {
 		cards := newClubCardArt()
 		mux.Handle("GET /card-search", clubSearchFunc(cards.search))
@@ -57,7 +57,7 @@ func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool) error
 	if err != nil {
 		return err
 	}
-	art, err := newClubOfflineArt(files, catalog.cardInfo)
+	art, err := newClubOfflineArt(files, catalog.cardInfo, artwork)
 	if err != nil {
 		return err
 	}

@@ -357,17 +357,18 @@ async function act(peer, opponent) {
       break;
     }
     case "payManaCost": {
+      const dock = page.getByRole("group", { name: "Priority controls" });
+      await dock.getByRole("region", { name: "Mana payment" }).waitFor();
+      assert.equal(await page.locator(".decision").count(), 0);
       const payment = prompt.options.some(({ responseId }) => responseId === "$auto-pay")
-        ? page.getByRole("group", { name: "Priority controls" }).getByRole("button", { name: "Auto Pay", exact: true })
-        : panel.getByRole("button", { name: "Confirm payment", exact: true });
+        ? dock.getByRole("button", { name: "Auto Pay", exact: true })
+        : dock.getByRole("button", { name: "Confirm payment", exact: true });
       if (await payment.count()) await clickFirst(payment);
       else {
         const source = page.getByRole("region", { name: "Your battlefield" })
           .locator('[data-actionable="true"][data-tapped="false"][aria-label="Mountain"]');
-        if (await source.count()) {
-          await panel.getByRole("button", { name: "Minimize" }).click();
-          await clickFirst(source);
-        } else await panel.getByRole("button", { name: "Cancel", exact: true }).click();
+        if (await source.count()) await clickFirst(source);
+        else await dock.getByRole("button", { name: "Cancel", exact: true }).click();
       }
       break;
     }
@@ -375,6 +376,11 @@ async function act(peer, opponent) {
       const selected = panel.locator(".choice-card:not([disabled])").filter({ hasText: /Mountain/ });
       if (await selected.count()) {
         await until(() => opponent.prompt?.pending === false, "private search projection");
+        const choices = await panel.locator(".choice-card").evaluateAll((items) => items.map((item) => item.disabled));
+        const eligible = choices.filter((disabled) => !disabled).length;
+        if (!stats.privateSearch) assert.ok(eligible < choices.length, "first search also displays read-only cards");
+        assert.deepEqual(choices, [...Array(eligible).fill(false), ...Array(choices.length - eligible).fill(true)],
+          "library search must show every eligible card before read-only cards");
         verifyPrivacy(opponent);
         if (verifyImages) {
           await verifyImage(selected.locator("img"));
@@ -393,6 +399,8 @@ async function act(peer, opponent) {
       break;
     }
     case "chooseAttackers":
+      await page.getByRole("group", { name: "Priority controls" }).getByRole("button", { name: "No Attack", exact: true }).click({ timeout: 4500 });
+      break;
     case "chooseBlockers":
       await panel.getByRole("button", { name: "Confirm", exact: true }).click({ timeout: 4500 });
       break;

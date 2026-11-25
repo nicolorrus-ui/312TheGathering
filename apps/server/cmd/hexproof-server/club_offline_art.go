@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"image/jpeg"
 	"io/fs"
 	"net/http"
 	"regexp"
@@ -30,7 +29,7 @@ type offlineArtPack struct {
 
 var packJPEG = regexp.MustCompile(`^[0-9a-f-]{36}(-b)?\.jpg$`)
 
-func newClubOfflineArt(files fs.FS, lookup func(string) *offlineCardInfo) (http.Handler, error) {
+func newClubOfflineArt(files fs.FS, lookup func(string) *offlineCardInfo, artwork *clubImageCache) (http.Handler, error) {
 	var pack offlineArtPack
 	data, err := fs.ReadFile(files, "assets/cards/index.json")
 	switch {
@@ -63,25 +62,30 @@ func newClubOfflineArt(files fs.FS, lookup func(string) *offlineCardInfo) (http.
 			prefix = "token:"
 		}
 		key := strings.ToLower(name)
-		images := []string{pack.Names[prefix+key]}
-		if set != "" && number != "" {
+		image := pack.Names[prefix+key]
+		if set != "" || number != "" {
 			version := pack.Printings[prefix+set+"/"+strings.ToLower(number)]
-			images = []string{version.Faces[key], version.Front}
+			image = version.Faces[key]
+			if len(version.Faces) == 0 {
+				image = version.Front
+			}
 		}
-		for _, image := range images {
-			if !packJPEG.MatchString(image) {
-				continue
+		if packJPEG.MatchString(image) {
+			if file, err := files.Open("assets/cards/" + image); err == nil {
+				data := readClubJPEG(file)
+				file.Close()
+				if data != nil {
+					serveClubJPEG(w, r, data)
+					return
+				}
 			}
-			data, err := fs.ReadFile(files, "assets/cards/"+image)
-			if err != nil {
-				continue
+		}
+		if artwork != nil {
+			id := clubImageID{artKey{key, set, strings.ToLower(number)}, prefix != ""}
+			if data := artwork.image(r.Context(), id); data != nil {
+				serveClubJPEG(w, r, data)
+				return
 			}
-			if _, err := jpeg.DecodeConfig(bytes.NewReader(data)); err != nil {
-				continue
-			}
-			w.Header().Set("Content-Type", "image/jpeg")
-			http.ServeContent(w, r, image, time.Time{}, bytes.NewReader(data))
-			return
 		}
 
 		info := offlineCardInfo{Name: name}
@@ -98,6 +102,11 @@ func newClubOfflineArt(files fs.FS, lookup func(string) *offlineCardInfo) (http.
 			_ = offlineCardSVG.Execute(w, offlineCardLayout(info, printing))
 		}
 	}), nil
+}
+
+func serveClubJPEG(w http.ResponseWriter, r *http.Request, data []byte) {
+	w.Header().Set("Content-Type", "image/jpeg")
+	http.ServeContent(w, r, "card.jpg", time.Time{}, bytes.NewReader(data))
 }
 
 type artLine struct {

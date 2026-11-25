@@ -156,7 +156,7 @@ func TestLiveForgePriorityManaUndo(t *testing.T) {
 	initialLands := len(forests())
 	assertPriority := func(tapped bool, green int) {
 		t.Helper()
-		if prompt.Kind != "chooseAction" || prompt.PlayerIndex != 0 || prompt.PaymentID != "" ||
+		if prompt.Kind != "chooseAction" || prompt.PlayerIndex != 0 || prompt.PaymentID != "" || prompt.AfterOwnStackAction ||
 			view.GameOver || view.Turn != baseline.Turn || view.Step != baseline.Step ||
 			view.ActivePlayerID != baseline.ActivePlayerID || view.PriorityPlayerID != baseline.PriorityPlayerID ||
 			view.PriorityPlayerID != "player-0" || len(view.Stack) != 0 {
@@ -256,6 +256,13 @@ func TestLiveForgePriorityManaUndo(t *testing.T) {
 		t.Fatal("undoing later mana did not restore land undo")
 	}
 
+	act("cast", bearID)
+	if prompt.Kind != "payManaCost" || prompt.AfterOwnStackAction {
+		t.Fatal("starting an unpaid cast did not preserve the payment window")
+	}
+	submit(PromptResponse{ResponseID: "$cancel"})
+	assertPriority(false, 0)
+
 	// Spend both floating mana on a real spell and resolve it. Completed payment
 	// must not offer either source for undo or return the spell's spent mana.
 	act("activateAbility", sourceID)
@@ -266,8 +273,13 @@ func TestLiveForgePriorityManaUndo(t *testing.T) {
 		t.Fatal("ordinary priority did not offer only the latest reversible source")
 	}
 	act("cast", bearID)
+	firstPriority := true
 	for decisions := 0; decisions < 100; decisions++ {
 		if prompt.Kind == "chooseAction" {
+			if prompt.AfterOwnStackAction != firstPriority || firstPriority && (prompt.PlayerIndex != 0 || len(view.Stack) == 0) {
+				t.Fatalf("post-cast priority hint must occur only on the caster's first stacked window: %+v", prompt)
+			}
+			firstPriority = false
 			for _, candidate := range prompt.Options {
 				if candidate.Kind == "undoMana" && (candidate.CardID == sourceID || candidate.CardID == secondID) {
 					t.Fatal("completed creature payment exposed spent mana for undo")

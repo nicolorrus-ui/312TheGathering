@@ -9,9 +9,13 @@ import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.player.Player;
+import forge.game.player.DelayedReveal;
+import forge.game.zone.ZoneType;
 import forge.game.spellability.SpellAbility;
+import forge.game.spellability.SpellAbilityStackInstance;
 import forge.player.PlayerControllerHuman;
 import java.util.List;
+import java.util.Set;
 import java.util.HashSet;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -21,6 +25,9 @@ final class NativeDecisionController extends PlayerControllerHuman {
     private final NativeSession session;
     private final Integer starts;
     final NativeLandUndo landUndo;
+    private record HiddenTop(Card card, Player viewer) {}
+    private volatile Set<HiddenTop> hiddenSearchTops = Set.of();
+    private volatile SpellAbilityStackInstance ownStackAction;
 
     NativeDecisionController(NativeSession session, Game game, Player player, LobbyPlayer lobby, Integer starts) {
         super(game, player, lobby);
@@ -36,6 +43,49 @@ final class NativeDecisionController extends PlayerControllerHuman {
     @Override public Player chooseStartingPlayer(boolean firstGame) {
         return starts == null ? super.chooseStartingPlayer(firstGame) : getGame().getRegisteredPlayers().get(starts);
     }
+    // Forge temporarily grants visibility to the objects in a choice. Remember which
+    // physical tops were hidden before that grant so a snapshot cannot identify them
+    // among the authorized cards. The prompt still uses Forge's full disclosure.
+    private <T> T libraryChoice(List<ZoneType> origin, Supplier<T> action) {
+        if (!origin.contains(ZoneType.Library)) return action.get();
+        var hidden = new HashSet<HiddenTop>();
+        var players = getGame().getRegisteredPlayers();
+        for (Player owner : players) {
+            var library = owner.getCardsIn(ZoneType.Library);
+            if (library.isEmpty()) continue;
+            Card top = library.getFirst();
+            for (Player viewer : players) {
+                if (!top.getView().canBeShownTo(viewer.getView())) hidden.add(new HiddenTop(top, viewer));
+            }
+        }
+        var previous = hiddenSearchTops;
+        hidden.addAll(previous);
+        hiddenSearchTops = Set.copyOf(hidden);
+        try { return action.get(); }
+        finally { hiddenSearchTops = previous; }
+    }
+
+    static boolean hidesSearchTop(Card top, Player viewer) {
+        if (viewer == null) return false;
+        for (Player player : viewer.getGame().getRegisteredPlayers()) {
+            if (player.getController() instanceof NativeDecisionController controller && !controller.hiddenSearchTops.isEmpty()
+                    && controller.hiddenSearchTops.contains(new HiddenTop(top, viewer))) return true;
+        }
+        return false;
+    }
+
+    @Override public Card chooseSingleCardForZoneChange(ZoneType destination, List<ZoneType> origin, SpellAbility ability,
+            CardCollection candidates, DelayedReveal reveal, String prompt, boolean optional, Player decider) {
+        return libraryChoice(origin, () -> super.chooseSingleCardForZoneChange(destination, origin, ability, candidates,
+                NativeLibrarySearch.forZoneChange(reveal, getPlayer()), prompt, optional, decider));
+    }
+
+    @Override public List<Card> chooseCardsForZoneChange(ZoneType destination, List<ZoneType> origin, SpellAbility ability,
+            CardCollection candidates, int min, int max, DelayedReveal reveal, String prompt, Player decider) {
+        return libraryChoice(origin, () -> super.chooseCardsForZoneChange(destination, origin, ability, candidates, min, max,
+                NativeLibrarySearch.forZoneChange(reveal, getPlayer()), prompt, decider));
+    }
+
     @Override public void revealForDiscard(forge.game.card.CardCollectionView cards, Player owner) {
         // DiscardEffect calls this only when a choice follows immediately. Its
         // exact authorized disclosure is supplied again as visibleToChooser.
@@ -112,12 +162,29 @@ final class NativeDecisionController extends PlayerControllerHuman {
     }
     @Override public List<SpellAbility> chooseSpellAbilityToPlay() {
         landUndo.finishLand();
-        List<SpellAbility> choices = super.chooseSpellAbilityToPlay();
+        List<SpellAbility> choices;
+        try {
+            choices = super.chooseSpellAbilityToPlay();
+        } finally {
+            // This covers exactly one native priority decision, even when Forge yields internally.
+            ownStackAction = null;
+        }
         if (choices == null || choices.isEmpty()) {
             landUndo.clear();
             if (getGame().getStack().canUndo(getPlayer())) getGame().getStack().clearUndoStack();
         }
         return choices;
+    }
+    boolean priorityAfterOwnStackAction() {
+        var action = ownStackAction;
+        if (action == null) return false;
+        // State-based actions and pending triggers run before priority. Keep the
+        // window if an opponent put anything above our action in the meantime.
+        for (var item : getGame().getStack()) {
+            if (item == action) return true;
+            if (item.getSpellAbility().getActivatingPlayer() != getPlayer()) return false;
+        }
+        return false;
     }
     @Override public boolean playChosenSpellAbility(SpellAbility ability) {
         // Affordability previews can leave a planned color on the reusable ability.
@@ -125,7 +192,22 @@ final class NativeDecisionController extends PlayerControllerHuman {
         if (ability.isManaAbility() && !ability.isUndoable())
             ability.setManaExpressChoice(ColorSet.fromMask(0));
         landUndo.begin(ability);
+        var previousStack = new HashSet<Integer>();
+        for (var item : getGame().getStack()) previousStack.add(item.getId());
         boolean played = deciding(ability, () -> super.playChosenSpellAbility(ability));
+        if (played && !ability.isManaAbility() && (ability.isSpell() || ability.isActivatedAbility())) {
+            // Forge can copy the chosen ability for alternate costs or an activation.
+            // Inspect the actual stack to exclude special actions, land drops and failed casts.
+            for (var item : getGame().getStack()) {
+                SpellAbility placed = item.getSpellAbility();
+                if (!previousStack.contains(item.getId()) && placed.getActivatingPlayer() == getPlayer()
+                        && placed.getHostCard().getId() == ability.getHostCard().getId()
+                        && !placed.isTrigger() && !placed.isCopied() && (placed.isSpell() || placed.isActivatedAbility())) {
+                    ownStackAction = item;
+                    break;
+                }
+            }
+        }
         landUndo.finishMana(ability, played);
         return played;
     }

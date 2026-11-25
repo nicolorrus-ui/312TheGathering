@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
 import { CardHoverPreview, CardImage, type CardHover } from "./CardImages";
 import { Decision, DecisionPanel, Options } from "./Decisions";
+import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
 import { PhaseControls, usePriorityStops } from "./PhaseControls";
 import type { Card, GameMetadata, Identity, Option, Player, Prompt, Response, RulesPriority, Snapshot, Zone } from "./protocol";
 
@@ -23,17 +24,18 @@ type TouchDragHandlers = {
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 };
 
-function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style }: {
+function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style, attack }: {
   card: Card; actionable?: boolean; selected?: boolean; activate?: () => void;
   drag?: (event: DragEvent) => void; touch?: TouchDragHandlers; inspect?: () => void; hover: CardHover; style?: CSSProperties;
-  dragEnd?: () => void; dragging?: boolean;
+  dragEnd?: () => void; dragging?: boolean; attack?: AttackControl;
 }) {
   const showBack = !card.visible || Boolean(card.faceDown);
   const name = (card.visible ? card.identity?.name : undefined) ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
   return <div className={`card-slot ${card.tapped ? "tapped" : ""}`} data-dragging={dragging || undefined} style={style}>
     <button type="button" className={`table-card ${card.land ? "land" : ""} ${showBack ? "card-back" : ""}`}
-      data-card-id={card.id} data-actionable={Boolean(actionable)} data-tapped={Boolean(card.tapped)}
-      aria-label={name} aria-pressed={selected || undefined} title={card.typeLine ? `${name} · ${card.typeLine}` : name}
+      data-card-id={card.id} data-attack-state={attack?.state} data-actionable={Boolean(actionable)} data-tapped={Boolean(card.tapped)}
+      aria-label={name} aria-description={attack?.label ? `Attacking ${attack.label}` : attack?.state === "target" ? "Attack target" : undefined}
+      aria-pressed={selected || undefined} title={card.typeLine ? `${name} · ${card.typeLine}` : name}
       aria-disabled={!activate && !drag || undefined} tabIndex={!activate && !drag ? -1 : undefined}
       draggable={Boolean(drag)} onDragStart={drag} onDragEnd={dragEnd} onClick={activate} {...touch}
       onMouseEnter={(event) => hover(showBack ? undefined : card.identity, event.currentTarget)} onMouseLeave={() => hover()}
@@ -45,18 +47,19 @@ function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd,
         <CardImage identity={card.identity} className="table-card-image" decorative eager compact />
       </>}
       {card.power !== undefined && <b className="pt">{card.power}/{card.toughness}</b>}
-      {card.attacking && <span className="combat-tag">Attacking</span>}
+      {attack?.state === "attacking" ? <span className="combat-tag">→ {attack.label}</span>
+        : card.attacking && <span className="combat-tag">Attacking</span>}
       {Boolean(card.blocking?.length) && <span className="combat-tag">Blocking</span>}
     </button>
   </div>;
 }
 
-function PlayerChip({ player, zone, zones, active, target, selected, selectTarget, selectZone }: {
+function PlayerChip({ player, zone, zones, active, target, selected, selectTarget, selectZone, attack }: {
   player: Player; zone: (name: string) => Zone | undefined; zones: string[];
-  active: boolean; target?: boolean; selected?: boolean; selectTarget: () => void; selectZone?: (zone: Zone) => void;
+  active: boolean; attack?: AttackControl; target?: boolean; selected?: boolean; selectTarget: () => void; selectZone?: (zone: Zone) => void;
 }) {
   return <div className="player-chip">
-    <button type="button" className="player-life" data-actionable={Boolean(target)} data-active={active}
+    <button type="button" className="player-life" data-attack-state={attack?.state} data-actionable={Boolean(target)} data-active={active}
       onClick={selectTarget} disabled={!target} aria-label={`Target ${player.name}`} aria-description={`${player.life} life`}
       aria-pressed={target ? selected : undefined}>
       <span className="monogram" aria-hidden="true">{player.name.slice(0, 1).toUpperCase()}</span>
@@ -98,6 +101,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const stopped = priorityStops.stops.has(`${myTurn ? "own" : "other"}:${game.step}`);
   const owner = game.players.find((player) => player.seat === seat);
   const opponent = game.players.find((player) => player.seat !== seat);
+  const attackPrompt = !game.gameOver && decision?.supported && decision.kind === "chooseAttackers" ? decision : undefined;
+  const attacks = useAttackDeclaration(attackPrompt, opponent?.seat);
   const autoPassCurrent = !priorityStops.hold && autoPass?.turn === game.turn &&
     (autoPass.step === game.step || (autoPass.until === "turn" && !stopped));
 
@@ -111,8 +116,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     if (dragging && !activeDrag) setDragging(undefined);
   }, [activeDrag, dragging]);
   const pass = decision?.options.find((option) => option.responseId === "$pass");
-  const autoPay = !game.gameOver && decision?.supported && decision.kind === "payManaCost"
-    ? decision.options.find((option) => option.responseId === "$auto-pay") : undefined;
+  const payment = decision?.supported && decision.kind === "payManaCost" ? decision : undefined;
+  const autoPay = !game.gameOver && payment?.options.find((option) => option.responseId === "$auto-pay");
 
   useEffect(() => {
     // Only send a currently published ordinary-priority response. Every
@@ -230,14 +235,16 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     const clickOptions = options.filter((option) => !playsCard(option, zone));
     const canDrag = !locked && dragOptions.length > 0;
     const inspect = spectating ? undefined : () => setReviewId(card.id);
-    const activate = spectating || canDrag && !targets.length && !clickOptions.length ? undefined : () => {
+    const combat = attackPrompt && zone === "battlefield" ? attacks.cardControl(card.id) : undefined;
+    const activate = attackPrompt && zone === "battlefield" ? (!locked ? combat?.activate : undefined)
+      : spectating || canDrag && !targets.length && !clickOptions.length ? undefined : () => {
       if (!locked && targets.length === 1) toggleTarget(targets[0].responseId);
       else if (!locked && !targets.length && clickOptions.length) chooseAction(clickOptions);
       else if (!targets.length) inspect?.();
     };
-    const actionable = !locked && Boolean(options.length || targets.length);
-    return <TableCard key={card.id} card={card} actionable={actionable}
-      selected={targets.some((target) => targetIds.includes(target.responseId))}
+    const actionable = !locked && Boolean(combat?.activate || options.length || targets.length);
+    return <TableCard key={card.id} card={card} actionable={actionable} attack={combat}
+      selected={combat?.state === "choosing" || combat?.state === "attacking" || targets.some((target) => targetIds.includes(target.responseId))}
       activate={activate} inspect={inspect} hover={hoverCard}
       style={fan ? fanPosition(fan.index, fan.count) : undefined}
       dragging={activeDrag?.card.id === card.id}
@@ -272,11 +279,13 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
 
   const showPlayer = (player: Player, own: boolean) => {
     const targets = decision?.targets.filter((target) => target.seat === player.seat && !target.selected) ?? [];
-    return <PlayerChip player={player} zone={(zone) => zoneFor(player.seat, zone)}
+    const combat = attackPrompt ? attacks.playerControl(player.seat) : undefined;
+    return <PlayerChip player={player} attack={combat} zone={(zone) => zoneFor(player.seat, zone)}
       zones={own ? ["library", "graveyard", "exile"] : ["hand", "library", "graveyard", "exile"]}
       active={!game.gameOver && game.activeSeat === player.seat}
       selected={targets.some((target) => targetIds.includes(target.responseId))}
-      target={!locked && targets.length === 1} selectTarget={() => targets.length === 1 && toggleTarget(targets[0].responseId)}
+      target={!locked && Boolean(combat?.activate || targets.length === 1)}
+      selectTarget={combat?.activate ?? (() => targets.length === 1 && toggleTarget(targets[0].responseId))}
       selectZone={spectating ? undefined : (zone) => setOpenedZone({ ownerSeat: zone.ownerSeat, zone: zone.zone })} />;
   };
   const showPermanents = (who: number, lands: boolean) => allPermanents.filter((card) =>
@@ -312,7 +321,9 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         <span className="waiting" role="status" data-decision={Boolean(decision && !locked)}>{
           game.gameOver ? (game.winnerSeat === undefined ? "Draw" : game.winnerSeat === seat && !spectating ? "You won"
             : `${(game.winnerSeat === seat ? owner : opponent).name} won`)
-            : !online ? "Reconnecting…" : spectating ? "Watching live" : locked ? "Syncing…" : decision ? "Your decision" : "Waiting for opponent"
+            : !online ? "Reconnecting…" : spectating ? "Watching live" : locked ? "Syncing…"
+            : attackPrompt ? (attacks.choosing ? `Choose a defender for ${attacks.choosing.label}` : "Declare attackers")
+            : decision ? "Your decision" : "Waiting for opponent"
         }</span>
       </div>
       <section className="battlefield home" aria-label={spectating ? `${owner.name}'s battlefield` : "Your battlefield"}
@@ -344,26 +355,43 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         })}</div>
       </aside>}
       {!spectating && <div className="action-dock">
-        {decision && !priority && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
+        {decision && !priority && !payment && !attackPrompt && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
           toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} hoverCard={hoverCard} />}
         {currentMenu?.length && <DecisionPanel key={decision?.promptId} title="Choose an action">
           <Options options={currentMenu} submit={respond} />
           <footer><button type="button" className="quiet" onClick={() => setActionMenu(undefined)}>Close</button></footer>
         </DecisionPanel>}
         <fieldset className="priority-actions" aria-label="Priority controls" disabled={locked}>
-          {priorityOptions.length > 0 && <Options options={priorityOptions} submit={respond} />}
-          {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : priority && !game.gameOver && !priorityStops.hold &&
-            <details className="auto-pass"><summary>Auto-pass</summary><div className="choices">
-              <button type="button" onClick={() => setAutoPass({ until: "step", step: game.step, turn: game.turn })}>This step</button>
-              <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
-            </div></details>}
-          {stackPass && <button type="button" onClick={() => respond({ responseId: "$pass-stack" })}>Pass until stack resolves</button>}
-          {game.gameOver && metadata?.result?.matchFinished ? <button className="primary" type="button" onClick={back}>
-            {tournamentTable ? "Return to tournament" : "Return to room"}
-          </button> : autoPay ? <button type="button" className="primary"
-            onClick={() => respond({ responseId: autoPay.responseId })}>Auto Pay</button> :
-            <button type="button" className="primary" disabled={!priority || !pass}
-              onClick={() => pass && respond({ responseId: pass.responseId })}>Pass priority</button>}
+          {attackPrompt ? <>
+            <div className="attack-shortcuts">
+              <button type="button" disabled={!attacks.canStrikeAll} onClick={attacks.strikeAll}>All Strike</button>
+              <button type="button" onClick={() => respond({ responseId: "$submit", assignments: [] })}>No Attack</button>
+            </div>
+            {attacks.hasDraft && <button className="quiet" type="button" onClick={attacks.clear}>Cancel</button>}
+            <button className="primary" type="button" disabled={Boolean(attacks.choosing)}
+              onClick={() => respond({ responseId: "$submit", assignments: attacks.assignments })}>Confirm</button>
+          </> : <>
+            {payment && <section className="mana-payment" aria-label="Mana payment">
+              <strong role="status">{payment.title || "Pay mana"}</strong>
+              <Options options={payment.options.filter((option) => option.responseId !== "$auto-pay" &&
+                (!option.cardId || option.kind === "undoMana"))} submit={respond} />
+              {payment.cancellable && !payment.options.some((option) => option.responseId === "$cancel") &&
+                <button type="button" className="quiet" onClick={() => respond({ responseId: "$cancel" })}>Cancel action</button>}
+            </section>}
+            {priorityOptions.length > 0 && <Options options={priorityOptions} submit={respond} />}
+            {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : priority && !game.gameOver && !priorityStops.hold &&
+              <details className="auto-pass"><summary>Auto-pass</summary><div className="choices">
+                <button type="button" onClick={() => setAutoPass({ until: "step", step: game.step, turn: game.turn })}>This step</button>
+                <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
+              </div></details>}
+            {stackPass && <button type="button" onClick={() => respond({ responseId: "$pass-stack" })}>Pass until stack resolves</button>}
+            {game.gameOver && metadata?.result?.matchFinished ? <button className="primary" type="button" onClick={back}>
+              {tournamentTable ? "Return to tournament" : "Return to room"}
+            </button> : autoPay ? <button type="button" className="primary"
+              onClick={() => respond({ responseId: autoPay.responseId })}>Auto Pay</button> :
+              !payment && <button type="button" className="primary" disabled={!priority || !pass}
+                onClick={() => pass && respond({ responseId: pass.responseId })}>Pass priority</button>}
+          </>}
         </fieldset>
       </div>}
     </section>
