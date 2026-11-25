@@ -24,6 +24,31 @@ export function Options({ options, submit }: { options: Option[]; submit: (respo
 
 const within = (value: number, min: number, max: number) => value >= min && value <= max;
 
+export function simpleConfirmation(prompt?: Prompt) {
+  if (!prompt?.supported || prompt.kind !== "chooseBoolean" || prompt.cancellable || prompt.options.length ||
+      prompt.cards.length || prompt.targets.length || prompt.minChoiceTotal !== 1 || prompt.maxChoiceTotal !== 1 ||
+      prompt.choices.length !== 2 || prompt.choices.some((choice) => choice.canRepeat || choice.weight !== 1)) return;
+  const yes = prompt.choices.find((choice) => choice.responseId === "choice:1");
+  const no = prompt.choices.find((choice) => choice.responseId === "choice:0");
+  if (yes && no) return { prompt, yes, no };
+}
+
+export function ConfirmationActions({ confirmation, submit }: {
+  confirmation: NonNullable<ReturnType<typeof simpleConfirmation>>; submit: (response: Response) => void;
+}) {
+  const { prompt, yes, no } = confirmation;
+  return <>
+    <div className="confirmation-question" role="status">
+      <strong>{prompt.title}</strong>
+      {prompt.detail && prompt.detail !== prompt.title && <span>{prompt.detail}</span>}
+      {prompt.contextText && prompt.contextText !== prompt.detail && prompt.contextText !== prompt.title &&
+        <small>{prompt.contextText}</small>}
+    </div>
+    <button type="button" onClick={() => submit({ responseId: "$submit", choiceIds: [no.responseId] })}>{no.label}</button>
+    <button type="button" className="primary" onClick={() => submit({ responseId: "$submit", choiceIds: [yes.responseId] })}>{yes.label}</button>
+  </>;
+}
+
 type Props = { prompt: Prompt; targetIds: string[]; toggleTarget: (id: string) => void;
   submit: (response: Response) => void; disabled: boolean; hoverCard: CardHover };
 

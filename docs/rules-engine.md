@@ -321,6 +321,15 @@ connection carries privileged bundled publications between the helper and hub;
 it cannot join as a player or bypass seat authorization. A shared room sequence is used for all viewer-specific
 projections produced from one fan-out.
 
+Optional `cardMoves` entries describe recent physical card movements for the
+current viewer. Each entry has two zone endpoints and a sequence number assigned
+separately per game and viewer. A private move leaves no gap in another viewer's
+sequence. The endpoints use room seats and may include a visible object ID.
+Stack instances have their own IDs. A client uses these transitions to animate
+the actual destination after resolution, countering, or a replacement effect.
+Library endpoints identify the pile only. A client joining or reconnecting
+starts at the latest movement and does not replay the backlog.
+
 Each player also carries a `commanders` array (empty for ordinary decks).
 Entries contain the public designation `name`, native command-zone `casts`,
 and native `tax` surcharge before other cost adjustments. Optional `objectId`
@@ -359,7 +368,17 @@ display category only; Forge still resolves their distinct rules steps.
   immutable `spectatorsSeeHands` opt-in may overlay current hand zones only
   from their authorized owner projections. It never overlays libraries,
   sideboards, prompts or face-down battlefield identities. Public journals
-  always use the original hand-hidden spectator projection, even in these rooms.
+  always use the explicit public projection, even in these rooms.
+- A reveal grants knowledge to its recipients. A public hand reveal is visible
+  to the table, while a private look stays with its recipient. The known cards
+  appear in the hand zone alongside its total count. An ordinary draw preserves
+  prior hand knowledge. A concealed hand-to-library choice such as Brainstorm
+  invalidates it. When a copy leaves the hand publicly, observers can no longer
+  identify the other copies of that name from the previous reveal.
+- A library can expose its top card when a rule reveals it or when its identity
+  and position are known to that viewer. A search that reveals a selected card
+  does not establish that the selection was the top. Private looks by different
+  players do not grant spectators a right to inspect the top card.
 - Engine payloads and deck lists must not enter public logs, error details, or
   diagnostics. A bounded startup rejection may identify individual submitted
   cards only to their deck owner (the room host for an AI deck), using the

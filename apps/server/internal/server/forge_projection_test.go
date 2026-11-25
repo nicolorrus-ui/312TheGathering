@@ -251,18 +251,18 @@ func TestForgeStackTargetsJoinOnlyViewerObjects(t *testing.T) {
 }
 
 func TestForgeSpectatorHandPermissionDoesNotExtendOtherPrivateZones(t *testing.T) {
-	public := protocol.RulesGameSnapshot{RoomID: "ROOM", GameID: "game-1",
-		Zones: []protocol.RulesZoneState{
-			{Zone: "hand", OwnerSeat: 0, Count: 1, Cards: []protocol.RulesCardState{}},
-			{Zone: "library", OwnerSeat: 0, Count: 53, Cards: []protocol.RulesCardState{}},
-			{Zone: "battlefield", OwnerSeat: 0, Count: 1, Cards: []protocol.RulesCardState{{ID: "face-down", FaceDown: true}}},
-		}}
 	card := func(name string) protocol.RulesCardState {
 		return protocol.RulesCardState{ID: name, Visible: true, Identity: &protocol.RulesCardIdentity{Name: name}}
 	}
+	public := protocol.RulesGameSnapshot{RoomID: "ROOM", GameID: "game-1",
+		Zones: []protocol.RulesZoneState{
+			{Zone: "hand", OwnerSeat: 0, Count: 2, Cards: []protocol.RulesCardState{card("Publicly revealed hand card")}},
+			{Zone: "library", OwnerSeat: 0, Count: 53, Cards: []protocol.RulesCardState{}},
+			{Zone: "battlefield", OwnerSeat: 0, Count: 1, Cards: []protocol.RulesCardState{{ID: "face-down", FaceDown: true}}},
+		}}
 	owner := protocol.RulesGameSnapshot{RoomID: "ROOM", GameID: "game-1",
 		Zones: []protocol.RulesZoneState{
-			{Zone: "hand", OwnerSeat: 0, Count: 1, Cards: []protocol.RulesCardState{card("Authorized hand")}},
+			{Zone: "hand", OwnerSeat: 0, Count: 2, Cards: []protocol.RulesCardState{card("Publicly revealed hand card"), card("Authorized hand")}},
 			{Zone: "library", OwnerSeat: 0, Count: 53, Cards: []protocol.RulesCardState{card("SECRET LIBRARY")}},
 			{Zone: "sideboard", OwnerSeat: 0, Count: 15, Cards: []protocol.RulesCardState{card("SECRET SIDEBOARD")}},
 			{Zone: "battlefield", OwnerSeat: 0, Count: 1, Cards: []protocol.RulesCardState{card("SECRET FACE")}},
@@ -270,16 +270,16 @@ func TestForgeSpectatorHandPermissionDoesNotExtendOtherPrivateZones(t *testing.T
 	for _, enabled := range []bool{false, true} {
 		result := rulesSpectatorSnapshot(public, map[int]protocol.RulesGameSnapshot{0: owner}, enabled)
 		data, _ := json.Marshal(result)
-		if strings.Contains(string(data), "SECRET") || strings.Contains(string(data), "Authorized hand") != enabled {
+		if !strings.Contains(string(data), "Publicly revealed hand card") || strings.Contains(string(data), "SECRET") || strings.Contains(string(data), "Authorized hand") != enabled {
 			t.Fatalf("spectator permission=%v leaked/omitted identity: %s", enabled, data)
 		}
 	}
-	if len(public.Zones[0].Cards) != 0 || public.Zones[2].Cards[0].Identity != nil {
+	if len(public.Zones[0].Cards) != 1 || public.Zones[0].Cards[0].ID != "Publicly revealed hand card" || public.Zones[2].Cards[0].Identity != nil {
 		t.Fatal("hand-visible projection mutated the public journal/replay base")
 	}
 	owner.GameID = "previous-game"
 	result := rulesSpectatorSnapshot(public, map[int]protocol.RulesGameSnapshot{0: owner}, true)
-	if len(result.Zones[0].Cards) != 0 {
+	if !reflect.DeepEqual(result.Zones[0].Cards, public.Zones[0].Cards) {
 		t.Fatal("hand permission copied an old game's identity")
 	}
 }

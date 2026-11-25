@@ -90,7 +90,7 @@ func (h *Handler) rulesProjections(r *room.Room) (map[string]protocol.Envelope, 
 		if !exists {
 			return nil, fmt.Errorf("Forge projection for seat %d is unavailable", seat)
 		}
-		snapshot, err := normalizeForgeSnapshot(r.ID, game, view)
+		snapshot, err := normalizeForgeSnapshotForSeat(r.ID, game, view, seat)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +110,7 @@ func (h *Handler) rulesProjections(r *room.Room) (map[string]protocol.Envelope, 
 			if !exists {
 				return nil, fmt.Errorf("Forge projection for seat %d is unavailable", seat)
 			}
-			snapshot, err := normalizeForgeSnapshot(r.ID, game, view)
+			snapshot, err := normalizeForgeSnapshotForSeat(r.ID, game, view, seat)
 			if err != nil {
 				return nil, err
 			}
@@ -197,6 +197,10 @@ func rulesSpectatorSnapshot(public protocol.RulesGameSnapshot,
 
 func normalizeForgeSnapshot(roomID string, game forgeRoomGame,
 	view forge.GameView) (protocol.RulesGameSnapshot, error) {
+	return normalizeForgeSnapshotForSeat(roomID, game, view, -1)
+}
+
+func normalizeForgeSnapshotForSeat(roomID string, game forgeRoomGame, view forge.GameView, viewerSeat int) (protocol.RulesGameSnapshot, error) {
 	if view.GameID != game.gameID {
 		return protocol.RulesGameSnapshot{}, errors.New("Forge snapshot game id does not match room")
 	}
@@ -230,6 +234,7 @@ func normalizeForgeSnapshot(roomID string, game forgeRoomGame,
 		Zones:        make([]protocol.RulesZoneState, 0, len(view.Zones)),
 		Stack:        make([]protocol.RulesStackObject, 0, len(view.Stack)),
 		GameOver:     view.GameOver,
+		CardMoves:    projectedCardMoves(view.CardMoves, viewerSeat, seatForID),
 	}
 	for _, player := range view.Players {
 		seat, err := seatForID(player.ID)

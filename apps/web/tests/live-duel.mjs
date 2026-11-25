@@ -197,13 +197,17 @@ async function verifyStack(peer) {
   const tray = page.getByRole("complementary", { name: "Spell and ability stack" });
   await tray.waitFor();
   assert.equal(await tray.getByRole("button").count(), game.stack.length);
-  const [board, bounds, phases] = await Promise.all(
-    [page.locator(".table"), tray, page.locator(".phase-rail")].map((element) => element.boundingBox()));
-  assert.ok(bounds.x > board.x + board.width / 2 && bounds.x + bounds.width < phases.x);
+  async function centered() {
+    const [board, bounds, phases] = await Promise.all(
+      [page.locator(".table"), tray, page.locator(".phase-rail")].map((element) => element.boundingBox()));
+    assert.ok(bounds.x > board.x + board.width / 2 && bounds.x + bounds.width < phases.x);
+    assert.ok(Math.abs(bounds.y + bounds.height / 2 - page.viewportSize().height / 2) < 3);
+  }
+  await centered();
   const desktop = page.viewportSize();
   try {
     await page.setViewportSize({ width: 390, height: 844 });
-    assert.ok(await tray.isVisible());
+    await centered();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
   } finally {
     await page.setViewportSize(desktop);
@@ -333,10 +337,15 @@ async function act(peer, opponent) {
       }
       break;
     }
-    case "chooseBoolean":
-      await panel.locator(".choices button").nth(1).click({ timeout: 4500 });
-      await panel.getByRole("button", { name: "Confirm", exact: true }).click({ timeout: 4500 });
+    case "chooseBoolean": {
+      const dock = page.getByRole("group", { name: "Priority controls" });
+      for (const choice of prompt.choices) await dock.getByRole("button", { name: choice.label, exact: true }).waitFor();
+      assert.equal(await page.locator(".decision").count(), 0);
+      assert.equal(await dock.getByRole("button", { name: "Pass priority", exact: true }).count(), 0);
+      await dock.getByRole("button", { name: prompt.choices.find((choice) => choice.responseId === "choice:1").label,
+        exact: true }).click({ timeout: 4500 });
       break;
+    }
     case "chooseFromSelection":
     case "chooseColor":
       await clickFirst(panel.locator(".choices button"));

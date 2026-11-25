@@ -30,7 +30,7 @@ public final class NativeDelayedRevealRegressionTest {
                 prefs.setPref(FPref.UI_SELECT_FROM_CARD_DISPLAYS, false);
                 return null;
             });
-            for (String scenario : List.of("company", "single", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice")) {
+            for (String scenario : List.of("company", "single", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice", "public-visibility")) {
                 JsonObject config = JsonParser.parseString("{\"gameId\":\"delayed-reveal-test\",\"seed\":42,\"variant\":\"constructed\",\"startingLife\":20,\"players\":[{\"name\":\"Reveal A\",\"deck\":[{\"name\":\"Forest\"}]},{\"name\":\"Reveal B\",\"deck\":[{\"name\":\"Forest\"}]}]}").getAsJsonObject();
                 try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
                     base.setTestSession(session);
@@ -43,12 +43,38 @@ public final class NativeDelayedRevealRegressionTest {
                         case "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search" -> fetch(session, owner, scenario);
                         case "discard", "no-discard" -> discard(session, owner, scenario.equals("no-discard"));
                         case "no-choice" -> noChoice(session, owner);
+                        case "public-visibility" -> publicVisibility(session, owner);
                         default -> throw new AssertionError(scenario);
                     }
                 }
             }
         }
         System.out.println("PASS native combined choices: Company, fetch, Thoughtseize, no legal choice, privacy and invalid responses");
+    }
+
+    private static void publicVisibility(NativeSession session, Player owner) {
+        Player opponent = session.game.getPlayers().get(1);
+        Card top = card(session.game, owner, "Island", ZoneType.Library);
+        Card second = card(session.game, owner, "Forest", ZoneType.Library);
+        Card hand = card(session.game, owner, "Lightning Bolt", ZoneType.Hand);
+        owner.getZone(ZoneType.Library).setCards(List.of(top, second));
+        card(session.game, owner, "Realmwalker", ZoneType.Battlefield);
+        session.game.getAction().checkStaticAbilities();
+        top.addMayLookTemp(opponent);
+        require(top.getView().mayPlayerLook(owner.getView()) && top.getView().mayPlayerLook(opponent.getView()),
+                "Fixture must grant each player an independent look at the same top card");
+        require(!NativePublicVisibility.isPubliclyShown(top), "Separate private looks granted spectator access");
+        top.removeMayLookTemp(opponent);
+        card(session.game, owner, "Courser of Kruphix", ZoneType.Battlefield);
+        card(session.game, opponent, "Telepathy", ZoneType.Battlefield);
+        session.game.getAction().checkStaticAbilities();
+        require(NativePublicVisibility.isPubliclyShown(top) && NativePublicVisibility.isPubliclyShown(hand),
+                "Public library top or publicly revealed hand was hidden");
+        require(!NativePublicVisibility.isPubliclyShown(second), "A lower library card became public");
+        session.game.setTopLibsCast();
+        owner.getZone(ZoneType.Library).setCards(List.of(second, top));
+        session.game.getAction().checkStaticAbilities();
+        require(!NativePublicVisibility.isPubliclyShown(second), "Casting exposed the new top before Forge's reveal");
     }
 
     private static void run(NativeSession session, Player owner, boolean single) throws Exception {
@@ -250,7 +276,13 @@ public final class NativeDelayedRevealRegressionTest {
             if (decision == 0 && !noChoice) {
                 require(input.get("type").getAsString().equals("chooseCards"), "Thoughtseize required a separate hand reveal");
                 checkCards(input, Set.of("Forest", "Grizzly Bears"), Set.of("Grizzly Bears"));
-                require(!session.snapshot(-1).contains("Grizzly Bears"), "Private selection leaked to spectator");
+                String publicView = session.snapshot(-1);
+                require(publicView.contains("\"" + NativeSession.cardId(chosen) + "\"")
+                                && publicView.contains("\"" + NativeSession.cardId(land) + "\""),
+                        "Thoughtseize omitted the public hand reveal");
+                for (Card privateCard : List.of(hidden, source))
+                    require(!publicView.contains("\"" + NativeSession.cardId(privateCard) + "\""),
+                            "Thoughtseize disclosed an unrelated private card");
                 rejectCard(session, land);
                 return choose(chosen);
             }

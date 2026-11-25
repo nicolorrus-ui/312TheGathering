@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { useCardHover } from "./CardImages";
+import { printingKey } from "./decks";
 import type { DeckCard, LiveDeckList, Room } from "./protocol";
 
 type CardIndex = Record<string, [cost: string, frame: string]>;
@@ -30,25 +32,31 @@ function ManaPip({ symbol }: { symbol: string }) {
 }
 
 function DeckSection({ name, cards, index }: { name: string; cards: DeckCard[]; index: CardIndex }) {
-  const rows = new Map<string, { name: string; count: number; cost: string; frame: string }>();
+  const hover = useCardHover();
+  const rows = new Map<string, { card: DeckCard; count: number; cost: string; frame: string }>();
   for (const card of cards) {
-    const key = normalize(card.name);
+    const key = printingKey(card);
     const existing = rows.get(key);
     if (existing) existing.count += card.count;
     else {
-      const face = key.split(/\s*\/\/\s*/)[0];
-      const info = Object.hasOwn(index, key) ? index[key] : Object.hasOwn(index, face) ? index[face] : undefined;
+      const name = normalize(card.name);
+      const face = name.split(/\s*\/\/\s*/)[0];
+      const info = Object.hasOwn(index, name) ? index[name] : Object.hasOwn(index, face) ? index[face] : undefined;
       const [cost, frame] = info ?? ["", "neutral"];
-      rows.set(key, { name: card.name, count: card.count, cost, frame });
+      rows.set(key, { card, count: card.count, cost, frame });
     }
   }
   const sorted = [...rows.values()].sort((a, b) => Number(a.frame === "land") - Number(b.frame === "land")
-    || manaValue(a.cost) - manaValue(b.cost) || a.name.localeCompare(b.name));
+    || manaValue(a.cost) - manaValue(b.cost) || a.card.name.localeCompare(b.card.name));
   return <section className="live-deck-section" aria-label={name}>
     <h3>{name}<span>{sum(cards)}</span></h3>
-    <ul>{sorted.map((row) => <li key={row.name} data-frame={row.frame}>
+    <ul>{sorted.map((row) => <li key={printingKey(row.card)} data-frame={row.frame} tabIndex={0}
+      onMouseEnter={(event) => hover(row.card, event.currentTarget)} onMouseLeave={() => hover()}
+      onFocus={(event) => hover(row.card, event.currentTarget)} onBlur={() => hover()}>
       <b className="deck-quantity">{row.count}</b>
-      <span className="live-card-name" title={row.name}>{row.name}</span>
+      <span className="live-card-name">{row.card.name}
+        {row.card.setCode && <small>{row.card.setCode.toUpperCase()} {row.card.collectorNumber}</small>}
+      </span>
       {row.cost && <span className="deck-mana" role="img" aria-label={`Mana cost: ${row.cost}`}>
         {row.cost.split(/\s+/).map((symbol, i) => <ManaPip key={i} symbol={symbol} />)}
       </span>}

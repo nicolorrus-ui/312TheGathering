@@ -303,6 +303,7 @@ public final class NativePriorityManaUndoRegressionTest {
     private static void landUndo(NativeSession session, Player owner) throws Exception {
         card(session.game, owner, "Exploration", ZoneType.Battlefield);
         Card first = card(session.game, owner, "Forest", ZoneType.Hand);
+        card(session.game, owner, "Time Walk", ZoneType.Hand);
         Card exiled = card(session.game, owner, "Mountain", ZoneType.Exile);
         var battlefield = owner.getZone(ZoneType.Battlefield);
         Card entered = session.game.getAction().moveTo(battlefield, exiled, null);
@@ -343,6 +344,18 @@ public final class NativePriorityManaUndoRegressionTest {
                 }
                 case 4 -> {
                     require(undos(input, "undoLand").isEmpty(), "Already reversed land still appeared retractable");
+                    for (int viewer : List.of(1, -1)) {
+                        JsonObject snapshot = JsonParser.parseString(session.snapshot(viewer)).getAsJsonObject();
+                        JsonObject hand = snapshot.getAsJsonArray("zones").asList().stream()
+                                .map(value -> value.getAsJsonObject())
+                                .filter(zone -> zone.get("zone").getAsString().equals("hand")
+                                        && zone.get("ownerId").getAsString().equals("player-0")).findFirst().orElseThrow();
+                        var names = hand.getAsJsonArray("cards").asList().stream()
+                                .map(value -> value.getAsJsonObject().getAsJsonObject("identity").get("name").getAsString())
+                                .sorted().toList();
+                        require(hand.get("count").getAsInt() == 3 && names.equals(List.of("Forest", "Mountain")),
+                                "Reversing a public land play lost a known card or exposed an unrelated card");
+                    }
                     yield NativeSession.object("type", "pass");
                 }
                 default -> throw new AssertionError("Unexpected priority prompt");

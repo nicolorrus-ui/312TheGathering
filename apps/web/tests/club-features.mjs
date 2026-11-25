@@ -73,9 +73,11 @@ async function practiceAndResume() {
       if (player.game.zones.every((zone) => zone.zone !== "battlefield" || zone.cards.length === 0) && await readyLand.count()) {
         await readyLand.dragTo(player.page.getByRole("region", { name: "Your battlefield" }), { targetPosition: { x: 12, y: 12 } });
       } else await button(player.page, "Pass priority").click();
+    } else if (prompt.kind === "chooseBoolean") {
+      await player.page.getByRole("group", { name: "Priority controls" }).getByRole("button",
+        { name: prompt.choices[0].label, exact: true }).click();
     } else {
       await player.page.locator(".decision .choices button").first().click();
-      if (prompt.kind === "chooseBoolean") await button(player.page, "Confirm").click();
     }
     await waitFor(() => player.prompt?.promptId !== prompt.promptId || player.game.turn >= 3,
       `Forge advance from ${prompt.kind} on turn ${player.game.turn}, step ${player.game.step}`);

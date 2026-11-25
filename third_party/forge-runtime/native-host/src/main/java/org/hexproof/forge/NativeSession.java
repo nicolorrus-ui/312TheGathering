@@ -28,6 +28,8 @@ final class NativeSession implements AutoCloseable {
     final NativeGuiBase base;
     final NativeExecution context;
     final NativeReplay replay;
+    final NativeHandKnowledge knowledge;
+    final NativeCardMoves cardMoves;
     final List<NativeGuiGame> guis = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<Integer, String> snapshots = new HashMap<>();
     private final Set<SynchronousAnswer<?>> answers = new HashSet<>();
@@ -121,8 +123,10 @@ final class NativeSession implements AutoCloseable {
             rules.setAppliedVariants(EnumSet.of(type));
             match = new Match(rules, registered, "Hexproof native Forge");
             game = match.createGame();
+            knowledge = new NativeHandKnowledge(game);
             boolean recordReplay = !request.has("skipReplay") || !request.get("skipReplay").getAsBoolean();
             replay = new NativeReplay(game, id, recordReplay);
+            cardMoves = new NativeCardMoves(game);
             for (Player p : game.getRegisteredPlayers()) {
                 if (p.getController() instanceof PlayerControllerHuman human) {
                     NativeGuiGame gui = new NativeGuiGame(this, human);
@@ -313,7 +317,8 @@ final class NativeSession implements AutoCloseable {
         Map<Integer, String> copies = new HashMap<>();
         String integrity = NativeIntegrity.capture(game, context);
         for (int viewer = -1; viewer < game.getRegisteredPlayers().size(); viewer++) {
-            JsonObject snapshot = NativeSnapshot.capture(game, id, viewer, priority);
+            JsonObject snapshot = NativeSnapshot.capture(game, id, viewer, priority, knowledge);
+            cardMoves.project(snapshot, viewer);
             snapshot.addProperty("integrityHash", integrity);
             copies.put(viewer, snapshot.toString());
         }

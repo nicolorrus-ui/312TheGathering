@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Identity } from "./protocol";
 
 export type CardHover = (identity?: Identity, source?: Element) => void;
+const CardHoverContext = createContext<CardHover>(() => {});
+export const useCardHover = () => useContext(CardHoverContext);
 
 const directory = "/assets/cards/";
 type Printing = { front: string; faces: Record<string, string> };
@@ -21,6 +23,23 @@ export function cardArtURL(card: Identity, compact = false, revision = 0) {
 
 export function CardImages({ children }: { children: ReactNode }) {
   const [pack, setPack] = useState<ImagePack | null>();
+  const [preview, setPreview] = useState<{ identity: Identity; source: Element }>();
+  const hoverCard = useCallback<CardHover>((identity, source) => {
+    setPreview(identity?.name && source ? { identity, source } : undefined);
+  }, []);
+  useEffect(() => {
+    if (!preview) return;
+    // A new seat, zone or prompt can remove the source without a mouseleave.
+    const dismiss = () => setPreview((current) => current === preview ? undefined : current);
+    const checkSource = () => {
+      if (!preview.source.isConnected || !preview.source.matches(":hover, :focus-visible")) dismiss();
+    };
+    checkSource();
+    const observer = new MutationObserver(checkSource);
+    observer.observe(document.body, { subtree: true, childList: true });
+    window.addEventListener("blur", dismiss);
+    return () => { observer.disconnect(); window.removeEventListener("blur", dismiss); };
+  }, [preview]);
   useEffect(() => {
     const controller = new AbortController();
     fetch(directory + "index.json", { signal: controller.signal, cache: "no-cache" })
@@ -31,7 +50,10 @@ export function CardImages({ children }: { children: ReactNode }) {
       .catch(() => { if (!controller.signal.aborted) setPack(null); });
     return () => controller.abort();
   }, []);
-  return <ImagePackContext.Provider value={pack}>{children}</ImagePackContext.Provider>;
+  return <ImagePackContext.Provider value={pack}><CardHoverContext.Provider value={hoverCard}>
+    {children}
+    {preview && <CardHoverPreview identity={preview.identity} />}
+  </CardHoverContext.Provider></ImagePackContext.Provider>;
 }
 
 export function CardImage({ identity, className, decorative = false, eager = false, compact = false, revision }: {

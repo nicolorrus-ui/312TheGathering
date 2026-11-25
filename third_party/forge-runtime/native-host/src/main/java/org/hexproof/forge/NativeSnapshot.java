@@ -39,6 +39,10 @@ final class NativeSnapshot {
     private NativeSnapshot() { }
 
     static JsonObject capture(Game game, String gameId, int viewer, Player priorityPlayer) {
+        return capture(game, gameId, viewer, priorityPlayer, null);
+    }
+
+    static JsonObject capture(Game game, String gameId, int viewer, Player priorityPlayer, NativeHandKnowledge knowledge) {
         List<Player> players = List.copyOf(game.getRegisteredPlayers());
         if (players.size() < 2) throw new IllegalArgumentException("Snapshot requires registered players");
         if (viewer < -1 || viewer >= players.size()) throw new IllegalArgumentException("Invalid snapshot viewer");
@@ -59,7 +63,7 @@ final class NativeSnapshot {
         JsonArray zones = new JsonArray();
         for (Player player : players) {
             playerViews.add(player(game, player));
-            for (ZoneType zone : ZONES) zones.add(zone(game, player, zone, viewingPlayer));
+            for (ZoneType zone : ZONES) zones.add(zone(game, player, zone, viewingPlayer, knowledge));
         }
         result.add("players", playerViews);
         result.add("zones", zones);
@@ -152,7 +156,7 @@ final class NativeSnapshot {
         return result;
     }
 
-    private static JsonObject zone(Game game, Player player, ZoneType zone, Player viewer) {
+    private static JsonObject zone(Game game, Player player, ZoneType zone, Player viewer, NativeHandKnowledge knowledge) {
         JsonObject result = new JsonObject();
         result.addProperty("zone", zone.name().toLowerCase(Locale.ROOT));
         result.addProperty("ownerId", playerId(game, player));
@@ -163,9 +167,24 @@ final class NativeSnapshot {
             if (zone == ZoneType.Command && card.isImmutable()) continue;
             int position = count++;
             // Bulk library order and hidden card IDs never cross the boundary.
-            if (zone == ZoneType.Library && (position != 0 || NativeDecisionController.hidesSearchTop(card, viewer))) continue;
-            if (zone.isHidden() && !canSee(card, viewer)) continue;
+            if (zone == ZoneType.Library && position != 0) continue;
+            boolean hiddenTop = zone == ZoneType.Library && viewer != null && !card.mayContinuouslyLook(viewer);
+            if (zone.isHidden()) {
+                if (hiddenTop || !canSeeIdentity(card, viewer)) {
+                    JsonObject remembered = knowledge == null ? null : knowledge.remembered(card, viewer);
+                    if (remembered != null && !card.isFaceDown()) cards.add(remembered);
+                    continue;
+                }
+                if (knowledge != null) {
+                    if (zone == ZoneType.Hand) knowledge.sawVisibleHand(card, viewer);
+                    if (zone == ZoneType.Library) knowledge.rememberTop(card, viewer);
+                }
+            }
             cards.add(card(game, card, viewer, zone == ZoneType.Battlefield));
+        }
+        if (zone == ZoneType.Hand && viewer != player) {
+            // Opponents know these cards, not their positions in a private hand.
+            cards.asList().sort(java.util.Comparator.comparing(value -> value.getAsJsonObject().get("id").getAsString()));
         }
         result.addProperty("count", count);
         result.add("cards", cards);
@@ -175,6 +194,7 @@ final class NativeSnapshot {
     private static boolean canSee(Card card, Player viewer) {
         if (viewer != null) return card.getView().canBeShownTo(viewer.getView());
         ZoneType zone = card.getZone() == null ? null : card.getZone().getZoneType();
+        if (zone == ZoneType.Hand || zone == ZoneType.Library) return NativePublicVisibility.isPubliclyShown(card);
         return zone != null && !zone.isHidden() && !card.isFaceDown();
     }
 
@@ -184,8 +204,15 @@ final class NativeSnapshot {
     }
 
     private static JsonObject card(Game game, Card card, Player viewer, boolean battlefield) {
+        return card(game, card, viewer, battlefield, canSeeIdentity(card, viewer));
+    }
+
+    static JsonObject knownFace(Game game, Card card) {
+        return card(game, card, null, false, true);
+    }
+
+    private static JsonObject card(Game game, Card card, Player viewer, boolean battlefield, boolean visible) {
         JsonObject result = new JsonObject();
-        boolean visible = canSeeIdentity(card, viewer);
         // A face-down battlefield object remains a legal public target. The
         // transport distinguishes that object from knowledge of its printing.
         result.addProperty("visibility", visible || battlefield ? "visible" : "hidden");
