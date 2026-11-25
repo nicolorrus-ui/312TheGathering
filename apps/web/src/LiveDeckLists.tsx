@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { useEffect, useState, type KeyboardEvent } from "react";
+import type { DeckCard, LiveDeckList, Room } from "./protocol";
+
+type CardIndex = Record<string, [cost: string, frame: string]>;
+const normalize = (name: string) => name.trim().normalize("NFC").toLowerCase();
+const sum = (cards: DeckCard[]) => cards.reduce((count, card) => count + card.count, 0);
+
+function manaValue(cost: string) {
+  return cost.split(" ").reduce((total, symbol) => {
+    if (!symbol || symbol === "//" || symbol === "X") return total;
+    return total + (Number.parseInt(symbol, 10) || (symbol === "0" ? 0 : 1));
+  }, 0);
+}
+
+const manaGlyphs: Record<string, number> = {
+  W: 0xe600, U: 0xe601, B: 0xe602, R: 0xe603, G: 0xe604, X: 0xe615, S: 0xe619, C: 0xe904,
+};
+
+function ManaPip({ symbol }: { symbol: string }) {
+  if (symbol === "//") return <span>//</span>;
+  let code = manaGlyphs[symbol];
+  if (/^(?:[0-9]|1[0-5])$/.test(symbol)) code = 0xe605 + Number(symbol);
+  else if (/^(?:1[6-9]|20)$/.test(symbol)) code = 0xe62a + Number(symbol) - 16;
+  const text = /^[2WUBRGCP]{2,3}$/.test(symbol) && !/^\d+$/.test(symbol) ? [...symbol].join("/") : symbol;
+  return <span className="deck-pip" data-color={symbol} data-glyph={Boolean(code)}>
+    {code ? String.fromCodePoint(code) : text}
+  </span>;
+}
+
+function DeckSection({ name, cards, index }: { name: string; cards: DeckCard[]; index: CardIndex }) {
+  const rows = new Map<string, { name: string; count: number; cost: string; frame: string }>();
+  for (const card of cards) {
+    const key = normalize(card.name);
+    const existing = rows.get(key);
+    if (existing) existing.count += card.count;
+    else {
+      const face = key.split(/\s*\/\/\s*/)[0];
+      const info = Object.hasOwn(index, key) ? index[key] : Object.hasOwn(index, face) ? index[face] : undefined;
+      const [cost, frame] = info ?? ["", "neutral"];
+      rows.set(key, { name: card.name, count: card.count, cost, frame });
+    }
+  }
+  const sorted = [...rows.values()].sort((a, b) => Number(a.frame === "land") - Number(b.frame === "land")
+    || manaValue(a.cost) - manaValue(b.cost) || a.name.localeCompare(b.name));
+  return <section className="live-deck-section" aria-label={name}>
+    <h3>{name}<span>{sum(cards)}</span></h3>
+    <ul>{sorted.map((row) => <li key={row.name} data-frame={row.frame}>
+      <b className="deck-quantity">{row.count}</b>
+      <span className="live-card-name" title={row.name}>{row.name}</span>
+      {row.cost && <span className="deck-mana" role="img" aria-label={`Mana cost: ${row.cost}`}>
+        {row.cost.split(/\s+/).map((symbol, i) => <ManaPip key={i} symbol={symbol} />)}
+      </span>}
+    </li>)}</ul>
+  </section>;
+}
+
+export function LiveDeckLists({ lists, seats }: { lists: LiveDeckList[]; seats: Room["seats"] }) {
+  const [seat, setSeat] = useState(lists[0].seat);
+  const [expanded, setExpanded] = useState(false);
+  const [index, setIndex] = useState<CardIndex>({});
+  const deck = lists.find((entry) => entry.seat === seat) ?? lists[0];
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/assets/deck-cards.json", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : undefined)
+      .then((data) => { if (data && !controller.signal.aborted) setIndex(data); })
+      .catch(() => { /* Quantities and registered names are carried in the room snapshot. */ });
+    return () => controller.abort();
+  }, []);
+
+  function moveTab(event: KeyboardEvent<HTMLButtonElement>, i: number) {
+    let next;
+    switch (event.key) {
+      case "ArrowLeft": next = (i + lists.length - 1) % lists.length; break;
+      case "ArrowRight": next = (i + 1) % lists.length; break;
+      case "Home": next = 0; break;
+      case "End": next = lists.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    setSeat(lists[next].seat);
+    event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
+  }
+
+  return <aside className="live-decks" aria-label="Registered decklists" data-expanded={expanded}>
+    <button type="button" className="live-deck-toggle" aria-expanded={expanded} aria-controls="live-deck-content"
+      onClick={() => setExpanded(!expanded)}>Decklists <span aria-hidden="true">{expanded ? "−" : "+"}</span></button>
+    <div id="live-deck-content">
+      <div className="live-deck-tabs" role="tablist" aria-label="Players">
+        {lists.map((entry, i) => <button key={entry.seat} type="button" role="tab" id={`deck-tab-${entry.seat}`}
+          aria-selected={deck.seat === entry.seat} aria-controls="live-deck-panel"
+          tabIndex={deck.seat === entry.seat ? 0 : -1} onKeyDown={(event) => moveTab(event, i)}
+          onClick={() => setSeat(entry.seat)} title={seats[entry.seat]?.displayName}>
+          {seats[entry.seat]?.displayName || `Player ${entry.seat + 1}`}
+        </button>)}
+      </div>
+      <div key={deck.seat} id="live-deck-panel" role="tabpanel" aria-labelledby={`deck-tab-${deck.seat}`} tabIndex={0}>
+        <h2>{deck.name}</h2>
+        <DeckSection name="Main deck" cards={deck.mainboard} index={index} />
+        <DeckSection name="Sideboard" cards={deck.sideboard} index={index} />
+      </div>
+    </div>
+  </aside>;
+}

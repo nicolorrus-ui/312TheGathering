@@ -31,6 +31,16 @@ room code or invitation link and the password with the other player. Decklists
 are stored in that browser's local storage. A displayed user name serves as a
 screen name. The server-issued seat credential grants control of a seat.
 
+## Deck builder
+
+Open **Deck builder** in the club lobby, tournament, or waiting room. Choose
+**New deck** or select a saved deck. Paste an MTGA or MTGO list under **Import
+decklist**, or use **Card search** to add individual cards to either board.
+Both views edit the same deck. The main deck and sideboard show card images
+and quantities as you work. Click a card to choose how many copies to move,
+remove, or change to another printing. **Save deck** makes the edited list
+available for room selection and tournament registration in this browser.
+
 ## Duel controls
 
 Your hand fans out across the bottom of the table. Scroll horizontally if it
@@ -39,7 +49,16 @@ battlefield and release it. Moving the card back over your hand before
 release cancels the drag. Hover over a visible card to see its larger art
 on the left. The opponent's hand shows card backs based on the public count.
 The phase track on the right highlights the current Forge step. Priority
-controls sit at the bottom right.
+controls sit at the bottom right. **Concede game** is in the upper-right
+corner of the game page and asks for confirmation.
+After dragging a spell onto the battlefield, choose its targets and modes
+if prompted. When Forge offers automatic payment, **Auto Pay** appears in
+the usual **Pass priority** position. Click it to pay, or select mana
+sources on the board to pay manually. Auto Pay first tries to leave enough
+mana to cast the most spells from your remaining hand together. Ties favor
+access to more colors, then sources that cost less life to use later. The
+search has a work limit for large boards. Forge checks the payment and handles
+mana abilities with costs that depend on other permanents.
 The stack tray appears beside the battlefield while it contains spells or
 abilities. On narrow screens it moves between the two battlefields.
 
@@ -59,16 +78,22 @@ target on the board and confirm it at the bottom right.
 
 Enable **Live mode** when creating a two-player duel, then share **Copy watch
 link** with viewers. The watch link or room code allows spectators to see
-both hands without a password. Players still use the regular invite and room
-password to take a seat. Viewers can hover over visible cards for a close-up.
-The spectator view shows the active phase with disabled phase stops and
-priority controls. Deck contents, private decision prompts, and sideboards
-remain private.
+both hands and both registered decklists without a password. Viewers can
+switch between players in the decklist panel and see the quantities in each
+registered main deck and sideboard. The lists stay fixed through sideboarding.
+Library order and private decisions are hidden. Players use the regular invite
+and room password to take a seat. Viewers can hover over visible cards for a
+close-up and follow the active phase in the read-only phase track.
 
 Run `node apps/web/tests/live-interactions.mjs` against the local bundle
 to check spectator visibility, reload, and repeated Forge undo in Chromium.
 
 ## Card image packs
+
+Deck search and printing selection use the club server’s `/card-search` endpoint.
+The server requests matching cards from Scryfall, caches each results page for
+ten minutes, and shares its request limit with card-art lookups. Each result
+identifies the set and collector number used to display and save that printing.
 
 The club server serves the image pack from its deployed `web/assets/cards/`
 directory. To build or extend a pack, save MTGA or MTGO deck exports as UTF-8
@@ -84,8 +109,9 @@ For the live-duel sample, use `deploy/club/scryfall-demo-deck.txt`. The importer
 uses official Scryfall collection metadata and normal-size JPEGs. Explicit
 `(SET) collector-number` entries import the requested printing. Name-only
 entries use Scryfall's selected printing. The web client prefers an imported
-exact printing and uses an imported image of the same name if the exact
-printing is absent. Each import handles up to 150 distinct entries, combines
+exact printing. When a requested printing is missing from the pack, the client
+looks up its artwork before falling back to local art of the same name.
+Each import handles up to 150 distinct entries, combines
 with the existing pack, and reuses downloaded JPEGs. It reports card entries
 that Scryfall cannot resolve.
 

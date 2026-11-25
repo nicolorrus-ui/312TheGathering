@@ -47,7 +47,9 @@ export type Response = {
   assignments?: { sourceId: string; targetId: string }[];
   damageOrderIds?: string[]; damageAssignments?: { targetId: string; damage: number }[];
 };
+export type LiveDeckList = { seat: number; name: string; mainboard: DeckCard[]; sideboard: DeckCard[] };
 export type Room = {
+  liveDeckLists?: LiveDeckList[];
   tournamentId?: string;
   aiSource?: string;
   allowSpectators?: boolean;

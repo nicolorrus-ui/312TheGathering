@@ -1,0 +1,75 @@
+{
+  "type": "room.snapshot",
+  "seq": 9,
+  "payload": {
+    "roomId": "ABCDEF",
+    "name": "Club live duel",
+    "format": "edh",
+    "deckFormat": "commander",
+    "maxSeats": 2,
+    "matchMode": "bo3",
+    "cardLoadMode": "background",
+    "rulesMode": "forge",
+    "hostSeat": 0,
+    "hasPassword": true,
+    "seats": [
+      {
+        "occupied": true,
+        "displayName": "Alice",
+        "deckSelected": true,
+        "ready": true,
+        "host": true
+      },
+      {
+        "occupied": true,
+        "displayName": "Bob",
+        "deckSelected": true,
+        "ready": true
+      }
+    ],
+    "spectators": [
+      {
+        "displayName": "Spectator"
+      }
+    ],
+    "allowSpectators": true,
+    "spectatorsSeeHands": true,
+    "phase": "started",
+    "loadId": 1,
+    "liveDeckLists": [
+      {
+        "seat": 0,
+        "name": "Green",
+        "mainboard": [
+          {
+            "name": "Forest",
+            "count": 60,
+            "setCode": "M21",
+            "collectorNumber": "272"
+          }
+        ],
+        "sideboard": [
+          {
+            "name": "Island",
+            "count": 1,
+            "setCode": "",
+            "collectorNumber": ""
+          }
+        ]
+      },
+      {
+        "seat": 1,
+        "name": "Blue",
+        "mainboard": [
+          {
+            "name": "Island",
+            "count": 60,
+            "setCode": "",
+            "collectorNumber": ""
+          }
+        ],
+        "sideboard": []
+      }
+    ]
+  }
+}

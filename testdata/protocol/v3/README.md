@@ -53,6 +53,7 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `room-kick.json` / `room-kicked.json` | both | Host kick request, correlated host reply, and terminal target notification |
 | `room-disband.json` / `room-disbanded.json` | both | Host disband request and terminal room notification |
 | `room-snapshot-owner.json` / `room-snapshot-opponent.json` | S -> C | Role-neutral waiting-room projections for different viewers |
+| `room-snapshot-club-live.json` | S -> C | Started Club live duel, registered lists projected for a spectator |
 | `room-snapshot-own-deck.json` | S -> C | Authenticated owner's selected deck name without card identities or another participant's deck name |
 | `room-create-playtest.json` / `room-created-playtest.json` / `room-snapshot-playtest.json` | both | Private one-seat Playtest creation and waiting-room projection |
 | `room-listed-cluster.json` / `account-cluster-state.json` | S -> C | Global invitation prefixes, public node labels and recipient-only account resource locations |

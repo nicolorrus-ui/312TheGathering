@@ -116,3 +116,74 @@ func TestRoomSnapshotDeckNameRequiresCurrentHumanSelectionAndMatchingPublicSeat(
 		})
 	}
 }
+
+func TestClubLiveDeckListsFollowRegistrationAndViewerRole(t *testing.T) {
+	r, err := NewWithRulesMode("LIVE01", "Club", protocol.FormatModern, protocol.MatchBO3,
+		protocol.CardLoadBackground, protocol.RulesModeForge, 2, true, true, "Host", "host", testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ClubDuel, r.SpectatorsSeeHands = true, true
+	if _, err = r.Join("guest", "Guest", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.Join("watch", "Viewer", true, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, conn := range []string{"host", "guest"} {
+		list := testDeck(protocol.FormatModern)
+		list.Name = conn + "'s deck"
+		list.Sideboard = []protocol.DeckCard{{Name: "Island", Count: 1, SetCode: "M21", CollectorNumber: "265"}}
+		if _, err := r.SelectDeck(conn, list); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := func(conn string) []protocol.LiveDeckList {
+		return r.ProjectRoomSnapshot(conn, r.Snapshot()).LiveDeckLists
+	}
+	if project("watch") != nil {
+		t.Fatal("registration published before the match")
+	}
+	r.Phase, r.LoadID = protocol.RoomPhaseStarted, 1
+	// Sideboarding may replace the current game partition, leaving registration fixed.
+	r.Seats[1].Deck.Mainboard, r.Seats[1].Deck.Sideboard = r.Seats[1].Deck.Sideboard, r.Seats[1].Deck.Mainboard
+	for seat, conn := range []string{"host", "guest"} {
+		lists := project("watch")
+		if len(lists) != 2 || lists[seat].Seat != seat || lists[seat].Name != conn+"'s deck" ||
+			!reflect.DeepEqual(lists[seat].Mainboard, r.Seats[seat].RegisteredDeck.Mainboard) ||
+			!reflect.DeepEqual(lists[seat].Sideboard, r.Seats[seat].RegisteredDeck.Sideboard) {
+			t.Fatalf("wrong registration: %+v", lists)
+		}
+		lists[seat].Sideboard[0].Name = "mutated"
+		if r.Seats[seat].RegisteredDeck.Sideboard[0].Name != "Island" {
+			t.Fatal("viewer can mutate the registration")
+		}
+	}
+	viewerSnapshot := r.ProjectRoomSnapshot("watch", r.Snapshot())
+	for _, conn := range []string{"host", "guest", "unrelated", ""} {
+		if len(r.ProjectRoomSnapshot(conn, viewerSnapshot).LiveDeckLists) != 0 {
+			t.Fatalf("%q received a viewer's decklists", conn)
+		}
+	}
+	if _, err := r.Reconnect("watch", "resumed"); err != nil {
+		t.Fatal(err)
+	}
+	frames, err := r.ResumeEnvelopes("resumed")
+	var restored protocol.RoomSnapshot
+	if err != nil || frames[0].DecodePayload(&restored) != nil || len(restored.LiveDeckLists) != 2 || project("watch") != nil {
+		t.Fatal("registered lists did not follow the resumed viewer")
+	}
+	r.TournamentID = "event"
+	if project("resumed") != nil {
+		t.Fatal("tournament viewer received registrations")
+	}
+	r.TournamentID = ""
+	r.SpectatorsSeeHands = false
+	if project("resumed") != nil {
+		t.Fatal("private viewer received registrations")
+	}
+	r.SpectatorsSeeHands, r.ClubDuel = true, false
+	if project("resumed") != nil {
+		t.Fatal("non-Club hand viewer received registrations")
+	}
+}

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import { importDeck } from "./deck-import.mjs";
 
 const baseURL = process.env.CLUB_TEST_URL ?? "http://127.0.0.1:57320";
 const ignoreHTTPSErrors = process.env.CLUB_TEST_TLS_TEST_CERT === "1";
@@ -48,13 +49,6 @@ function collect(page, name) {
   return peer;
 }
 
-async function fillDeck(peer, text) {
-  await peer.page.getByRole("button", { name: "Import deck" }).click();
-  await peer.page.getByLabel("Deck name").fill("Browser fixture");
-  await peer.page.getByLabel("MTGA or MTGO decklist").fill(text);
-  await peer.page.getByRole("button", { name: "Save deck" }).click();
-}
-
 async function enter(context, name, list) {
   const peer = collect(await context.newPage(), name);
   if (verifyMobileImages) {
@@ -64,7 +58,7 @@ async function enter(context, name, list) {
   await peer.page.getByLabel("Player name").fill(name);
   await peer.page.getByRole("button", { name: "Enter club" }).click();
   await peer.page.getByText("online", { exact: true }).waitFor();
-  await fillDeck(peer, list);
+  await importDeck(peer.page, "Browser fixture", list);
   return peer;
 }
 
@@ -363,7 +357,9 @@ async function act(peer, opponent) {
       break;
     }
     case "payManaCost": {
-      const payment = panel.getByRole("button", { name: /Confirm payment|Auto-pay/ });
+      const payment = prompt.options.some(({ responseId }) => responseId === "$auto-pay")
+        ? page.getByRole("group", { name: "Priority controls" }).getByRole("button", { name: "Auto Pay", exact: true })
+        : panel.getByRole("button", { name: "Confirm payment", exact: true });
       if (await payment.count()) await clickFirst(payment);
       else {
         const source = page.getByRole("region", { name: "Your battlefield" })

@@ -15,6 +15,7 @@ WORKDIR /src
 COPY apps/server/ apps/server/
 COPY apps/web/ apps/web/
 COPY apps/client-qt/qml/assets/card-back.jpg apps/client-qt/qml/assets/card-back.jpg
+COPY apps/client-qt/qml/assets/mana/ apps/client-qt/qml/assets/mana/
 COPY deploy/club/ deploy/club/
 COPY third_party/forge-runtime/ third_party/forge-runtime/
 COPY LICENSE THIRD-PARTY-NOTICES.md ./

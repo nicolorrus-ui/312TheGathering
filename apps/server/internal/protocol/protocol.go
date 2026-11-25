@@ -176,8 +176,8 @@ type RoomJoined struct {
 }
 
 // DeckCard identifies one selected printing and its quantity. The server keeps
-// this private deck data for later match setup; room projections never expose
-// it to opponents or spectators. A completed tournament may publish the last
+// this private deck data for later match setup. Club live viewers can receive
+// the registered lists once their duel starts. A completed tournament may publish the last
 // deck registered in one of its private pairing rooms.
 type DeckCard struct {
 	Name            string `json:"name"`
@@ -465,15 +465,22 @@ type SpectatorProjection struct {
 	DisplayName string `json:"displayName"`
 }
 
-// RoomSnapshot is the payload of room.snapshot (S->C). It carries public room
-// structure and the immutable policy used by later role-specific game
-// projections. OwnDeckName is optional recipient-private display metadata;
-// card identities and opponents' deck names are never embedded here.
+// LiveDeckList carries the submitted match registration for one Club broadcast seat.
+type LiveDeckList struct {
+	Seat      int        `json:"seat"`
+	Name      string     `json:"name"`
+	Mainboard []DeckCard `json:"mainboard"`
+	Sideboard []DeckCard `json:"sideboard"`
+}
+
+// RoomSnapshot carries public structure plus optional recipient-specific data:
+// the seated player's own deck name or a Club live viewer's registered lists.
 type RoomSnapshot struct {
 	TournamentID       string                `json:"tournamentId,omitempty"`
 	RoomID             string                `json:"roomId"`
 	Name               string                `json:"name"`
 	OwnDeckName        string                `json:"ownDeckName,omitempty"`
+	LiveDeckLists      []LiveDeckList        `json:"liveDeckLists,omitempty"`
 	Format             string                `json:"format"`
 	DeckFormat         string                `json:"deckFormat"`
 	MaxSeats           int                   `json:"maxSeats"`

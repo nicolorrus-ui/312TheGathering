@@ -36,11 +36,12 @@ type artLookup struct {
 	urls artURLs
 }
 type clubCardArt struct {
-	client  *http.Client
-	mu      sync.Mutex
-	cache   map[artKey]artEntry
-	pending map[artKey]*artLookup
-	next    time.Time
+	client   *http.Client
+	mu       sync.Mutex
+	cache    map[artKey]artEntry
+	pending  map[artKey]*artLookup
+	searches map[string]cardSearchEntry
+	next     time.Time
 	cooldown time.Time
 }
 
@@ -50,6 +51,7 @@ func newClubCardArt() *clubCardArt {
 			return http.ErrUseLastResponse
 		}},
 		cache: make(map[artKey]artEntry), pending: make(map[artKey]*artLookup),
+		searches: make(map[string]cardSearchEntry),
 	}
 }
 
@@ -131,12 +133,12 @@ func (a *clubCardArt) resolve(ctx context.Context, key artKey) artURLs {
 	return images
 }
 
-func (a *clubCardArt) fetch(ctx context.Context, address, face string) (artURLs, int) {
+func (a *clubCardArt) requestJSON(ctx context.Context, address string, limit int64, data any) int {
 	a.mu.Lock()
 	now := time.Now()
-	if now.Before(a.cooldown) {
+	if now.Before(a.cooldown) || a.next.Sub(now) > 6*time.Second {
 		a.mu.Unlock()
-		return artURLs{}, 0
+		return 0
 	}
 	wait := max(a.next.Sub(now), 0)
 	a.next = now.Add(wait + cardArtSpacing)
@@ -147,24 +149,24 @@ func (a *clubCardArt) fetch(ctx context.Context, address, face string) (artURLs,
 	select {
 	case <-timer.C:
 	case <-ctx.Done():
-		return artURLs{}, 0
+		return 0
 	}
 	a.mu.Lock()
 	cooling := time.Now().Before(a.cooldown)
 	a.mu.Unlock()
 	if cooling {
-		return artURLs{}, 0
+		return 0
 	}
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
-		return artURLs{}, 0
+		return 0
 	}
 	request.Header.Set("User-Agent", "Hexproof-Club-CardArt/1.0")
 	request.Header.Set("Accept", "application/json")
 	response, err := a.client.Do(request)
 	if err != nil {
-		return artURLs{}, 0
+		return 0
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusTooManyRequests {
@@ -173,18 +175,36 @@ func (a *clubCardArt) fetch(ctx context.Context, address, face string) (artURLs,
 		a.mu.Unlock()
 	}
 	if response.StatusCode != http.StatusOK {
-		return artURLs{}, response.StatusCode
+		return response.StatusCode
 	}
-	var card struct {
+	if err := json.NewDecoder(io.LimitReader(response.Body, limit)).Decode(data); err != nil {
+		return 0
+	}
+	return http.StatusOK
+}
+
+type scryfallCard struct {
+	Name            string  `json:"name"`
+	Set             string  `json:"set"`
+	SetName         string  `json:"set_name"`
+	CollectorNumber string  `json:"collector_number"`
+	Images          artURLs `json:"image_uris"`
+	Faces           []struct {
+		Name   string  `json:"name"`
 		Images artURLs `json:"image_uris"`
-		Faces  []struct {
-			Name   string  `json:"name"`
-			Images artURLs `json:"image_uris"`
-		} `json:"card_faces"`
+	} `json:"card_faces"`
+}
+
+func (a *clubCardArt) fetch(ctx context.Context, address, face string) (artURLs, int) {
+	var card scryfallCard
+	status := a.requestJSON(ctx, address, 128<<10, &card)
+	if status != http.StatusOK {
+		return artURLs{}, status
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 128<<10)).Decode(&card); err != nil {
-		return artURLs{}, 0
-	}
+	return card.images(face), status
+}
+
+func (card *scryfallCard) images(face string) artURLs {
 	images := card.Images
 	if images.Normal == "" && len(card.Faces) != 0 {
 		images = card.Faces[0].Images
@@ -195,7 +215,7 @@ func (a *clubCardArt) fetch(ctx context.Context, address, face string) (artURLs,
 			}
 		}
 	}
-	return artURLs{Small: scryfallImageURL(images.Small), Normal: scryfallImageURL(images.Normal)}, http.StatusOK
+	return artURLs{Small: scryfallImageURL(images.Small), Normal: scryfallImageURL(images.Normal)}
 }
 
 func scryfallImageURL(raw string) string {

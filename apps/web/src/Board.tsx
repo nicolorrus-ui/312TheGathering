@@ -72,13 +72,13 @@ function PlayerChip({ player, zone, zones, active, target, selected, selectTarge
 }
 
 type Props = { game: Snapshot; seat: number; prompt?: Prompt; locked: boolean; metadata?: GameMetadata;
-  answer: (prompt: Prompt, response: Response) => void; concede: () => void; back: () => void; tournamentTable?: boolean;
+  answer: (prompt: Prompt, response: Response) => void; back: () => void; tournamentTable?: boolean;
   online: boolean; sendPriority: (preference: RulesPriority) => void; spectating?: boolean };
 type AutoPass = { until: "step" | "turn"; turn: number; step: string };
 type CardDrag = { card: Card; zone: string; promptId: number; x: number; y: number; origin: Element | null; leftHand: boolean };
 type TouchDrag = { pointerId: number; drag: CardDrag; active: boolean };
 
-export function Board({ game, seat, prompt, locked, metadata, answer, concede, back, tournamentTable, online, sendPriority, spectating = false }: Props) {
+export function Board({ game, seat, prompt, locked, metadata, answer, back, tournamentTable, online, sendPriority, spectating = false }: Props) {
   const [reviewId, setReviewId] = useState<string>();
   const [hoveredCard, setHoveredCard] = useState<{ identity: Identity; source: Element }>();
   const [openedZone, setOpenedZone] = useState<{ zone: string; ownerSeat: number }>();
@@ -111,6 +111,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
     if (dragging && !activeDrag) setDragging(undefined);
   }, [activeDrag, dragging]);
   const pass = decision?.options.find((option) => option.responseId === "$pass");
+  const autoPay = !game.gameOver && decision?.supported && decision.kind === "payManaCost"
+    ? decision.options.find((option) => option.responseId === "$auto-pay") : undefined;
 
   useEffect(() => {
     // Only send a currently published ordinary-priority response. Every
@@ -358,12 +360,10 @@ export function Board({ game, seat, prompt, locked, metadata, answer, concede, b
           {stackPass && <button type="button" onClick={() => respond({ responseId: "$pass-stack" })}>Pass until stack resolves</button>}
           {game.gameOver && metadata?.result?.matchFinished ? <button className="primary" type="button" onClick={back}>
             {tournamentTable ? "Return to tournament" : "Return to room"}
-          </button> : <>
+          </button> : autoPay ? <button type="button" className="primary"
+            onClick={() => respond({ responseId: autoPay.responseId })}>Auto Pay</button> :
             <button type="button" className="primary" disabled={!priority || !pass}
-              onClick={() => pass && respond({ responseId: pass.responseId })}>Pass priority</button>
-            <button type="button" className="quiet concede" disabled={game.gameOver}
-              onClick={() => window.confirm("Concede this game?") && concede()}>Concede game</button>
-          </>}
+              onClick={() => pass && respond({ responseId: pass.responseId })}>Pass priority</button>}
         </fieldset>
       </div>}
     </section>

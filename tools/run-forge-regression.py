@@ -19,8 +19,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 FORGE = ROOT / "third_party/forge-runtime"
 NATIVE_TESTS = (
-    "NativeManaUndoRegressionTest", "NativePriorityManaUndoRegressionTest", "NativeLotusBloomRegressionTest",
-    "NativeSnapshotRegressionTest", "NativePaymentIdRegressionTest",
+    "NativeAutoPayRegressionTest", "NativeManaUndoRegressionTest", "NativePriorityManaUndoRegressionTest",
+    "NativeLotusBloomRegressionTest", "NativeSnapshotRegressionTest", "NativePaymentIdRegressionTest",
     "NativePromptWaitRegressionTest", "NativeCrashDiagnosticsRegressionTest",
     "NativeTargetClickRegressionTest",
 )

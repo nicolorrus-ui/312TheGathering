@@ -38,12 +38,13 @@ export function CardImage({ identity, className, decorative = false, eager = fal
   const set = identity.setCode?.trim().toLowerCase() ?? "";
   const number = identity.collectorNumber?.trim().toLowerCase() ?? "";
   const printing = pack?.printings[`${prefix}${set}/${number}`];
-  const files = [printing?.faces?.[name], printing?.front, pack?.names[prefix + name]];
-  const sources = files.filter((file): file is string =>
-    typeof file === "string" && /^[0-9a-f-]{36}(?:-b)?\.jpg$/.test(file)).map((file) => directory + file);
   const query = new URLSearchParams({ name, set, number, size: compact ? "small" : "normal" });
-  sources.push(`/card-art?${query}`);
-  const src = sources.find((source) => !failed.includes(source));
+  const remote = `/card-art?${query}`;
+  const local = (file?: string) => file && /^[0-9a-f-]{36}(?:-b)?\.jpg$/.test(file) ? directory + file : undefined;
+  const named = local(pack?.names[prefix + name]);
+  const sources = [local(printing?.faces?.[name]), local(printing?.front),
+    ...(set && number ? [remote, named] : [named, remote])];
+  const src = sources.find((source) => source && !failed.includes(source));
   if (!src) return null;
 
   return <img key={src} className={className} src={src} alt={decorative ? "" : identity.name}

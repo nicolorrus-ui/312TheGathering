@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import { importDeck } from "./deck-import.mjs";
 
 const baseURL = process.env.CLUB_TEST_URL ?? "http://127.0.0.1:57320";
 const browser = await chromium.launch({
@@ -11,6 +12,7 @@ const browser = await chromium.launch({
 });
 const password = "local test seat password";
 const deck = "Deck\n34 Forest\n26 Exploration";
+const sideboardName = (name) => name === "Live Host" ? "Island" : "Mountain";
 const peers = [];
 
 async function until(check, label, timeout = 30000) {
@@ -57,10 +59,7 @@ async function enter(name) {
   await player.page.getByLabel("Player name").fill(name);
   await button(player, "Enter club").click();
   await player.page.getByText("online", { exact: true }).waitFor();
-  await button(player, "Import deck").click();
-  await player.page.getByLabel("Deck name").fill("Undo fixture");
-  await player.page.getByLabel("MTGA or MTGO decklist").fill(deck);
-  await button(player, "Save deck").click();
+  await importDeck(player.page, "Undo fixture", `${deck}\n\nSideboard\n1 ${sideboardName(name)}`);
   return player;
 }
 
@@ -104,7 +103,7 @@ async function progress(player) {
     case "mulligan":
       return click(player, "Keep hand");
     case "payManaCost":
-      return answer(player, () => player.page.getByRole("button", { name: /^(Confirm payment|Auto-pay)$/ }).first().click());
+      return answer(player, () => player.page.getByRole("button", { name: /^(Confirm payment|Auto Pay)$/ }).first().click());
     case "chooseBoolean":
       await player.page.locator(".decision .choices button").first().click();
       return click(player, "Confirm");
@@ -163,6 +162,13 @@ async function checkSpectator(viewer, host) {
   }
   const page = viewer.page;
   for (const player of peers) {
+    const tab = page.getByRole("tab", { name: player.name, exact: true });
+    await tab.click();
+    const list = page.getByRole("tabpanel", { name: player.name, exact: true });
+    await list.getByRole("region", { name: "Sideboard" }).getByText(sideboardName(player.name)).waitFor();
+    assert.equal(await list.getByRole("region", { name: "Main deck" }).locator("li").count(), 2);
+    assert.equal(await tab.getAttribute("aria-selected"), "true");
+    assert.ok(!player.received.some(({ type, payload }) => type === "room.snapshot" && payload.liveDeckLists));
     const shownHand = page.getByRole("region", { name: new RegExp(`${player.name}.*hand`, "i") });
     await shownHand.locator("[data-card-id]").last().hover();
     await page.locator(".card-hover-preview").waitFor();
@@ -200,7 +206,7 @@ try {
   await guest.page.getByLabel("Room code").fill(room);
   await guest.page.getByLabel("Room password").fill(password);
   await button(guest, "Join duel").click();
-  await guest.page.getByText("Viewers with the room code can see both hands.").waitFor();
+  await guest.page.getByText("Viewers with the room code can see both hands and registered decklists.").waitFor();
   await Promise.all(peers.map(selectDeck));
   await button(guest, "Ready").click({ timeout: 60000 });
   await button(guest, "Cancel ready").waitFor();
@@ -218,6 +224,7 @@ try {
     return welcomes.length > previousWelcome && welcomes.at(-1).payload.resumed;
   }, "watch-only session restored on reload");
   await viewer.page.locator(".revealed-hand [data-card-id]").first().waitFor();
+  await viewer.page.getByRole("tab", { name: host.name, exact: true }).waitFor();
   console.log("Verified live spectator access, private-state boundaries, and spectator reload");
 
   await playFromHand(actor, "Forest");
@@ -235,10 +242,15 @@ try {
 
   await playFromHand(actor, "Forest");
   await requireNextFor(actor);
-  await tapForest(actor);
-  await requireNextFor(actor);
-  assert.equal(mana(actor), 1);
   await playFromHand(actor, "Exploration");
+  await requireNextFor(actor);
+  assert.equal(actor.prompt.kind, "payManaCost");
+  const paymentControl = actor.page.getByRole("group", { name: "Priority controls" })
+    .getByRole("button", { name: "Auto Pay", exact: true });
+  await paymentControl.waitFor();
+  assert.equal(await button(actor, "Auto Pay").count(), 1);
+  assert.ok(forests(actor).every(({ tapped }) => !tapped), "dropping a spell waits for payment");
+  await answer(actor, () => paymentControl.click());
   const nextTurn = actor.game.turn + 2;
   let sawStack = false;
   await progressUntil((player) => player === actor && normalMain(player) && player.game.turn >= nextTurn, "next main with Exploration",

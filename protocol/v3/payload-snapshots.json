@@ -3,6 +3,16 @@
   "protocol": "hexproof.v3",
   "definitions": [
     {
+      "name": "LiveDeckList",
+      "goType": "LiveDeckList",
+      "fields": [
+        {"name": "seat", "type": "integer", "required": true},
+        {"name": "name", "type": "string", "required": true},
+        {"name": "mainboard", "type": "array", "required": true, "items": {"type": "object", "ref": "DeckCard"}},
+        {"name": "sideboard", "type": "array", "required": true, "items": {"type": "object", "ref": "DeckCard"}}
+      ]
+    },
+    {
       "name": "GameCard",
       "goType": "GameCard",
       "fields": [
@@ -753,6 +763,7 @@
       "goType": "RoomSnapshot",
       "fields": [
         {"name": "tournamentId", "type": "string", "required": false},
+        {"name": "liveDeckLists", "type": "array", "required": false, "items": {"type": "object", "ref": "LiveDeckList"}},
         {
           "name": "ownDeckName",
           "type": "string",

@@ -15,7 +15,11 @@ explicitly creates the room with the immutable `spectatorsSeeHands` policy;
 that policy grants every spectator live access to current hand identities only.
 
 In Hexproof Club, choosing Live mode when creating a duel enables this policy
-and allows viewers with the room code to enter as spectators. A player seat
+and allows viewers with the room code to enter as spectators. After the
+duel starts, their role-specific `room.snapshot.liveDeckLists` also includes
+both registered deck names, card quantities, printings and the original main
+and sideboard sections. These match registrations stay fixed across games.
+Shuffled library order and in-progress sideboard changes stay private. A player seat
 still requires the room password. Club spectators can leave the room or keep
 their connection alive. The server rejects their gameplay and other
 state-changing commands.

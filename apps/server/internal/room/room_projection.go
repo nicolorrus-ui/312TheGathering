@@ -315,11 +315,30 @@ func (r *Room) snapshotEnvelope() protocol.Envelope {
 	return env
 }
 
-// ProjectRoomSnapshot adds only the authenticated human recipient's selected
-// deck name. The supplied public transition and sequence stay unchanged.
+// ClubLiveDuel reports whether the host enabled public Club viewing.
+func (r *Room) ClubLiveDuel() bool {
+	return r.ClubDuel && !r.Practice && r.TournamentID == "" && r.AllowSpectators && r.SpectatorsSeeHands
+}
+
+// ProjectRoomSnapshot adds metadata according to current recipient membership.
 func (r *Room) ProjectRoomSnapshot(connID string, snapshot protocol.RoomSnapshot) protocol.RoomSnapshot {
 	snapshot.OwnDeckName = ""
+	snapshot.LiveDeckLists = nil
 	if snapshot.RoomID != r.ID {
+		return snapshot
+	}
+	if connID != "" && r.ClubLiveDuel() && r.IsSpectator(connID) &&
+		r.Phase == protocol.RoomPhaseStarted && snapshot.Phase == r.Phase && snapshot.LoadID == r.LoadID {
+		for i, player := range r.Seats {
+			deck := player.RegisteredDeck
+			if deck != nil && player.Occupied && i < len(snapshot.Seats) && snapshot.Seats[i].DeckSelected {
+				snapshot.LiveDeckLists = append(snapshot.LiveDeckLists, protocol.LiveDeckList{
+					Seat: i, Name: deck.Name,
+					Mainboard: append([]protocol.DeckCard{}, deck.Mainboard...),
+					Sideboard: append([]protocol.DeckCard{}, deck.Sideboard...),
+				})
+			}
+		}
 		return snapshot
 	}
 	seat := r.FindSeatByConnection(connID)
@@ -333,7 +352,7 @@ func (r *Room) ProjectRoomSnapshot(connID string, snapshot protocol.RoomSnapshot
 }
 
 // Snapshot returns public room structure and ready/load status without deck
-// names or card identities. ProjectRoomSnapshot adds the recipient's own name.
+// names or card identities. ProjectRoomSnapshot adds role-specific metadata.
 func (r *Room) Snapshot() protocol.RoomSnapshot {
 	loadID := r.LoadID
 	if r.Phase == protocol.RoomPhaseWaiting {

@@ -3,6 +3,11 @@
 package org.hexproof.forge;
 
 import forge.util.ThreadUtil;
+import com.google.common.collect.Multimap;
+import forge.ai.ComputerUtilMana;
+import forge.game.mana.ManaCostBeingPaid;
+import forge.game.player.Player;
+import forge.game.spellability.SpellAbility;
 import com.google.gson.JsonObject;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
@@ -13,7 +18,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /** Game-owned dispatch, random source, IDs and mutable caches; never process globals. */
-final class NativeExecution implements ThreadUtil.ExecutionContext, AutoCloseable {
+final class NativeExecution implements ThreadUtil.ExecutionContext, ComputerUtilMana.HumanPaymentPreferences, AutoCloseable {
     private final Consumer<Throwable> failure;
     final NativeDiagnostics diagnostics;
     private final ExecutorService game;
@@ -46,6 +51,24 @@ final class NativeExecution implements ThreadUtil.ExecutionContext, AutoCloseabl
         });
         delayed.setRemoveOnCancelPolicy(true);
         delayed.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+    }
+
+    @Override public ComputerUtilMana.HumanPaymentPlan plan(ManaCostBeingPaid cost, SpellAbility spell, Player payer,
+                                                            Multimap<Integer, SpellAbility> sources) {
+        try {
+            return NativeManaPlanner.plan(cost, spell, payer, sources);
+        } catch (CancellationException cancelled) {
+            throw cancelled;
+        } catch (RuntimeException unavailable) {
+            if (closed || Thread.currentThread().isInterrupted()) throw unavailable;
+            // Some card scripts require cast-time choices that do not yet exist for
+            // a future hand spell. Keep Forge's ordinary, validated payment path.
+            return null;
+        }
+    }
+
+    @Override public int activationLife(SpellAbility source, Player payer) {
+        return NativeManaPlanner.activationLife(source, payer);
     }
 
     ThreadUtil.Scope enter() { return ThreadUtil.enter(this); }

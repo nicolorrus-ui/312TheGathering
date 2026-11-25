@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Board } from "./Board";
+import { LiveDeckLists } from "./LiveDeckLists";
 import { protocol, type Envelope, type GameMetadata, type Room, type ServerError, type Snapshot, type Welcome } from "./protocol";
 
 type WatchState = {
@@ -170,9 +171,12 @@ export function Watch({ roomId }: { roomId: string }) {
           <button className="primary" type="submit">Watch duel</button>
         </form>
       </section>
-    </main> : game && !betweenGames ? <Board key={game.gameId} game={game} seat={game.players[0]?.seat ?? 0}
-      spectating locked online={online} metadata={metadata} answer={ignore} concede={ignore} back={ignore} sendPriority={ignore} />
-    : <main className="shell"><p role="status">{!online ? "Connecting to the live room…" : betweenGames
-      ? "Waiting for the next game…" : "Waiting for the players to start…"}</p></main>}
+    </main> : <div className="watch-layout" data-decks={Boolean(room?.liveDeckLists?.length)}>
+      {room?.liveDeckLists?.length ? <LiveDeckLists lists={room.liveDeckLists} seats={room.seats} /> : null}
+      {game && !betweenGames ? <Board key={game.gameId} game={game} seat={game.players[0]?.seat ?? 0}
+        spectating locked online={online} metadata={metadata} answer={ignore} back={ignore} sendPriority={ignore} />
+        : <main className="shell"><p role="status">{!online ? "Connecting to the live room…" : betweenGames
+          ? "Waiting for the next game…" : "Waiting for the players to start…"}</p></main>}
+    </div>}
   </>;
 }

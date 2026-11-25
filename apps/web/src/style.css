@@ -59,7 +59,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .intro { min-height: min(570px, 78vh); display: grid; align-items: center; grid-template-columns: 1.35fr 1fr; gap: clamp(1rem, 6vw, 7rem); }
 .eyebrow { color: var(--accent); letter-spacing: .17em; font-size: .73rem; margin-bottom: 1rem; }
 .lobby-title { margin-bottom: 1.4rem; }
-.lobby-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+.lobby-content { max-width: 42rem; }
 .panel { border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(.95rem, 2.4vw, 1.45rem); background: var(--paper); }
 .panel > header, .decision > header, .inspection > header { display: flex; justify-content: space-between; align-items: center; gap: .6rem; margin-bottom: .9rem; }
 .panel > h2 { margin-bottom: .9rem; }
@@ -82,10 +82,10 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .crash-notice summary { cursor: pointer; }
 .crash-notice pre { max-height: 35vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .crash-notice [role="status"] { margin-left: .5rem; }
-.topbar:has(~ .duel) {
+.topbar:has(~ .duel, ~ .watch-layout .duel) {
   min-height: 48px; padding-block: .3rem; border-color: #303349; background: #111422;
 }
-.topbar:has(~ .duel) .account > span:not(.connection) {
+.topbar:has(~ .duel, ~ .watch-layout .duel) .account > span:not(.connection) {
   max-width: 26vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .duel {
@@ -296,7 +296,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .duel button:hover:not(:disabled, .table-card, .player-life, .primary) { background-color: #3c4059; }
 .duel :is(input, select) { background: #151827; }
 .priority-actions .choices button { flex: 1; }
-.concede { color: var(--soft); }
+.topbar .concede { color: #efbab3; border-color: #735651; }
 .auto-pass { text-align: right; }
 .auto-pass .choices { margin-top: .26rem; }
 .decision, .inspection {
@@ -363,14 +363,21 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   .phase-rail { padding-inline: .25rem; }
 }
 @media (max-width: 570px) {
-  .lobby-grid, .intro { grid-template-columns: 1fr; }
+  .topbar .account { min-width: 0; flex-wrap: wrap; justify-content: end; }
+  .topbar .account > span:not(.connection) { max-width: 100%; overflow-wrap: anywhere; }
+  .intro { grid-template-columns: 1fr; }
   .shell { margin-top: 1.5rem; }
   .intro { gap: 1.25rem; align-content: start; }
-  .topbar:has(~ .duel) { gap: .4rem; padding-inline: .55rem; }
-  .topbar:has(~ .duel) .brand { font-size: 1rem; gap: .3rem; }
-  .topbar:has(~ .duel) .account { gap: .35rem; font-size: .75rem; }
-  .topbar:has(~ .duel) .account > span:not(.connection) { display: none; }
-  .topbar:has(~ .duel) .account button { padding-inline: .4rem; font-size: .75rem; }
+  .topbar:has(~ .duel, ~ .watch-layout .duel) { gap: .4rem; padding-inline: .55rem; }
+  .topbar:has(~ .duel, ~ .watch-layout .duel) .brand { font-size: 1rem; gap: .3rem; }
+  .topbar:has(~ .duel, ~ .watch-layout .duel) .account { flex-wrap: wrap; justify-content: end; gap: .35rem; font-size: .75rem; }
+  .topbar:has(~ .duel, ~ .watch-layout .duel) .account > span:not(.connection) { display: none; }
+  .topbar:has(~ .duel, ~ .watch-layout .duel) .account button { padding-inline: .4rem; font-size: .75rem; }
+  .topbar:has(.concede) { display: grid; grid-template-columns: 1fr auto auto; }
+  .topbar:has(.concede) .brand { grid-area: 1 / 1 / 2 / 3; }
+  .topbar:has(.concede) .account { display: contents; }
+  .topbar:has(.concede) .account > * { grid-row: 2; }
+  .topbar:has(.concede) .account .concede { grid-area: 1 / 3; justify-self: end; }
   .duel { grid-template-columns: minmax(0, 1fr) 82px; }
   .table {
     grid-template: "opponent tools" auto "top-hand top-hand" auto "away away" minmax(89px, 1fr)
@@ -395,4 +402,67 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   .priority-actions .primary { font-size: .76rem; }
   .decision.collapsed { width: min(260px, calc(100vw - 110px)); }
   .choice-grid, .pile-grid { grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); }
+}
+.watch-layout[data-decks="true"] {
+  --live-rail-width: clamp(195px, 19vw, 275px);
+  display: grid; grid-template-columns: var(--live-rail-width) minmax(0, 1fr);
+  background: #0d101b;
+}
+.live-decks {
+  align-self: start; position: sticky; top: .45rem; min-width: 0;
+  margin: clamp(.4rem, .9vw, .85rem) 0 clamp(.4rem, .9vw, .85rem) clamp(.4rem, .9vw, .85rem);
+  background: #191d30; color: #faf3e9; border: 1px solid #464960; border-radius: var(--radius); overflow: hidden;
+}
+.live-deck-toggle { display: none; }
+.live-deck-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); padding: .25rem; background: #141725; }
+.live-deck-tabs button {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: .38rem;
+  border-color: transparent; border-radius: 7px; background: transparent; color: #c5c8d9; font-size: .8rem;
+}
+.live-deck-tabs button[aria-selected="true"] { background: #343349; color: #ffe3b7; border-color: #65594c; }
+.live-deck-tabs button:focus-visible { outline-offset: -2px; }
+#live-deck-panel { overflow-y: auto; max-height: calc(100dvh - 115px); padding: .75rem .52rem; scrollbar-width: thin; }
+#live-deck-panel h2 { padding: 0 .16rem .1rem; font-size: 1.48rem; overflow-wrap: anywhere; }
+.live-deck-section h3 {
+  display: flex; justify-content: space-between; margin: .8rem .16rem .42rem;
+  color: #c5c8d9; font-size: .68rem; text-transform: uppercase; letter-spacing: .09em;
+}
+.live-deck-section h3 span { font-variant-numeric: tabular-nums; }
+.live-deck-section ul { display: grid; gap: 2px; list-style: none; padding: 0; margin: 0; }
+.live-deck-section li {
+  --card-frame: #626a7a;
+  display: flex; align-items: center; gap: .32rem; min-width: 0; padding: .22rem .3rem;
+  color: #faf6ee; font-size: .75rem; line-height: 1.2; border-radius: 3px; border-left: 3px solid var(--card-frame);
+  background: color-mix(in srgb, var(--card-frame) 36%, #171924);
+}
+.live-deck-section [data-frame="land"] { --card-frame: #ac9179; }
+.live-deck-section [data-frame="W"] { --card-frame: #dece9a; }
+.live-deck-section [data-frame="U"] { --card-frame: #67aada; }
+.live-deck-section [data-frame="B"] { --card-frame: #a892bb; }
+.live-deck-section [data-frame="R"] { --card-frame: #d98971; }
+.live-deck-section [data-frame="G"] { --card-frame: #71bd96; }
+.live-deck-section [data-frame="gold"] { --card-frame: #d6b66c; }
+.deck-quantity { flex: none; min-width: 1em; text-align: center; font-variant-numeric: tabular-nums; }
+.live-card-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.deck-mana { display: flex; flex-wrap: wrap; justify-content: end; gap: 1px; max-width: 45%; color: #dddce4; font-size: .65rem; }
+@font-face {
+  font-family: "Club Mana"; font-display: block;
+  src: url("../../client-qt/qml/assets/mana/mana.ttf") format("truetype");
+}
+.deck-pip { min-width: 1.25em; padding: .06em .15em; border-radius: 1em; background: #d2ccd1; color: #222333; font-weight: bold; text-align: center; }
+.deck-pip[data-glyph="true"] {
+  display: inline-grid; place-content: center; min-width: 1.22em; height: 1.22em; padding: 0;
+  font: normal .76rem/1 "Club Mana"; border-radius: 50%;
+}
+.deck-pip[data-color="W"] { background: #f6e5ba; }
+.deck-pip[data-color="U"] { background: #a0cef2; }
+.deck-pip[data-color="B"] { background: #c3b4cc; }
+.deck-pip[data-color="R"] { background: #efab91; }
+.deck-pip[data-color="G"] { background: #9bd2a5; }
+@media (max-width: 800px) {
+  .watch-layout[data-decks="true"] { display: block; }
+  .live-decks { position: static; margin: 0; border: 0; border-bottom: 1px solid #464960; border-radius: 0; }
+  .live-deck-toggle { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 0; border-radius: 0; background: #191d30; color: #ffe3b7; }
+  .live-decks[data-expanded="false"] #live-deck-content { display: none; }
+  #live-deck-panel { max-height: 45dvh; }
 }

@@ -37,14 +37,22 @@ index 03ab37f96542592798fa5884cbc02f0f9f8ea700..a2fdc8a5c719011edff32a66298a246a
         
          if (loadedProfiles.get(profile) != null) {
 diff --git a/forge-ai/src/main/java/forge/ai/ComputerUtilMana.java b/forge-ai/src/main/java/forge/ai/ComputerUtilMana.java
-index 5f96dead716c57a1fb25f33225dbe7d29da1d299..a84559768b7069d4a14e9a2e2938b0a2b7a4c173 100644
+index 5f96dead716c57a1fb25f33225dbe7d29da1d299..26ba41920dcd4065da18c73cd63fabddd42ee5fe 100644
 --- a/forge-ai/src/main/java/forge/ai/ComputerUtilMana.java
 +++ b/forge-ai/src/main/java/forge/ai/ComputerUtilMana.java
-@@ -49,6 +49,20 @@ import java.util.*;
+@@ -49,6 +49,28 @@ import java.util.*;
  import java.util.stream.Collectors;
  
  public class ComputerUtilMana {
 +    private static final ThreadLocal<Boolean> HUMAN_AUTO_PAY = new ThreadLocal<>();
++
++    /** Hosted human payment may rank sources; Forge still validates and executes the payment. */
++    public interface HumanPaymentPreferences {
++        HumanPaymentPlan plan(ManaCostBeingPaid cost, SpellAbility spell, Player payer,
++                              Multimap<Integer, SpellAbility> sources);
++        int activationLife(SpellAbility source, Player payer);
++    }
++    public record HumanPaymentPlan(Map<SpellAbility, String> sources, List<Mana> pool) {}
 +
 +    /** Keep a human auto-pay preference scoped through Forge's temporary AI controller. */
 +    public static void withHumanAutoPay(final Runnable action) {
@@ -61,7 +69,7 @@ index 5f96dead716c57a1fb25f33225dbe7d29da1d299..a84559768b7069d4a14e9a2e2938b0a2
      private final static boolean DEBUG_MANA_PAYMENT = false;
  
      public static boolean canPayManaCost(ManaCostBeingPaid cost, final SpellAbility sa, final Player ai, final boolean effect) {
-@@ -324,6 +338,42 @@ public class ComputerUtilMana {
+@@ -324,6 +346,42 @@ public class ComputerUtilMana {
              }
          }
  
@@ -104,6 +112,126 @@ index 5f96dead716c57a1fb25f33225dbe7d29da1d299..a84559768b7069d4a14e9a2e2938b0a2
          for (final SpellAbility ma : maList) {
              // this rarely seems like a good idea
              if (ma.getHostCard() == saHost) {
+@@ -596,6 +654,29 @@ public class ComputerUtilMana {
+ 
+     // returns null if unpayable
+     private static List<SpellAbility> payManaCost(final ManaCostBeingPaid cost, final SpellAbility sa, final Player ai, final boolean test, boolean checkPlayable, boolean effect) {
++        HumanPaymentPreferences preferences = Boolean.TRUE.equals(HUMAN_AUTO_PAY.get())
++                && forge.util.ThreadUtil.executionContext() instanceof HumanPaymentPreferences prefs ? prefs : null;
++        if (preferences != null && sa.isSpell()) {
++            HumanPaymentPlan plan;
++            // A prospective spell cost can itself ask Forge for a payment estimate.
++            HUMAN_AUTO_PAY.remove();
++            try {
++                plan = preferences.plan(cost, sa, ai, groupSourcesByManaColor(ai, checkPlayable));
++            } finally {
++                HUMAN_AUTO_PAY.set(true);
++            }
++            if (plan != null) {
++                List<SpellAbility> preview = payManaCost(new ManaCostBeingPaid(cost), sa, ai, true, checkPlayable, effect, plan, preferences);
++                if (preview != null) {
++                    return test ? preview : payManaCost(cost, sa, ai, false, checkPlayable, effect, plan, preferences);
++                }
++            }
++        }
++        return payManaCost(cost, sa, ai, test, checkPlayable, effect, null, preferences);
++    }
++
++    private static List<SpellAbility> payManaCost(final ManaCostBeingPaid cost, final SpellAbility sa, final Player ai,
++            final boolean test, boolean checkPlayable, boolean effect, HumanPaymentPlan plan, HumanPaymentPreferences preferences) {
+         if ((sa.isOffering() && sa.getSacrificedAsOffering() == null) || (sa.isEmerge() && sa.getSacrificedAsEmerge() == null)) {
+             // nothing was chosen
+             return null;
+@@ -627,7 +708,16 @@ public class ComputerUtilMana {
+         }
+ 
+         // not worth checking if it makes sense to not spend floating first
+-        if (manapool.payManaCostFromPool(cost, sa, test, manaSpentToPay)) {
++        if (plan != null) {
++            for (Mana mana : plan.pool()) {
++                if (mana.meetsManaRestrictions(sa) && sa.allowsPayingWithShard(mana.getSourceCard(), mana.getColor())
++                        && manapool.tryPayCostWithMana(sa, cost, mana, test)) {
++                    manaSpentToPay.add(mana);
++                }
++            }
++            if (cost.isPaid() && test) manapool.refundMana(manaSpentToPay);
++        }
++        if (plan == null ? manapool.payManaCostFromPool(cost, sa, test, manaSpentToPay) : cost.isPaid()) {
+             CostPayment.handleOfferings(sa, test, cost.isPaid());
+             // paid all from floating mana
+             return paymentList;
+@@ -635,16 +725,18 @@ public class ComputerUtilMana {
+ 
+         int phyLifeToPay = 2;
+         boolean purePhyrexian = cost.containsOnlyPhyrexianMana();
+-        boolean hasConverge = sa.getHostCard().hasConverge();
++        // A hosted plan has already resolved Converge among equally good reserves.
++        boolean hasConverge = plan == null && sa.getHostCard().hasConverge();
+         ListMultimap<ManaCostShard, SpellAbility> sourcesForShards = getSourcesForShards(cost, sa, ai, test, checkPlayable, hasConverge);
+ 
+         int testEnergyPool = ai.getCounters(CounterEnumType.ENERGY);
+         ManaCostShard toPay = null;
+         List<SpellAbility> saExcludeList = new ArrayList<>();
+ 
++        int testLifeSpent = 0;
+         // Loop over mana needed
+         while (!cost.isPaid()) {
+-            while (!cost.isPaid() && !manapool.isEmpty()) {
++            while (plan == null && !cost.isPaid() && !manapool.isEmpty()) {
+                 boolean found = false;
+                 for (byte color : ManaAtom.MANATYPES) {
+                     if (manapool.tryPayCostWithColor(color, sa, cost, manaSpentToPay)) {
+@@ -694,6 +786,19 @@ public class ComputerUtilMana {
+ 
+             saList.removeAll(saExcludeList);
+ 
++            if (plan != null || preferences != null) {
++                List<SpellAbility> candidates = new ArrayList<>();
++                for (SpellAbility ability : saList) {
++                    if (plan != null && !plan.sources().containsKey(ability)) continue;
++                    if (preferences != null && !ai.cantLoseForZeroOrLessLife()) {
++                        int life = preferences.activationLife(ability, ai);
++                        if (life > 0 && ai.getLife() - testLifeSpent - (phyLifeToPay - 2) <= life) continue;
++                    }
++                    candidates.add(ability);
++                }
++                saList = candidates;
++            }
++
+             SpellAbility saPayment = saList.isEmpty() ? null : chooseManaAbility(cost, sa, ai, toPay, saList, checkPlayable || !test);
+ 
+             if (saPayment != null && ComputerUtilCost.isSacrificeSelfCost(saPayment.getPayCosts()) && sa.isTargeting(saPayment.getHostCard())) {
+@@ -711,7 +816,7 @@ public class ComputerUtilMana {
+             if (saPayment == null) {
+                 boolean lifeInsteadOfBlack = toPay.isBlack() && ai.hasKeyword("PayLifeInsteadOf:B");
+                 if ((!toPay.isPhyrexian() && !lifeInsteadOfBlack) || !ai.canPayLife(phyLifeToPay, false, sa)
+-                        || (ai.getLife() <= phyLifeToPay && !ai.cantLoseForZeroOrLessLife())) {
++                        || (ai.getLife() - testLifeSpent <= phyLifeToPay && !ai.cantLoseForZeroOrLessLife())) {
+                     // cannot pay
+                     break;
+                 }
+@@ -745,6 +850,11 @@ public class ComputerUtilMana {
+                 continue;
+             }
+ 
++            if (plan != null) {
++                String choice = plan.sources().get(saPayment);
++                if (choice != null && !choice.isEmpty()) saPayment.getManaPart().setExpressChoice(choice);
++            }
++            if (test && preferences != null) testLifeSpent += preferences.activationLife(saPayment, ai);
+             paymentList.add(saPayment);
+             if (saPayment.getPayCosts().hasTapCost()) {
+                 AiCardMemory.rememberCard(ai, saPayment.getHostCard(), MemorySet.PAYS_TAP_COST);
+@@ -769,7 +879,8 @@ public class ComputerUtilMana {
+             } else {
+                 final CostPayment pay = new CostPayment(saPayment.getPayCosts(), saPayment);
+                 if (!pay.payComputerCosts(new AiCostDecision(ai, saPayment, effect, true))) {
+-                    saList.remove(saPayment);
++                    if (preferences != null) saExcludeList.add(saPayment);
++                    else saList.remove(saPayment);
+                     continue;
+                 }
+ 
 diff --git a/forge-ai/src/main/java/forge/ai/LobbyPlayerAi.java b/forge-ai/src/main/java/forge/ai/LobbyPlayerAi.java
 index 09d9ad01ad2b70d2775f87aad27785cba439361b..99b7ce3c4afab5a75fd0005a25f1a38147e8e9bd 100644
 --- a/forge-ai/src/main/java/forge/ai/LobbyPlayerAi.java

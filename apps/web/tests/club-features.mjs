@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright-core";
+import { importDeck } from "./deck-import.mjs";
 
 const baseURL = process.env.CLUB_TEST_URL ?? "http://127.0.0.1:57320";
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/usr/bin/chromium",
@@ -40,16 +41,9 @@ async function enter(context, name) {
   return state;
 }
 
-async function importDeck(page, name, list) {
-  await button(page, "Import deck").click();
-  await page.getByLabel("Deck name").fill(name);
-  await page.getByLabel("MTGA or MTGO decklist").fill(list);
-  await button(page, "Save deck").click();
-}
-
 async function concede(page) {
   page.once("dialog", (dialog) => dialog.accept());
-  await button(page, "Concede game").click();
+  await page.getByRole("banner").getByRole("button", { name: "Concede game", exact: true }).click();
 }
 
 async function practiceAndResume() {
@@ -79,7 +73,10 @@ async function practiceAndResume() {
       if (player.game.zones.every((zone) => zone.zone !== "battlefield" || zone.cards.length === 0) && await readyLand.count()) {
         await readyLand.dragTo(player.page.getByRole("region", { name: "Your battlefield" }), { targetPosition: { x: 12, y: 12 } });
       } else await button(player.page, "Pass priority").click();
-    } else await player.page.locator(".decision .choices button").first().click();
+    } else {
+      await player.page.locator(".decision .choices button").first().click();
+      if (prompt.kind === "chooseBoolean") await button(player.page, "Confirm").click();
+    }
     await waitFor(() => player.prompt?.promptId !== prompt.promptId || player.game.turn >= 3,
       `Forge advance from ${prompt.kind} on turn ${player.game.turn}, step ${player.game.step}`);
   }
@@ -96,6 +93,9 @@ async function practiceAndResume() {
   await waitFor(() => player.welcome?.resumed && player.game?.gameId === gameId, "closed-tab resume");
   assert.equal(player.welcome.roomId, roomId);
   assert.equal(player.welcome.seat, 0);
+  player.page.once("dialog", (dialog) => dialog.dismiss());
+  await button(player.page, "Concede game").click();
+  assert.equal(player.game.gameOver, false);
   await concede(player.page);
   await waitFor(() => player.game?.gameOver, "practice finished");
   await context.close();

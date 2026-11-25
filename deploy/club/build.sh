@@ -45,6 +45,7 @@ packager.extract_archive(archive, Path(sys.argv[2]), "hexproof-forge-runtime")
 PY
 
 cp -a apps/web/dist "$stage/web"
+python3 deploy/club/deck-card-index.py "$stage/hexproof-forge-runtime/forge-gui/res/cardsfolder" "$stage/web/assets/deck-cards.json"
 install -m 644 LICENSE THIRD-PARTY-NOTICES.md "$stage/"
 cp "$stage/overlay/forge-overlay.jar" "$stage/"
 commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'source')"

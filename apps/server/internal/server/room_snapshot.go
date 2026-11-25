@@ -27,6 +27,7 @@ func (h *Handler) fanoutRoomSnapshot(r *room.Room, envelope protocol.Envelope, m
 	for _, member := range members {
 		private := snapshot
 		private.OwnDeckName = ""
+		private.LiveDeckLists = nil
 		if entry.room == r {
 			private = r.ProjectRoomSnapshot(member.ConnectionID, snapshot)
 		}

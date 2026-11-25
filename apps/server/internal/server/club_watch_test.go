@@ -84,9 +84,9 @@ func TestClubWatchRequiresRoomOptInAndIsReadOnly(t *testing.T) {
 		assertClubWatchError(t, viewer, protocol.ErrNotPlayer)
 	}
 
-	// The preload manifest contains full deck-printing hints, beyond the hands
-	// a live viewer is authorized to see. Confirm the next message is the ping
-	// reply while the seated player still receives the manifest.
+	// The preload manifest is for player asset prefetch. Viewers receive the
+	// registered lists only in their started-room projection. Confirm only
+	// the seated player receives the prefetch event.
 	manifest, _ := protocol.NewEnvelope(protocol.TypeMatchLoadRequired, protocol.MatchLoadRequired{LoadID: 1})
 	handler.fanout(handler.hub.FindRoom(liveID), []protocol.Envelope{manifest})
 	host.recvType(protocol.TypeMatchLoadRequired)

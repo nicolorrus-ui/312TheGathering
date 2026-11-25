@@ -242,7 +242,9 @@ func main() {
 			http.ServeFileFS(w, r, files, "index.html")
 		})
 		mux.Handle("GET /assets/", http.FileServerFS(files))
-		mux.Handle("GET /card-art", newClubCardArt())
+		cards := newClubCardArt()
+		mux.Handle("GET /card-art", cards)
+		mux.HandleFunc("GET /card-search", cards.serveSearch)
 	} else {
 		mux.HandleFunc("/internal/accounts", handler.ServeAccountAuthority)
 		mux.HandleFunc("/internal/cluster", handler.ServeClusterCoordinator)

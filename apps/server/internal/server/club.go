@@ -77,8 +77,7 @@ func (h *Hub) beginClubWatch(roomID string) (*roomEntry, error) {
 	}
 	entry.mu.Lock()
 	r := entry.room
-	watchable := entry.tournamentID == "" && r.ClubDuel && !r.Practice &&
-		r.AllowSpectators && r.SpectatorsSeeHands
+	watchable := r.ClubLiveDuel()
 	entry.mu.Unlock()
 	if !watchable {
 		entry.opMu.Unlock()

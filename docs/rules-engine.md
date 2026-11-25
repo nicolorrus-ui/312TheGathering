@@ -1027,14 +1027,17 @@ submits the matching normalized action rather
 than mutating the projection. Actions without a directly operable table object,
 including plays from other zones, remain available in the decision dock.
 
-Human Auto-pay consumes usable floating mana first. For a remaining pure generic
-cost of at least two, it prefers a legal, untapped, tap-only colorless land that
-can pay the whole remainder in one activation, choosing the least excess mana.
-Native amount/replacement prediction and spending restrictions still apply.
-This avoids tapping multiple Tron lands under Trinisphere when one Tower pays
-all three. Colored requirements, special payment preferences, converge/sunburst,
-additional activation costs and native AI decisions retain the native policy;
-manual source selection remains available.
+For a human casting a spell, Auto-pay ranks complete payments by the number of
+remaining hand spells payable together, then by the number of distinct available
+mana colors, then by the life required to use the remaining sources. Colorless
+mana can pay costs and contributes no color. The forecast considers floating
+mana, multi-mana production, source restrictions and shared use of each source.
+On otherwise equal plans a Converge spell favors spending more colors. Further
+ties favor preserving life now, fewer activations, and
+less excess mana. The bounded search keeps its best complete allocation.
+Forge checks the proposed sources against the current cost and uses its native
+payment strategy for choices the forecast cannot model, including dependent
+activations and special costs. Manual payment remains available.
 
 Manually activating a mana source with an irreversible activation retains
 Forge's full color choice, even while paying a colored spell. Standalone manual

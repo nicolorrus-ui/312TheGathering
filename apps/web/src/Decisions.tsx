@@ -177,7 +177,8 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
         {content}
       </div>
       {prompt.supported && <footer>
-        <Options options={prompt.options.filter((option) => !option.cardId || option.kind === "undoMana")} submit={submit} />
+        <Options options={prompt.options.filter((option) => option.responseId !== "$auto-pay"
+          && (!option.cardId || option.kind === "undoMana"))} submit={submit} />
         {confirmButton}
         {prompt.cancellable && !prompt.options.some((option) => option.responseId === "$cancel") &&
           <button className="quiet" type="button" onClick={() => submit({ responseId: "$cancel" })}>Cancel action</button>}
