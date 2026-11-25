@@ -27,7 +27,7 @@ function readStops() {
   return new Set(defaultStops);
 }
 
-export function usePriorityStops(roomId: string, online: boolean, sendPriority: (preference: RulesPriority) => void) {
+export function usePriorityStops(roomId: string, online: boolean, sendPriority: (preference: RulesPriority) => void, enabled = true) {
   const [stops, setStops] = useState(readStops);
   const holdKey = `${storageKey}.hold:${roomId}`;
   const [hold, setHold] = useState(() => {
@@ -35,17 +35,19 @@ export function usePriorityStops(roomId: string, online: boolean, sendPriority: 
   });
 
   useEffect(() => {
+    if (!enabled) return;
     try { localStorage.setItem(storageKey, JSON.stringify([...stops])); } catch { /* Storage can be disabled. */ }
-  }, [stops]);
+  }, [enabled, stops]);
   useEffect(() => {
+    if (!enabled) return;
     try {
       if (hold) sessionStorage.setItem(holdKey, "true");
       else sessionStorage.removeItem(holdKey);
     } catch { /* Storage can be disabled. */ }
-  }, [holdKey, hold]);
+  }, [enabled, holdKey, hold]);
   useEffect(() => {
-    if (online) sendPriority({ roomId, hold, stops: [...stops] });
-  }, [roomId, online, hold, stops, sendPriority]);
+    if (enabled && online) sendPriority({ roomId, hold, stops: [...stops] });
+  }, [enabled, roomId, online, hold, stops, sendPriority]);
 
   function toggleStop(key: string) {
     setStops((old) => {
@@ -59,25 +61,28 @@ export function usePriorityStops(roomId: string, online: boolean, sendPriority: 
   return { stops, hold, toggleStop, setHold };
 }
 
-export function PhaseControls({ game, turnLabel, myTurn, stops, hold, toggleStop, setHold }: {
+export function PhaseControls({ game, turnLabel, myTurn, stops, hold, toggleStop, setHold, spectatorNames }: {
   game: Snapshot; turnLabel: string; myTurn: boolean; stops: ReadonlySet<string>; hold: boolean;
   toggleStop: (key: string) => void; setHold: (enabled: boolean) => void;
+  spectatorNames?: [string, string];
 }) {
   return <aside className="phase-rail" aria-label="Turn phases">
     <header className="turn-widget"><strong>Turn {game.turn || "—"}</strong><small>{turnLabel}</small></header>
-    <div className="phase-sides" aria-hidden="true">{sides.map(([side, , short]) => <span key={side}>{short}</span>)}</div>
+    <div className="phase-sides" aria-hidden="true">{sides.map(([side, , short], index) =>
+      <span key={side} title={spectatorNames?.[index]}>{spectatorNames?.[index] ?? short}</span>)}</div>
     <ol className="phase-track">{phases.map(([id, label, short]) => <li key={id} data-phase={id}
       aria-current={game.step === id && !game.gameOver ? "step" : undefined}>
-      {sides.map(([side, description]) => {
+      {sides.map(([side, description], index) => {
         const key = `${side}:${id}`;
-        const name = `${description} · ${label} stop`;
+        const name = spectatorNames ? `${spectatorNames[index]} · ${label}` : `${description} · ${label} stop`;
         return <button key={side} type="button" className="phase-stop" aria-label={name} title={name}
           data-side={side} data-active={!game.gameOver && game.step === id && (side === "own") === myTurn}
-          aria-pressed={stops.has(key)} onClick={() => toggleStop(key)} />;
+          aria-pressed={spectatorNames ? undefined : stops.has(key)} disabled={Boolean(spectatorNames)}
+          onClick={() => toggleStop(key)} />;
       })}
       <span className="phase-label">{short}</span>
     </li>)}</ol>
-    <button type="button" role="switch" aria-checked={hold} className="priority-hold"
-      disabled={game.gameOver} onClick={() => setHold(!hold)}>Hold priority</button>
+    <button type="button" role="switch" aria-checked={!spectatorNames && hold} className="priority-hold"
+      disabled={Boolean(spectatorNames) || game.gameOver} onClick={() => setHold(!hold)}>Hold priority</button>
   </aside>;
 }

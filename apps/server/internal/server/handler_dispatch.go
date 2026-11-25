@@ -187,6 +187,11 @@ func (h *Handler) dispatch(ctx context.Context, _ *websocket.Conn, sess *Session
 		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "unsupported command")
 		return nil
 	}
+	if h.config.ClubMode && env.Type != protocol.TypeSessionPing &&
+		env.Type != protocol.TypeRoomLeave && h.hub.isClubSpectator(sess) {
+		h.sendError(sess, env.ID, protocol.ErrNotPlayer, "spectators are read-only")
+		return nil
+	}
 	if spec.requiresID && env.ID == "" {
 		h.sendError(sess, "", protocol.ErrInvalidMessage, "id required for "+env.Type)
 		return nil

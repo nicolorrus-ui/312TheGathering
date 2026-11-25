@@ -34,17 +34,39 @@ screen name. The server-issued seat credential grants control of a seat.
 ## Duel controls
 
 Your hand fans out across the bottom of the table. Scroll horizontally if it
-does not fit, and drag a playable card onto the battlefield. The opponent's
-hand shows the classic Magic card backs based on the public count. The phase
-track on the right highlights the current Forge step. Priority controls sit
-at the bottom right.
+does not fit. To play a land or cast a spell, drag the card onto your
+battlefield and release it. Moving the card back over your hand before
+release cancels the drag. Hover over a visible card to see its larger art
+on the left. The opponent's hand shows card backs based on the public count.
+The phase track on the right highlights the current Forge step. Priority
+controls sit at the bottom right.
 The stack tray appears beside the battlefield while it contains spells or
 abilities. On narrow screens it moves between the two battlefields.
+
+**Undo land** and **Undo mana** appear in the priority controls when Forge
+can reverse the last eligible action of that kind. Undo is available with
+an empty stack during the same priority window. When several actions
+qualify, select Undo repeatedly to reverse them in order. Forge commits
+land plays that also change other game state, such as paying life
+while the land enters.
 
 Forge selection windows open in the center. Use **Minimize** to free the
 board, then **Expand** near the priority controls to return to the same
 selection. With a board-target decision minimized, you can still select a
 target on the board and confirm it at the bottom right.
+
+## Live duels
+
+Enable **Live mode** when creating a two-player duel, then share **Copy watch
+link** with viewers. The watch link or room code allows spectators to see
+both hands without a password. Players still use the regular invite and room
+password to take a seat. Viewers can hover over visible cards for a close-up.
+The spectator view shows the active phase with disabled phase stops and
+priority controls. Deck contents, private decision prompts, and sideboards
+remain private.
+
+Run `node apps/web/tests/live-interactions.mjs` against the local bundle
+to check spectator visibility, reload, and repeated Forge undo in Chromium.
 
 ## Card image packs
 

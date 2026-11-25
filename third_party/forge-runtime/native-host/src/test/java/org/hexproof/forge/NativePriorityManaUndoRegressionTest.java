@@ -40,7 +40,7 @@ public final class NativePriorityManaUndoRegressionTest {
                 return null;
             });
             for (String scenario : List.of("two-sources", "multiple-mana", "spent-identity", "spent-multiplicity",
-                    "irreversible", "repeated-ability", "nested-fee", "completed-cast", "land", "priority-phase", "queued-history-change", "queued-input-change")) {
+                    "irreversible", "repeated-ability", "nested-fee", "completed-cast", "land", "land-undo", "priority-phase", "queued-history-change", "queued-input-change")) {
                 try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("priority-undo-" + scenario, 42), base);
                         var scope = session.context.enter()) {
                     base.setTestSession(session);
@@ -54,6 +54,7 @@ public final class NativePriorityManaUndoRegressionTest {
                         case "queued-history-change", "queued-input-change" -> queuedHistoryChange(session, owner, scenario);
                         case "spent-identity", "spent-multiplicity" -> spent(session, owner, scenario);
                         case "irreversible", "repeated-ability", "nested-fee" -> special(session, owner, scenario);
+                        case "land-undo" -> landUndo(session, owner);
                         case "completed-cast", "land", "priority-phase" -> changedState(session, owner, scenario);
                         default -> throw new AssertionError(scenario);
                     }
@@ -71,11 +72,15 @@ public final class NativePriorityManaUndoRegressionTest {
     }
 
     private static List<String> undos(JsonObject input) {
+        return undos(input, "undoMana");
+    }
+
+    private static List<String> undos(JsonObject input, String kind) {
         require(input.get("type").getAsString().equals("chooseAction"), "Expected native priority: " + input);
         List<String> result = new ArrayList<>();
         for (var value : input.getAsJsonArray("actions")) {
             JsonObject option = value.getAsJsonObject();
-            if (option.get("type").getAsString().equals("undoMana")) result.add(option.get("id").getAsString());
+            if (option.get("type").getAsString().equals(kind)) result.add(option.get("id").getAsString());
         }
         return result;
     }
@@ -229,7 +234,9 @@ public final class NativePriorityManaUndoRegressionTest {
             activate(owner, first.getManaAbilities().getFirst());
             if (replaceInput) require(owner.getController().chooseSpellAbilityToPlay() == null, "Fixture priority pass failed");
             require(owner.getController().chooseSpellAbilityToPlay() == null, "Stale undo selected or passed another action");
-            require(!first.isTapped() && !second.isTapped() && owner.getManaPool().isEmpty(), "Fresh source undo did not recover");
+            require(first.isTapped() == replaceInput && !second.isTapped()
+                    && owner.getManaPool().totalMana() == (replaceInput ? 1 : 0),
+                    "Queued response changed committed mana or fresh source undo did not recover");
         }, input -> {
             int step = decisions.getAndIncrement();
             if (step == 0) {
@@ -277,9 +284,9 @@ public final class NativePriorityManaUndoRegressionTest {
                     JsonObject fresh = JsonParser.parseString(session.prompt(0)).getAsJsonObject().getAsJsonObject("input");
                     require(first.isTapped() && second.isTapped() != replaceInput
                             && owner.getManaPool().totalMana() == (replaceInput ? 1 : 2)
-                            && undos(fresh).equals(List.of("undo:" + (replaceInput ? first : second).getId())),
+                            && undos(fresh).equals(replaceInput ? List.of() : List.of("undo:" + second.getId())),
                             "Queued stale undo mutated newer history, passed priority, or left input pending");
-                    return action("undo:" + (replaceInput ? first : second).getId());
+                    return replaceInput ? NativeSession.object("type", "pass") : action("undo:" + second.getId());
                 } catch (Exception error) { throw new AssertionError(error); }
                 finally { release.countDown(); }
             }
@@ -290,6 +297,56 @@ public final class NativePriorityManaUndoRegressionTest {
             }
             require(step == (replaceInput ? 1 : 2) && undos(input).isEmpty(), "Queued-undo recovery did not finish");
             return NativeSession.object("type", "pass");
+        });
+    }
+
+    private static void landUndo(NativeSession session, Player owner) throws Exception {
+        card(session.game, owner, "Exploration", ZoneType.Battlefield);
+        Card first = card(session.game, owner, "Forest", ZoneType.Hand);
+        Card exiled = card(session.game, owner, "Mountain", ZoneType.Exile);
+        var battlefield = owner.getZone(ZoneType.Battlefield);
+        Card entered = session.game.getAction().moveTo(battlefield, exiled, null);
+        Card second = session.game.getAction().moveToHand(entered, null);
+        session.game.getTriggerHandler().runWaitingTriggers();
+        require(battlefield.isCardAddedThisTurn(second, ZoneType.Exile), "Missing earlier entry from exile");
+        AtomicInteger decisions = new AtomicInteger();
+        drive(session, owner, () -> {
+            session.game.getAction().checkStaticAbilities();
+            require(owner.getMaxLandPlays() == 2, "Exploration did not grant a second land play");
+            for (Card expected : List.of(first, second)) {
+                List<SpellAbility> chosen = owner.getController().chooseSpellAbilityToPlay();
+                require(chosen != null && chosen.size() == 1 && chosen.getFirst().getHostCard() == expected,
+                        "Priority selected a different land");
+                activate(owner, chosen.getFirst());
+            }
+            require(owner.getController().chooseSpellAbilityToPlay() == null, "Land undo selected another ability");
+            require(first.isInZone(ZoneType.Hand) && second.isInZone(ZoneType.Hand)
+                    && owner.getLandsPlayedThisTurn() == 0
+                    && battlefield.getCardsAddedThisTurn(ZoneType.Hand).isEmpty()
+                    && battlefield.isCardAddedThisTurn(second, ZoneType.Exile),
+                    "Land undos left an incorrect land count, zone, or same-turn entry history");
+        }, input -> {
+            return switch (decisions.getAndIncrement()) {
+                case 0 -> action("card:" + first.getId());
+                case 1 -> action("card:" + second.getId());
+                case 2 -> {
+                    require(undos(input, "undoLand").equals(List.of("undo:land:" + second.getId()))
+                            && first.isInPlay() && second.isInPlay() && owner.getLandsPlayedThisTurn() == 2,
+                            "Native undo did not offer only the latest of two land plays");
+                    yield action("undo:land:" + second.getId());
+                }
+                case 3 -> {
+                    require(undos(input, "undoLand").equals(List.of("undo:land:" + first.getId()))
+                            && first.isInPlay() && second.isInZone(ZoneType.Hand) && owner.getLandsPlayedThisTurn() == 1,
+                            "First land did not remain retractable after undoing the second");
+                    yield action("undo:land:" + first.getId());
+                }
+                case 4 -> {
+                    require(undos(input, "undoLand").isEmpty(), "Already reversed land still appeared retractable");
+                    yield NativeSession.object("type", "pass");
+                }
+                default -> throw new AssertionError("Unexpected priority prompt");
+            };
         });
     }
 

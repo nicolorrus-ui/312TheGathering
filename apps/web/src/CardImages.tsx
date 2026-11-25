@@ -3,6 +3,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Identity } from "./protocol";
 
+export type CardHover = (identity?: Identity, source?: Element) => void;
+
 const directory = "/assets/cards/";
 type Printing = { front: string; faces: Record<string, string> };
 type ImagePack = { version: 1; printings: Record<string, Printing>; names: Record<string, string> };
@@ -47,4 +49,11 @@ export function CardImage({ identity, className, decorative = false, eager = fal
   return <img key={src} className={className} src={src} alt={decorative ? "" : identity.name}
     draggable={false} decoding="async" loading={eager ? "eager" : "lazy"} referrerPolicy="no-referrer"
     onError={() => setFailed((previous) => [...previous.slice(-7), src])} />;
+}
+
+export function CardHoverPreview({ identity }: { identity: Identity }) {
+  return <div className="card-hover-preview" aria-hidden="true">
+    <strong>{identity.name}</strong>
+    <CardImage identity={identity} className="card-hover-preview-image" decorative eager />
+  </div>;
 }

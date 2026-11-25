@@ -14,6 +14,12 @@ revealed or becomes public. Spectators follow the same rule unless the host
 explicitly creates the room with the immutable `spectatorsSeeHands` policy;
 that policy grants every spectator live access to current hand identities only.
 
+In Hexproof Club, choosing Live mode when creating a duel enables this policy
+and allows viewers with the room code to enter as spectators. A player seat
+still requires the room password. Club spectators can leave the room or keep
+their connection alive. The server rejects their gameplay and other
+state-changing commands.
+
 In the waiting room, the public snapshot exposes each seat's `deckSelected`,
 `deckLocked` and `ready` status without deck names, card names, printings or
 quantities. An authenticated human player additionally receives optional
@@ -28,6 +34,7 @@ set of printing keys so clients can cache art. It omits deck ownership,
 quantities, sideboard grouping, and future library/hand order. These keys must
 not be copied into room snapshots or the shared game log. In `preload` mode it
 gates entry to the table; in `background` mode it does not gate play.
+Club spectators do not receive this event, including when resuming a session.
 
 A server operator (including the owner’s home hub) **can** see hidden state. That is accepted for v1.
 

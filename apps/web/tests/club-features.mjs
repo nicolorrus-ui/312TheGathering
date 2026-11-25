@@ -77,7 +77,7 @@ async function practiceAndResume() {
     else if (prompt.kind === "chooseAction") {
       const readyLand = player.page.getByRole("region", { name: "Your hand" }).locator('[data-actionable="true"][aria-label="Mountain"]').first();
       if (player.game.zones.every((zone) => zone.zone !== "battlefield" || zone.cards.length === 0) && await readyLand.count()) {
-        await readyLand.dragTo(player.page.locator(".center-line"));
+        await readyLand.dragTo(player.page.getByRole("region", { name: "Your battlefield" }), { targetPosition: { x: 12, y: 12 } });
       } else await button(player.page, "Pass priority").click();
     } else await player.page.locator(".decision .choices button").first().click();
     await waitFor(() => player.prompt?.promptId !== prompt.promptId || player.game.turn >= 3,

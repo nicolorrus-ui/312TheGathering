@@ -52,11 +52,11 @@ func validClubRoom(room protocol.RoomCreate) bool {
 	if room.Format != protocol.FormatModern || room.RulesMode != protocol.RulesModeForge ||
 		(room.MaxSeats != 0 && room.MaxSeats != 2) ||
 		(room.HostingMode != "" && room.HostingMode != "server") ||
-		room.Playtest || room.AllowSpectators || room.SpectatorsSeeHands ||
+		room.Playtest || room.AllowSpectators != room.SpectatorsSeeHands ||
 		room.AISource != "" || room.AIDifficulty != "" || (!room.Practice && strings.TrimSpace(room.Password) == "") {
 		return false
 	}
-	if room.Practice && room.MatchMode != protocol.MatchBO1 {
+	if room.Practice && (room.MatchMode != protocol.MatchBO1 || room.AllowSpectators) {
 		return false
 	}
 	switch room.DeckFormat {
@@ -66,4 +66,37 @@ func validClubRoom(room protocol.RoomCreate) bool {
 	default:
 		return false
 	}
+}
+
+// The watch link opens a read-only role in an explicitly public Club duel.
+// The player's room password and the normal join path remain independent.
+func (h *Hub) beginClubWatch(roomID string) (*roomEntry, error) {
+	entry, err := h.lockRoomOperation(roomID)
+	if err != nil {
+		return nil, err
+	}
+	entry.mu.Lock()
+	r := entry.room
+	watchable := entry.tournamentID == "" && r.ClubDuel && !r.Practice &&
+		r.AllowSpectators && r.SpectatorsSeeHands
+	entry.mu.Unlock()
+	if !watchable {
+		entry.opMu.Unlock()
+		return nil, &protocolError{code: protocol.ErrSpectatorsNotAllowed, message: "live viewing is disabled for this room"}
+	}
+	return entry, nil
+}
+
+func (h *Hub) isClubSpectator(sess *Session) bool {
+	r := sess.Room()
+	if r == nil {
+		return false
+	}
+	entry := h.roomEntryFor(r.ID)
+	if entry == nil {
+		return false
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	return entry.room == r && r.IsSpectator(sess.ConnectionID)
 }

@@ -24,7 +24,7 @@ final class NativePriorityManaUndo {
         MagicStack stack = player.getGame().getStack();
         if (ability == null || player.getGame().isGameOver() || !player.isInGame()
                 || player.getGame().getPhaseHandler().getPriorityPlayer() != player
-                || !stack.canUndo(player) || stack.peekUndoStack() != ability) return false;
+                || !stack.isEmpty() || !stack.canUndo(player) || stack.peekUndoStack() != ability) return false;
 
         Set<SpellAbility> refund = Collections.newSetFromMap(new IdentityHashMap<>());
         if (!collectRefund(player, ability, refund)) return false;

@@ -231,6 +231,31 @@ func TestLiveForgePriorityManaUndo(t *testing.T) {
 		t.Fatal("mana undo changed the new land or restored the consumed land drop")
 	}
 
+	// Replay the same land after undo and offer the native mana sources in
+	// reverse activation order. A tapped land is needed until its mana is undone.
+	if option("undoLand", secondID).ResponseID == "" {
+		t.Fatal("a reversible land play did not expose its undo")
+	}
+	act("undoLand", secondID)
+	assertPriority(false, 0)
+	if _, present := liveCardInZone(view, "hand", secondID); !present || len(forests()) != initialLands ||
+		option("playLand", secondID).ResponseID == "" || option("undoLand", secondID).ResponseID != "" {
+		t.Fatal("land undo did not restore the exact hand card and legal land-play allowance")
+	}
+	act("playLand", secondID)
+	act("activateAbility", sourceID)
+	act("activateAbility", secondID)
+	if option("undoLand", secondID).ResponseID != "" {
+		t.Fatal("land was retractable while later mana depended on the battlefield")
+	}
+	act("undoMana", secondID)
+	assertPriority(true, 1)
+	act("undoMana", sourceID)
+	assertPriority(false, 0)
+	if option("undoLand", secondID).ResponseID == "" {
+		t.Fatal("undoing later mana did not restore land undo")
+	}
+
 	// Spend both floating mana on a real spell and resolve it. Completed payment
 	// must not offer either source for undo or return the spell's spent mana.
 	act("activateAbility", sourceID)
@@ -265,7 +290,7 @@ func TestLiveForgePriorityManaUndo(t *testing.T) {
 				if !client.Healthy() {
 					t.Fatal("priority undo left an unhealthy runtime")
 				}
-				t.Logf("%d priority tap/undo cycles, preserved land drop and resolved floating-mana cast passed", cycles)
+				t.Logf("%d priority tap/undo cycles, land rollback, successive mana refunds, and floating-mana cast passed", cycles)
 				return
 			}
 			submit(PromptResponse{ResponseID: "$pass"})

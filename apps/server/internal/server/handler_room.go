@@ -71,7 +71,7 @@ func (h *Handler) handleRoomCreate(sess *Session, env protocol.Envelope) error {
 		return nil
 	}
 	if h.config.ClubMode && !validClubRoom(rc) {
-		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "private, password-protected server Forge duels only")
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "Club rooms require supported server Forge settings")
 		return nil
 	}
 	if rc.Practice && (!h.config.ClubMode || !h.forgeAIAvailable()) {
@@ -270,8 +270,9 @@ func (h *Handler) handleRoomJoin(sess *Session, env protocol.Envelope) error {
 		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, err.Error())
 		return nil
 	}
-	if h.config.ClubMode && (rj.AsSpectator || strings.TrimSpace(rj.Password) == "") {
-		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "a player seat and room password are required")
+	clubWatch := h.config.ClubMode && rj.AsSpectator
+	if h.config.ClubMode && !clubWatch && strings.TrimSpace(rj.Password) == "" {
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "a room password is required for a player seat")
 		return nil
 	}
 	rj.RoomID = strings.ToUpper(strings.TrimSpace(rj.RoomID))
@@ -279,7 +280,7 @@ func (h *Handler) handleRoomJoin(sess *Session, env protocol.Envelope) error {
 		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "invalid room id or password")
 		return nil
 	}
-	if h.isCubeRoom(rj.RoomID) {
+	if !clubWatch && h.isCubeRoom(rj.RoomID) {
 		return h.handleCubeRoomJoin(sess, env, rj)
 	}
 	destinationPodID := h.hub.TournamentForRoom(h.hub.FindRoom(rj.RoomID))
@@ -287,13 +288,19 @@ func (h *Handler) handleRoomJoin(sess *Session, env protocol.Envelope) error {
 		h.sendError(sess, env.ID, protocol.ErrAlreadyInRoom, "leave the current Cube room first")
 		return nil
 	}
-	if protected, exists := h.hub.RoomRequiresPassword(rj.RoomID); exists && protected &&
-		!h.allowPasswordJoin(sess.RemoteIP, time.Now().UTC()) {
-		h.sendError(sess, env.ID, protocol.ErrRateLimited,
-			"password join rate limit exceeded")
-		return nil
+	var operation *roomEntry
+	var err error
+	if clubWatch {
+		operation, err = h.hub.beginClubWatch(rj.RoomID)
+	} else {
+		if protected, exists := h.hub.RoomRequiresPassword(rj.RoomID); exists && protected &&
+			!h.allowPasswordJoin(sess.RemoteIP, time.Now().UTC()) {
+			h.sendError(sess, env.ID, protocol.ErrRateLimited,
+				"password join rate limit exceeded")
+			return nil
+		}
+		operation, err = h.hub.beginJoin(rj.RoomID, rj.Password)
 	}
-	operation, err := h.hub.beginJoin(rj.RoomID, rj.Password)
 	if err != nil {
 		code, _ := ErrCode(err)
 		h.sendError(sess, env.ID, code, err.Error())
@@ -811,7 +818,7 @@ func (h *Handler) removeRoom(r *room.Room) pairingRoomCleanup {
 }
 
 // fanout sends broadcasts to every room member, projecting room snapshots for
-// each authenticated recipient. Tournament deck-art
+// each authenticated recipient. Club and tournament deck-art
 // manifests are player-only because their union of printing identities reveals
 // unpublished deck contents. Membership is snapshotted under the room lock.
 func (h *Handler) fanout(r *room.Room, envelopes []protocol.Envelope) {
@@ -823,7 +830,7 @@ func (h *Handler) fanout(r *room.Room, envelopes []protocol.Envelope) {
 			continue
 		}
 		targets := members
-		if tournamentRoom && envelope.Type == protocol.TypeMatchLoadRequired {
+		if (h.config.ClubMode || tournamentRoom) && envelope.Type == protocol.TypeMatchLoadRequired {
 			targets = players
 		}
 		h.fanoutTo(targets, []protocol.Envelope{envelope})

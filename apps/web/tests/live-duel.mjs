@@ -21,13 +21,14 @@ let verifiedHandAndPreview = false;
 let verifiedTable = false;
 let verifiedDecision = false;
 let verifiedStack = false;
+let verifiedSpellClick = false;
 const seenBattlefieldOrientations = new Set();
 const forbidden = ["game.set_tapped", "room.list", "room.ai.configure", "tournament.create"];
 const stats = { actions: 0, tapped: 0, floatingMana: 0, targetedFace: 0, resolutions: 0, privateSearch: 0, reconnect: 0, drag: 0 };
 const pageErrors = [];
 
 function collect(page, name) {
-  const peer = { page, name, messages: [], prompt: undefined, game: undefined, welcome: undefined };
+  const peer = { page, name, messages: [], responseCount: 0, prompt: undefined, game: undefined, welcome: undefined };
   if (verifyImages) page.on("request", (request) => {
     if (request.resourceType() === "image") imageRequests.push(request.url());
   });
@@ -35,6 +36,7 @@ function collect(page, name) {
   page.on("websocket", (ws) => ws.on("framesent", ({ payload }) => {
     const frame = JSON.parse(payload.toString());
     if (frame.type === "rules.priority") peer.priorityPreferences = frame.payload;
+    if (frame.type === "rules.respond") peer.responseCount += 1;
   }));
   page.on("websocket", (ws) => ws.on("framereceived", ({ payload }) => {
     const frame = JSON.parse(payload.toString());
@@ -79,7 +81,7 @@ async function join(guest, roomId, password) {
   await guest.page.getByRole("button", { name: "Join room", exact: true }).click();
   await guest.page.getByLabel("Room code").fill(roomId);
   await guest.page.getByLabel("Room password").fill(password);
-  await guest.page.getByRole("button", { name: "Join private duel" }).click();
+  await guest.page.getByRole("button", { name: "Join duel" }).click();
 }
 
 async function selectDeck(peer) {
@@ -243,6 +245,63 @@ async function clickFirst(locator) {
   await locator.first().click({ timeout: 4500 });
 }
 
+function ownBattlefield(page) {
+  return page.getByRole("region", { name: "Your battlefield" });
+}
+
+async function dragToBattlefield(page, card) {
+  await card.first().dragTo(ownBattlefield(page), { targetPosition: { x: 12, y: 12 }, timeout: 4500 });
+  stats.drag += 1;
+}
+
+async function verifyInertHandClick(peer, card) {
+  const responses = peer.responseCount;
+  await card.click();
+  assert.equal(peer.responseCount, responses, "clicking a hand card must not play it");
+}
+
+async function verifyCardInteraction(peer, card) {
+  const { page } = peer;
+  const preview = page.locator(".card-hover-preview");
+  await card.hover();
+  await preview.waitFor();
+  const previewBox = await preview.boundingBox();
+  const cardBox = await card.boundingBox();
+  const viewport = page.viewportSize();
+  assert.ok(previewBox.width > cardBox.width, "hover art is larger than the hand card");
+  assert.ok(previewBox.x + previewBox.width / 2 < viewport.width / 2, "hover art appears on the left");
+  assert.ok(Math.abs(previewBox.y + previewBox.height / 2 - viewport.height / 2) <= 2, "hover art is vertically centered");
+  if (verifyImages) await verifyImage(preview.locator("img"));
+
+  await verifyInertHandClick(peer, card);
+  const responses = peer.responseCount;
+
+  const battlefield = await ownBattlefield(page).boundingBox();
+  const hand = await page.getByRole("region", { name: "Your hand" }).boundingBox();
+  const fieldX = battlefield.x + 12;
+  const fieldY = battlefield.y + 12;
+  const handX = hand.x + hand.width / 2;
+  const handY = hand.y + hand.height / 2;
+  const floating = page.locator(".floating-hand-card");
+  await page.mouse.down();
+  try {
+    await page.mouse.move(fieldX, fieldY, { steps: 8 });
+    await page.mouse.move(fieldX, fieldY);
+    await floating.waitFor({ timeout: 4500 });
+    await page.mouse.move(handX, handY, { steps: 8 });
+    await page.mouse.move(handX, handY);
+    await floating.waitFor({ state: "hidden", timeout: 4500 });
+    await page.mouse.move(fieldX, fieldY, { steps: 8 });
+    await page.mouse.move(fieldX, fieldY);
+  } finally {
+    await page.mouse.up();
+  }
+  await floating.waitFor({ state: "hidden", timeout: 4500 });
+  assert.equal(peer.responseCount, responses, "returning a dragged card to the hand must cancel the gesture");
+  assert.equal(await card.getAttribute("data-actionable"), "true", "the canceled card remains playable");
+  console.log("Verified centered hover art, floating drag, drag cancellation and inert hand clicks");
+}
+
 async function act(peer, opponent) {
   const { prompt, page, game } = peer;
   const panel = page.locator(".decision").last();
@@ -255,22 +314,26 @@ async function act(peer, opponent) {
       const hand = page.getByRole("region", { name: "Your hand" });
       const wilds = hand.locator('[data-actionable="true"][aria-label="Evolving Wilds"]');
       const mountain = hand.locator('[data-actionable="true"][aria-label="Mountain"]');
-      const activeWilds = page.getByRole("region", { name: "Your battlefield" })
+      const activeWilds = ownBattlefield(page)
         .locator('[data-actionable="true"][aria-label="Evolving Wilds"]');
       const bolt = hand.locator('[data-actionable="true"][aria-label="Lightning Bolt"]');
       const handLand = await wilds.count() ? wilds : mountain;
       if (await handLand.count()) {
-        if (!stats.drag) {
-          await handLand.first().dragTo(page.locator(".center-line"), { timeout: 4500 });
-          stats.drag += 1;
-        } else await clickFirst(handLand);
+        if (!stats.drag) await verifyCardInteraction(peer, handLand.first());
+        await dragToBattlefield(page, handLand);
       } else if (await activeWilds.count()) {
         await clickFirst(activeWilds);
       } else if ((availableMountain || floated) && await bolt.count()) {
-        const manaLand = page.getByRole("region", { name: "Your battlefield" })
+        const manaLand = ownBattlefield(page)
           .locator('[data-actionable="true"][data-tapped="false"][aria-label="Mountain"]');
         if (!stats.floatingMana && await manaLand.count()) await clickFirst(manaLand);
-        else await clickFirst(bolt);
+        else {
+          if (!verifiedSpellClick) {
+            await verifyInertHandClick(peer, bolt.first());
+            verifiedSpellClick = true;
+          }
+          await dragToBattlefield(page, bolt);
+        }
       } else {
         await page.getByRole("button", { name: "Pass priority", exact: true }).click({ timeout: 4500 });
       }
