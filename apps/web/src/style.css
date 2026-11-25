@@ -143,7 +143,7 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .battlefield { min-width: 0; padding: .42rem clamp(.55rem, 3.4vw, 3rem); display: grid; align-content: space-evenly; gap: .4rem; }
 .battlefield.away { grid-area: away; }
 .battlefield.home { grid-area: home; }
-.table:has(.stack-tray) .battlefield { padding-inline-end: calc(var(--stack-width) + 1.25rem); }
+.table:has(.stack) .battlefield { padding-inline-end: calc(var(--stack-width) + 1.25rem); }
 .permanents { display: flex; flex-wrap: wrap; min-height: 0; align-items: center; justify-content: center; gap: .55rem; }
 .permanents:empty { display: none; }
 .center-line { grid-area: divide; display: flex; align-items: center; gap: .6rem; min-height: 32px; margin-inline: .82rem; font-size: .7rem; }
@@ -155,23 +155,31 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   position: sticky; z-index: 2; top: 50dvh; grid-area: 1 / 1 / -1 / -1; align-self: start; justify-self: end;
   width: var(--stack-width); margin-right: clamp(.3rem, 1vw, .85rem); transform: translateY(-50%); pointer-events: none;
 }
-.stack-tray {
-  display: flex; flex-direction: column; max-height: min(38dvh, 25rem); padding: .25rem;
-  border: 1px solid #79718b; border-radius: 8px; background: #19192be8; box-shadow: 0 6px 22px #090b1766;
-  pointer-events: auto;
+.stack {
+  --stack-edge: clamp(18px, 2.3dvh, 24px);
+  display: grid; align-items: start; align-content: start; isolation: isolate; max-height: min(42dvh, 25rem);
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; pointer-events: auto;
 }
-.stack-title { display: flex; justify-content: space-between; gap: .25rem; padding: .08rem .13rem .23rem; color: var(--soft); font-size: .7rem; }
-.stack-title span { color: var(--accent); font-variant-numeric: tabular-nums; }
-.stack { display: grid; gap: .24rem; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.stack:has(> button:nth-child(2)) { --stack-spread: 6px; }
 .stack button {
-  position: relative; display: block; width: 100%; aspect-ratio: 63 / 88; min-height: 0; overflow: hidden;
+  grid-area: 1 / 1; position: relative; justify-self: end; margin-top: calc(var(--stack-depth) * var(--stack-edge));
+  width: calc(100% - var(--stack-spread, 0px)); margin-inline-end: min(calc(var(--stack-depth) * 2px), var(--stack-spread, 0px));
+  aspect-ratio: 63 / 88; min-height: 0; overflow: hidden; border: 1px solid #161722;
   border-radius: 5px; padding: 0; text-align: center; background: #2d2d42;
 }
-.stack button[data-actionable="true"] { border: 2px solid var(--mint); }
+.stack button[data-actionable="true"] { border-color: var(--mint); }
 .stack button:focus-visible { outline-offset: -3px; }
 .stack-card-image, .stack-card-back { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-.stack-card-label, .stack-card-back { display: grid; place-items: center; padding: .14rem; font-size: .7rem; overflow-wrap: anywhere; }
-.stack-card-back { color: transparent; }
+.stack-card-label { display: grid; place-items: center; padding: .14rem; font-size: .7rem; overflow-wrap: anywhere; }
+.stack-edge {
+  position: absolute; inset: auto 0 0; height: calc(var(--stack-edge) - 1px); padding-inline: .18rem;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .64rem; line-height: var(--stack-edge);
+  color: #fdf7ea; text-shadow: 0 1px 2px #09090e; background: linear-gradient(#0b0d1833, #0b0d18c7 65%); pointer-events: none;
+}
+.stack button[data-actionable="true"] .stack-edge { color: var(--mint); }
+@media (pointer: coarse) {
+  .stack { --stack-edge: 25px; }
+}
 .card-movements { position: fixed; z-index: 5; inset: 0; pointer-events: none; overflow: hidden; }
 .moving-card {
   position: absolute; left: 0; top: 0; width: 70px; height: 98px; transform-origin: center; will-change: transform;
@@ -433,7 +441,6 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   .own-hand .hand-fan { padding-bottom: .78rem; }
   .battlefield { padding-inline: .37rem; }
   .permanents { gap: .34rem; }
-  .stack-tray { padding: .16rem; }
   .phase-stop { min-height: 38px; }
   .phase-label { font-size: .61rem; padding-inline: 11px; }
   .priority-hold { min-height: 42px; font-size: .65rem; }

@@ -66,6 +66,11 @@ The server writes `state/club-debug.log`. Set `CLUB_STATE_DIR` to move the
 server data, `CLUB_PORT` to change the port, or `CLUB_NO_BROWSER=1` to launch
 from a terminal without opening a browser.
 
+Both portable launchers allow one active Forge match at a time. Waiting rooms
+and spectators can share the same server. A best-of-three match keeps its slot
+while players sideboard. If a start reports `capacity`, wait for the active match
+to finish and Forge to become ready, then ready up again in the same room.
+
 ## Deck builder
 
 Open **Deck builder** in the club lobby, tournament, or waiting room. Choose
@@ -100,8 +105,11 @@ mana to cast the most spells from your remaining hand together. Ties favor
 access to more colors, then sources that cost less life to use later. The
 search has a work limit for large boards. Forge checks the payment and handles
 mana abilities with costs that depend on other permanents.
-Spells and abilities appear as card thumbnails at the right-hand edge of the
-battlefield, centered vertically. As a spell leaves the stack, its card moves
+Spells and abilities overlap directly on the battlefield at the right-hand edge,
+centered vertically. The newest object sits in front and resolves first. Hover
+over an older object's exposed edge to preview it. When Forge offers an
+on-board target, that edge can also be clicked to select it.
+As a spell leaves the stack, its card moves
 to the zone Forge selected. A hidden destination uses a card back. The browser
 honors the system's reduced-motion preference.
 

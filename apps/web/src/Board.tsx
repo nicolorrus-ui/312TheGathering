@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
 import { cardArtURL, CardImage, useCardHover, type CardHover } from "./CardImages";
 import { CardMovements } from "./CardMovements";
+import { SpellStack } from "./SpellStack";
 import { ConfirmationActions, Decision, DecisionPanel, Options, simpleConfirmation } from "./Decisions";
 import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
 import { PhaseControls, usePriorityStops } from "./PhaseControls";
@@ -356,24 +357,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       <section className="hand own-hand" data-motion-zone="hand" data-seat={seat} aria-label={spectating ? `${owner.name}'s hand` : "Your hand"}>
         {showHand(hand, false)}
       </section>
-      <div className="stack-position" data-motion-zone="stack">
-        {game.stack.length > 0 && <aside className="stack-tray" aria-label="Spell and ability stack">
-          <div className="stack-title">Stack <span>{game.stack.length}</span></div>
-          <div className="stack">{game.stack.map((object) => {
-            const target = locked ? undefined : decision?.targets.find((choice) => choice.objectId === object.id && !choice.selected);
-            const label = object.identity.name || object.text;
-            return <button key={object.id + cardArtURL(object.identity)} type="button" data-stack-id={object.id} title={object.text} aria-label={label}
-              aria-pressed={target ? targetIds.includes(target.responseId) : undefined}
-              data-actionable={Boolean(target)} aria-disabled={spectating || undefined} tabIndex={spectating ? -1 : undefined}
-              onMouseEnter={(event) => hoverCard(object.identity, event.currentTarget)} onMouseLeave={() => hoverCard()}
-              onClick={spectating ? undefined : () => target ? toggleTarget(target.responseId) : setReviewId(object.id)}>
-              {object.identity.name ? <><span className="stack-card-label">{label}</span>
-                <CardImage identity={object.identity} className="stack-card-image" decorative compact eager /></>
-                : <span className="stack-card-back card-back">{label}</span>}
-            </button>;
-          })}</div>
-        </aside>}
-      </div>
+      <SpellStack objects={game.stack} targets={locked ? undefined : decision?.targets} targetIds={targetIds}
+        hoverCard={hoverCard} toggleTarget={toggleTarget} inspect={(id) => { setOpenedZone(undefined); setReviewId(id); }} />
       <CardMovements key={`${game.roomId}:${game.gameId}:${seat}:${spectating}`} game={game} online={online} />
       {!spectating && <div className="action-dock">
         {decision && !priority && !payment && !attackPrompt && !confirmation && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
@@ -424,7 +409,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         <CardImage identity={activeDrag.card.identity} className="table-card-image" decorative eager compact />
       </> : <div className="floating-card-back card-back" />}
     </div>}
-    {review && <section className="inspection" aria-label={libraryTop ? "Library top" : "Card preview"}><header><h2>{review.identity?.name ?? "Face-down card"}</h2>
+    {review && <section className="inspection" aria-label={libraryTop ? "Library top" : "Card preview"}><header><h2>{review.identity?.name || "Face-down card"}</h2>
       <button type="button" className="quiet" onClick={() => { setReviewId(undefined); if (libraryTop) setOpenedZone(undefined); }}>Close</button></header>
       {!review.faceDown && <CardImage identity={review.identity} className="preview-card-image" eager />}
       <small>{review.typeLine} {review.identity?.setCode && `· ${review.identity.setCode} ${review.identity.collectorNumber}`}</small>
