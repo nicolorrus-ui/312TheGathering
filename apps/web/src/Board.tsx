@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
-import { CardHoverPreview, CardImage, type CardHover } from "./CardImages";
-import { Decision, DecisionPanel, Options } from "./Decisions";
+import { cardArtURL, CardImage, useCardHover, type CardHover } from "./CardImages";
+import { CardMovements } from "./CardMovements";
+import { ConfirmationActions, Decision, DecisionPanel, Options, simpleConfirmation } from "./Decisions";
 import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
 import { PhaseControls, usePriorityStops } from "./PhaseControls";
-import type { Card, GameMetadata, Identity, Option, Player, Prompt, Response, RulesPriority, Snapshot, Zone } from "./protocol";
+import type { Card, GameMetadata, Option, Player, Prompt, Response, RulesPriority, Snapshot, Zone } from "./protocol";
 
 const manaColor: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green", C: "colorless" };
 const cardDragType = "application/x-hexproof-card";
@@ -24,27 +25,29 @@ type TouchDragHandlers = {
   onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
 };
 
+const visibleFace = (card: Card) => card.visible && !card.faceDown && card.identity?.name ? card.identity : undefined;
+
 function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style, attack }: {
   card: Card; actionable?: boolean; selected?: boolean; activate?: () => void;
   drag?: (event: DragEvent) => void; touch?: TouchDragHandlers; inspect?: () => void; hover: CardHover; style?: CSSProperties;
   dragEnd?: () => void; dragging?: boolean; attack?: AttackControl;
 }) {
-  const showBack = !card.visible || Boolean(card.faceDown);
-  const name = (card.visible ? card.identity?.name : undefined) ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
+  const face = visibleFace(card);
+  const name = face?.name ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
   return <div className={`card-slot ${card.tapped ? "tapped" : ""}`} data-dragging={dragging || undefined} style={style}>
-    <button type="button" className={`table-card ${card.land ? "land" : ""} ${showBack ? "card-back" : ""}`}
+    <button key={face ? cardArtURL(face) : "back"} type="button" className={`table-card ${face && card.land ? "land" : ""} ${face ? "" : "card-back"}`}
       data-card-id={card.id} data-attack-state={attack?.state} data-actionable={Boolean(actionable)} data-tapped={Boolean(card.tapped)}
       aria-label={name} aria-description={attack?.label ? `Attacking ${attack.label}` : attack?.state === "target" ? "Attack target" : undefined}
-      aria-pressed={selected || undefined} title={card.typeLine ? `${name} · ${card.typeLine}` : name}
+      aria-pressed={selected || undefined} title={face && card.typeLine ? `${name} · ${card.typeLine}` : name}
       aria-disabled={!activate && !drag || undefined} tabIndex={!activate && !drag ? -1 : undefined}
       draggable={Boolean(drag)} onDragStart={drag} onDragEnd={dragEnd} onClick={activate} {...touch}
-      onMouseEnter={(event) => hover(showBack ? undefined : card.identity, event.currentTarget)} onMouseLeave={() => hover()}
+      onMouseEnter={(event) => hover(face, event.currentTarget)} onMouseLeave={() => hover()}
       onContextMenu={inspect && ((event) => { event.preventDefault(); inspect(); })}>
-      {!showBack && <>
+      {face && <>
         <strong>{name}</strong>
         {card.typeLine && <small>{card.typeLine}</small>}
         {card.oracle && <span className="card-text">{card.oracle}</span>}
-        <CardImage identity={card.identity} className="table-card-image" decorative eager compact />
+        <CardImage identity={face} className="table-card-image" decorative eager compact />
       </>}
       {card.power !== undefined && <b className="pt">{card.power}/{card.toughness}</b>}
       {attack?.state === "attacking" ? <span className="combat-tag">→ {attack.label}</span>
@@ -68,7 +71,7 @@ function PlayerChip({ player, zone, zones, active, target, selected, selectTarge
     </button>
     <div className="zones">{zones.map((name) => {
       const entry = zone(name);
-      return <button className="zone-button" type="button" key={name} disabled={!selectZone || !entry?.cards?.some((card) => card.visible)}
+      return <button className="zone-button" type="button" key={name} data-motion-zone={name === "hand" ? undefined : name} data-seat={player.seat} disabled={!selectZone || !entry?.cards?.some(visibleFace)}
         onClick={() => entry && selectZone?.(entry)}>{name} <strong>{entry?.count ?? 0}</strong></button>;
     })}</div>
   </div>;
@@ -83,7 +86,7 @@ type TouchDrag = { pointerId: number; drag: CardDrag; active: boolean };
 
 export function Board({ game, seat, prompt, locked, metadata, answer, back, tournamentTable, online, sendPriority, spectating = false }: Props) {
   const [reviewId, setReviewId] = useState<string>();
-  const [hoveredCard, setHoveredCard] = useState<{ identity: Identity; source: Element }>();
+  const showHover = useCardHover();
   const [openedZone, setOpenedZone] = useState<{ zone: string; ownerSeat: number }>();
   const [actionMenu, setActionMenu] = useState<{ promptId: number; options: Option[] }>();
   const [targetSelection, setTargetSelection] = useState<{ promptId: number; ids: string[] }>();
@@ -110,13 +113,15 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     if (autoPass && !autoPassCurrent) setAutoPass(undefined);
   }, [autoPass, autoPassCurrent]);
   useEffect(() => {
-    if (hoveredCard && !hoveredCard.source.matches(":hover")) setHoveredCard(undefined);
-  }, [decision, game, hoveredCard]);
-  useEffect(() => {
     if (dragging && !activeDrag) setDragging(undefined);
   }, [activeDrag, dragging]);
+  useEffect(() => {
+    if (openedZone && !game.zones.some((zone) => zone.ownerSeat === openedZone.ownerSeat &&
+      zone.zone === openedZone.zone && zone.cards.some(visibleFace))) setOpenedZone(undefined);
+  }, [game.zones, openedZone]);
   const pass = decision?.options.find((option) => option.responseId === "$pass");
   const payment = decision?.supported && decision.kind === "payManaCost" ? decision : undefined;
+  const confirmation = !game.gameOver && simpleConfirmation(decision);
   const autoPay = !game.gameOver && payment?.options.find((option) => option.responseId === "$auto-pay");
 
   useEffect(() => {
@@ -131,26 +136,25 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   if (!owner || !opponent) return <main className="shell"><p>Waiting for both seats.</p></main>;
   const allPermanents = game.zones.filter((zone) => zone.zone === "battlefield").flatMap((zone) => zone.cards ?? []);
   const zoneFor = (who: number, zone: string) => game.zones.find((entry) => entry.ownerSeat === who && entry.zone === zone);
-  const reviewedStackObject = reviewId ? game.stack.find((object) => object.id === reviewId) : undefined;
-  const review: Card | undefined = reviewedStackObject ? { id: reviewedStackObject.id, identity: reviewedStackObject.identity,
-    visible: true, oracle: reviewedStackObject.text, ownerSeat: -1, controllerSeat: -1 }
-    : reviewId ? game.zones.flatMap((zone) => zone.cards ?? []).find((card) => card.id === reviewId && card.visible) : undefined;
   const visibleZone = openedZone ? zoneFor(openedZone.ownerSeat, openedZone.zone) : undefined;
-  const hand = zoneFor(seat, "hand")?.cards ?? [];
+  const libraryTop = visibleZone?.zone === "library" ? visibleZone.cards.find(visibleFace) : undefined;
+  const reviewedStackObject = reviewId ? game.stack.find((object) => object.id === reviewId) : undefined;
+  const review: Card | undefined = libraryTop ?? (reviewedStackObject ? { id: reviewedStackObject.id, identity: reviewedStackObject.identity,
+    visible: true, oracle: reviewedStackObject.text, ownerSeat: -1, controllerSeat: -1 }
+    : reviewId ? game.zones.flatMap((zone) => zone.cards ?? []).find((card) => card.id === reviewId && visibleFace(card)) : undefined);
+  const hand = zoneFor(seat, "hand");
   const opponentHand = zoneFor(opponent.seat, "hand");
   const opponentHandCount = opponentHand?.count ?? 0;
   const currentMenu = actionMenu?.promptId === decision?.promptId ? actionMenu?.options : undefined;
   const respond = (response: Response) => {
     if (decision && !locked) {
       setActionMenu(undefined);
-      setHoveredCard(undefined);
+      showHover();
       answer(decision, response);
     }
   };
 
-  const hoverCard: CardHover = (identity, source) => {
-    setHoveredCard(identity && source ? { identity, source } : undefined);
-  };
+  const hoverCard: CardHover = (identity, source) => showHover(activeDrag ? undefined : identity, source);
 
   function toggleTarget(id: string) {
     if (!decision || locked) return;
@@ -181,7 +185,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     document.body.append(transparent);
     event.dataTransfer.setDragImage(transparent, 0, 0);
     requestAnimationFrame(() => transparent.remove());
-    setHoveredCard(undefined);
+    showHover();
     setDragging({ card, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
       origin: event.currentTarget.closest(".hand"), leftHand: false });
   }
@@ -207,7 +211,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         const touch = touchDrag.current;
         if (!touch || touch.pointerId !== event.pointerId || touch.drag.promptId !== decision?.promptId || locked) return;
         if (!touch.active && Math.hypot(event.clientX - touch.drag.x, event.clientY - touch.drag.y) < 8) return;
-        setHoveredCard(undefined);
+        showHover();
         const target = document.elementFromPoint(event.clientX, event.clientY);
         const drag = trackCard(touch.drag, target, event.clientX, event.clientY);
         touchDrag.current = drag ? { ...touch, active: true, drag } : undefined;
@@ -234,9 +238,9 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     const dragOptions = options.filter((option) => playsCard(option, zone));
     const clickOptions = options.filter((option) => !playsCard(option, zone));
     const canDrag = !locked && dragOptions.length > 0;
-    const inspect = spectating ? undefined : () => setReviewId(card.id);
-    const combat = attackPrompt && zone === "battlefield" ? attacks.cardControl(card.id) : undefined;
-    const activate = attackPrompt && zone === "battlefield" ? (!locked ? combat?.activate : undefined)
+    const inspect = spectating || !visibleFace(card) ? undefined : () => setReviewId(card.id);
+    const combat = !locked && attackPrompt && zone === "battlefield" ? attacks.cardControl(card.id) : undefined;
+    const activate = attackPrompt && zone === "battlefield" ? combat?.activate
       : spectating || canDrag && !targets.length && !clickOptions.length ? undefined : () => {
       if (!locked && targets.length === 1) toggleTarget(targets[0].responseId);
       else if (!locked && !targets.length && clickOptions.length) chooseAction(clickOptions);
@@ -250,6 +254,19 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       dragging={activeDrag?.card.id === card.id}
       dragEnd={() => setDragging(undefined)}
       drag={canDrag ? (event) => dragCard(event, card, zone) : undefined} touch={canDrag ? touchHandlers(card, zone) : undefined} />;
+  }
+
+  function showHand(zone: Zone | undefined, away: boolean) {
+    const count = zone?.count ?? 0;
+    const known = zone?.cards.filter(visibleFace) ?? [];
+    return <div className="hand-fan">
+      {known.map((card, index) => showCard(card, "hand", { index, count }))}
+      {Array.from({ length: Math.max(0, count - known.length) }, (_, i) => {
+        const style = fanPosition(known.length + i, count);
+        return away ? <span key={i} aria-hidden="true" className="opponent-card-back card-back" style={style} />
+          : <span key={i} aria-hidden="true" className="card-slot" style={style}><span className="table-card card-back" /></span>;
+      })}
+    </div>;
   }
 
   function moveCard(event: DragEvent) {
@@ -286,7 +303,10 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       selected={targets.some((target) => targetIds.includes(target.responseId))}
       target={!locked && Boolean(combat?.activate || targets.length === 1)}
       selectTarget={combat?.activate ?? (() => targets.length === 1 && toggleTarget(targets[0].responseId))}
-      selectZone={spectating ? undefined : (zone) => setOpenedZone({ ownerSeat: zone.ownerSeat, zone: zone.zone })} />;
+      selectZone={(zone) => {
+        setReviewId(undefined);
+        setOpenedZone({ ownerSeat: zone.ownerSeat, zone: zone.zone });
+      }} />;
   };
   const showPermanents = (who: number, lands: boolean) => allPermanents.filter((card) =>
     card.controllerSeat === who && Boolean(card.land) === lands).map((card) => showCard(card, "battlefield"));
@@ -299,13 +319,9 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   return <main className="duel" onDragOverCapture={moveCard}>
     <section className="table" aria-label="Duel table" data-drag-active={Boolean(activeDrag)}>
       <div className="player-info opponent-info">{showPlayer(opponent, false)}</div>
-      <section className={`hand opponent-hand${spectating ? " revealed-hand" : ""}`}
+      <section data-motion-zone="hand" data-seat={opponent.seat} className="hand opponent-hand revealed-hand"
         aria-label={`${spectating ? opponent.name + "'s" : "Opponent"} hand, ${opponentHandCount} cards`}>
-        <div className="hand-fan" aria-hidden={!spectating || undefined}>
-          {spectating ? opponentHand?.cards.map((card, index, cards) => showCard(card, "hand", { index, count: cards.length }))
-          : Array.from({ length: opponentHandCount }, (_, index) =>
-            <span key={index} className="opponent-card-back card-back" style={fanPosition(index, opponentHandCount)} />)}
-        </div>
+        {showHand(opponentHand, true)}
       </section>
       <aside className="duel-tools">
         {metadata && <p className="score">Game {metadata.gameNumber} · {metadata.score[seat] ?? 0}–{metadata.score[opponent.seat] ?? 0}</p>}
@@ -313,7 +329,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
           {metadata?.log.map((entry) => <li key={`server-${entry.id}`}>{entry.text}</li>)}
         </ol></details>}
       </aside>
-      <section className="battlefield away" aria-label={spectating ? `${opponent.name}'s battlefield` : "Opponent battlefield"}>
+      <section className="battlefield away" data-motion-zone="battlefield" data-seat={opponent.seat} aria-label={spectating ? `${opponent.name}'s battlefield` : "Opponent battlefield"}>
         <div className="permanents lands">{showPermanents(opponent.seat, true)}</div>
         <div className="permanents">{showPermanents(opponent.seat, false)}</div>
       </section>
@@ -326,7 +342,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
             : decision ? "Your decision" : "Waiting for opponent"
         }</span>
       </div>
-      <section className="battlefield home" aria-label={spectating ? `${owner.name}'s battlefield` : "Your battlefield"}
+      <section className="battlefield home" data-motion-zone="battlefield" data-seat={seat} aria-label={spectating ? `${owner.name}'s battlefield` : "Your battlefield"}
         onDragOver={spectating ? undefined : allowCardDrop} onDrop={spectating ? undefined : drop}>
         <div className="permanents">{showPermanents(seat, false)}</div>
         <div className="permanents lands">{showPermanents(seat, true)}</div>
@@ -337,32 +353,37 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
             <span key={mana.name} className={`mana ${manaColor[mana.name] ?? ""}`}>{mana.name} {mana.value}</span>) : <span>Empty</span>}
         </div>
       </div>
-      <section className="hand own-hand" aria-label={spectating ? `${owner.name}'s hand` : "Your hand"}>
-        <div className="hand-fan">{hand.map((card, index) => showCard(card, "hand", { index, count: hand.length }))}</div>
+      <section className="hand own-hand" data-motion-zone="hand" data-seat={seat} aria-label={spectating ? `${owner.name}'s hand` : "Your hand"}>
+        {showHand(hand, false)}
       </section>
-      {game.stack.length > 0 && <aside className="stack-tray" aria-label="Spell and ability stack">
-        <div className="stack-title">Stack <span>{game.stack.length}</span></div>
-        <div className="stack">{game.stack.map((object) => {
-          const target = locked ? undefined : decision?.targets.find((choice) => choice.objectId === object.id && !choice.selected);
-          return <button key={object.id} type="button" title={object.text}
-            aria-pressed={target ? targetIds.includes(target.responseId) : undefined}
-            data-actionable={Boolean(target)} aria-disabled={spectating || undefined} tabIndex={spectating ? -1 : undefined}
-            onMouseEnter={(event) => hoverCard(object.identity, event.currentTarget)} onMouseLeave={() => hoverCard()}
-            onClick={spectating ? undefined : () => target ? toggleTarget(target.responseId) : setReviewId(object.id)}>
-            <CardImage identity={object.identity} className="stack-card-image" decorative compact />
-            <span>{object.identity.name || object.text}</span>
-          </button>;
-        })}</div>
-      </aside>}
+      <div className="stack-position" data-motion-zone="stack">
+        {game.stack.length > 0 && <aside className="stack-tray" aria-label="Spell and ability stack">
+          <div className="stack-title">Stack <span>{game.stack.length}</span></div>
+          <div className="stack">{game.stack.map((object) => {
+            const target = locked ? undefined : decision?.targets.find((choice) => choice.objectId === object.id && !choice.selected);
+            const label = object.identity.name || object.text;
+            return <button key={object.id + cardArtURL(object.identity)} type="button" data-stack-id={object.id} title={object.text} aria-label={label}
+              aria-pressed={target ? targetIds.includes(target.responseId) : undefined}
+              data-actionable={Boolean(target)} aria-disabled={spectating || undefined} tabIndex={spectating ? -1 : undefined}
+              onMouseEnter={(event) => hoverCard(object.identity, event.currentTarget)} onMouseLeave={() => hoverCard()}
+              onClick={spectating ? undefined : () => target ? toggleTarget(target.responseId) : setReviewId(object.id)}>
+              {object.identity.name ? <><span className="stack-card-label">{label}</span>
+                <CardImage identity={object.identity} className="stack-card-image" decorative compact eager /></>
+                : <span className="stack-card-back card-back">{label}</span>}
+            </button>;
+          })}</div>
+        </aside>}
+      </div>
+      <CardMovements key={`${game.roomId}:${game.gameId}:${seat}:${spectating}`} game={game} online={online} />
       {!spectating && <div className="action-dock">
-        {decision && !priority && !payment && !attackPrompt && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
+        {decision && !priority && !payment && !attackPrompt && !confirmation && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
           toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} hoverCard={hoverCard} />}
         {currentMenu?.length && <DecisionPanel key={decision?.promptId} title="Choose an action">
           <Options options={currentMenu} submit={respond} />
           <footer><button type="button" className="quiet" onClick={() => setActionMenu(undefined)}>Close</button></footer>
         </DecisionPanel>}
         <fieldset className="priority-actions" aria-label="Priority controls" disabled={locked}>
-          {attackPrompt ? <>
+          {confirmation ? <ConfirmationActions confirmation={confirmation} submit={respond} /> : attackPrompt ? <>
             <div className="attack-shortcuts">
               <button type="button" disabled={!attacks.canStrikeAll} onClick={attacks.strikeAll}>All Strike</button>
               <button type="button" onClick={() => respond({ responseId: "$submit", assignments: [] })}>No Attack</button>
@@ -397,23 +418,22 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     </section>
     <PhaseControls game={game} turnLabel={turnLabel} myTurn={myTurn} {...priorityStops}
       spectatorNames={spectating ? [owner.name, opponent.name] : undefined} />
-    {!activeDrag && hoveredCard?.identity.name && <CardHoverPreview identity={hoveredCard.identity} />}
     {activeDrag && <div className="floating-hand-card" aria-hidden="true" style={{ left: activeDrag.x, top: activeDrag.y }}>
       {activeDrag.card.visible && !activeDrag.card.faceDown ? <>
         <strong>{activeDrag.card.identity?.name}</strong>
         <CardImage identity={activeDrag.card.identity} className="table-card-image" decorative eager compact />
       </> : <div className="floating-card-back card-back" />}
     </div>}
-    {!spectating && review && <section className="inspection" aria-label="Card preview"><header><h2>{review.identity?.name ?? "Face-down card"}</h2>
-      <button type="button" className="quiet" onClick={() => setReviewId(undefined)}>Close</button></header>
+    {review && <section className="inspection" aria-label={libraryTop ? "Library top" : "Card preview"}><header><h2>{review.identity?.name ?? "Face-down card"}</h2>
+      <button type="button" className="quiet" onClick={() => { setReviewId(undefined); if (libraryTop) setOpenedZone(undefined); }}>Close</button></header>
       {!review.faceDown && <CardImage identity={review.identity} className="preview-card-image" eager />}
       <small>{review.typeLine} {review.identity?.setCode && `· ${review.identity.setCode} ${review.identity.collectorNumber}`}</small>
       <p>{review.oracle}</p>
       {review.counters?.map((counter) => <p key={counter.name}>{counter.name} × {counter.value}</p>)}
     </section>}
-    {!spectating && visibleZone && <section className="inspection" aria-label="Zone contents"><header><h2>{visibleZone.zone}</h2>
+    {visibleZone && visibleZone.zone !== "library" && !review && visibleZone.cards.some(visibleFace) && <section className="inspection" aria-label="Zone contents"><header><h2>{visibleZone.zone}</h2>
       <button type="button" className="quiet" onClick={() => setOpenedZone(undefined)}>Close</button></header>
-      <div className="choice-grid">{visibleZone.cards.filter((card) => card.visible).map((card) => showCard(card, visibleZone.zone))}</div>
+      <div className="choice-grid">{visibleZone.cards.filter(visibleFace).map((card) => showCard(card, visibleZone.zone))}</div>
     </section>}
   </main>;
 }

@@ -64,6 +64,15 @@
           }
         },
         {
+          "name": "cardMoves",
+          "type": "array",
+          "required": false,
+          "items": {
+            "type": "object",
+            "ref": "RulesCardMove"
+          }
+        },
+        {
           "name": "gameOver",
           "type": "boolean",
           "required": true

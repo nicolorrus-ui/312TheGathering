@@ -1,0 +1,24 @@
+{
+  "type": "rules.snapshot",
+  "seq": 8,
+  "payload": {
+    "roomId": "ABCDEF", "gameId": "ABCDEF-1", "turn": 2, "step": "main1", "activeSeat": 1, "prioritySeat": 1,
+    "players": [
+      {"seat": 0, "name": "Alice", "status": "playing", "life": 20, "counters": [], "manaPool": [], "commanders": []},
+      {"seat": 1, "name": "Bob", "status": "playing", "life": 20, "counters": [], "manaPool": [], "commanders": []}
+    ],
+    "zones": [
+      {"zone": "hand", "ownerSeat": 1, "count": 4, "cards": []},
+      {"zone": "graveyard", "ownerSeat": 1, "count": 1, "cards": [
+        {"id": "card-27", "visible": true, "identity": {"name": "Lightning Bolt", "setCode": "M11", "collectorNumber": "149"}, "ownerSeat": 1, "controllerSeat": 1, "counters": []}
+      ]}
+    ],
+    "stack": [],
+    "cardMoves": [
+      {"id": 1, "from": {"zone": "library", "seat": 1}, "to": {"zone": "hand", "seat": 1}},
+      {"id": 2, "from": {"zone": "hand", "seat": 1}, "to": {"zone": "stack", "seat": 1, "objectId": "stack-18"}},
+      {"id": 3, "from": {"zone": "stack", "seat": 1, "objectId": "stack-18"}, "to": {"zone": "graveyard", "seat": 1, "objectId": "card-27"}}
+    ],
+    "gameOver": false
+  }
+}

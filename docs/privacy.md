@@ -9,8 +9,8 @@
 **Trust the room server.**
 
 The server **may store and manipulate** hidden card identities (hand, library order, sideboard, face-down cards, etc.).  
-**Opponent clients** must **not** receive those identities until a card is
-revealed or becomes public. Spectators follow the same rule unless the host
+**Opponent clients** may receive a hidden card’s identity when the rules
+disclose it to that viewer or to the whole table. Spectators follow the same rule unless the host
 explicitly creates the room with the immutable `spectatorsSeeHands` policy;
 that policy grants every spectator live access to current hand identities only.
 
@@ -180,7 +180,7 @@ the card onto the public battlefield; rejected requests do not add a log entry
 or expose the hand identity. The recorded count is public to players and
 spectators and resets with the active turn.
 
-Except for an explicitly public library top, library identities are available
+In manual games, library identities beyond an explicitly public top are available
 only through a private `game.zone_dumped` reply. An owner may request their own library directly; doing so also appends
 an identity-free public log entry saying that the owner is searching their
 library. Inspecting another
@@ -272,7 +272,7 @@ Server archives and this privacy-filtered compatibility API remain unchanged;
 removing the client feature neither deletes archives nor exposes hidden state.
 
 Forge's public compatibility API uses the same bounded public-log/replay contract. Its journal is derived
-only from an explicit hand-hidden spectator projection, even if the room
+only from the explicit public spectator projection, even if the room
 grants live hand visibility to spectators. That grant overlays only current
 hands in the live rules view; neither those identities nor owner-side pending
 sideboards enter the journal. Face-down spells also omit name, edition and

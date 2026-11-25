@@ -4,6 +4,9 @@ package org.hexproof.forge;
 
 import com.google.gson.*;
 import forge.game.GameStage;
+import forge.game.ability.AbilityFactory;
+import forge.game.ability.AbilityUtils;
+import forge.game.ability.AbilityKey;
 import forge.game.card.Card;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
@@ -79,7 +82,50 @@ public final class NativePromptContextRegressionTest {
                 });
                 require(decisions.get() == 6, "Missing confirmation callbacks");
             }
+            testBinaryDecisions(config, base);
         }
         System.out.println("PASS native private prompt context");
+    }
+
+    private static void testBinaryDecisions(JsonObject config, NativeGuiBase base) throws Exception {
+        try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
+            base.setTestSession(session);
+            Player owner = session.game.getPlayers().get(0);
+            session.game.setAge(GameStage.Play);
+            session.game.setStartingPlayer(owner);
+            session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, owner, false, 1);
+            owner.setLife(20, null);
+            Card heir = card(session.game, owner, "Saprazzan Heir", ZoneType.Battlefield);
+            var draw = AbilityFactory.getAbility(heir.getSVar("TrigDraw"), heir);
+            draw.setActivatingPlayer(owner);
+            for (int i = 0; i < 4; i++) card(session.game, owner, "Island", ZoneType.Library);
+            AtomicInteger decisions = new AtomicInteger();
+            drive(session, owner, () -> {
+                for (boolean pay : List.of(true, false)) {
+                    Card land = card(session.game, owner, "Breeding Pool", ZoneType.Hand);
+                    int life = owner.getLife();
+                    Card entered = session.game.getAction().moveToPlay(land, null, AbilityKey.newMap());
+                    require(entered.isInPlay() && entered.isTapped() == !pay && owner.getLife() == life - (pay ? 2 : 0),
+                            "Shock land did not obey the chosen payment");
+                }
+                for (boolean accept : List.of(true, false)) {
+                    int hand = owner.getCardsIn(ZoneType.Hand).size();
+                    AbilityUtils.resolve(draw);
+                    require(owner.getCardsIn(ZoneType.Hand).size() == hand + (accept ? 3 : 0),
+                            "Optional draw did not obey the chosen response");
+                }
+            }, input -> {
+                int index = decisions.getAndIncrement();
+                require(input.get("type").getAsString().equals("chooseBoolean"), "Unexpected input: " + input);
+                require(input.get("confirmLabel").getAsString().equals(index < 2 ? "Pay 2 life" : "Yes")
+                        && input.get("denyLabel").getAsString().equals(index < 2 ? "Enters tapped" : "No"),
+                        "Wrong binary labels: " + input);
+                JsonObject response = NativeSession.object("type", "decision");
+                response.addProperty("value", index % 2 == 0);
+                return response;
+            });
+            require(decisions.get() == 4, "Expected both answers to each confirmation");
+        }
+        System.out.println("PASS native Breeding Pool payment and optional Saprazzan Heir draw");
     }
 }

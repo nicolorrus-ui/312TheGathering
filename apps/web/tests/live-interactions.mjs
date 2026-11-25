@@ -105,8 +105,8 @@ async function progress(player) {
     case "payManaCost":
       return answer(player, () => player.page.getByRole("button", { name: /^(Confirm payment|Auto Pay)$/ }).first().click());
     case "chooseBoolean":
-      await player.page.locator(".decision .choices button").first().click();
-      return click(player, "Confirm");
+      return answer(player, () => player.page.getByRole("group", { name: "Priority controls" }).getByRole("button",
+        { name: player.prompt.choices[0].label, exact: true }).click());
     case "chooseCards": {
       assert.equal(player.game.step, "cleanup", "the fixture only uses hand-size discard");
       const choices = player.page.locator(".decision .choice-card:not([disabled])");
@@ -162,11 +162,18 @@ async function checkSpectator(viewer, host) {
     assert.ok(zoneFor(viewer, "library", seat).every((entry) => !entry.visible && !entry.identity));
   }
   const page = viewer.page;
+  const preview = page.locator(".card-hover-preview");
   for (const player of peers) {
     const tab = page.getByRole("tab", { name: player.name, exact: true });
     await tab.click();
     const list = page.getByRole("tabpanel", { name: player.name, exact: true });
-    await list.getByRole("region", { name: "Sideboard" }).getByText(sideboardName(player.name)).waitFor();
+    const sideboard = list.getByRole("region", { name: "Sideboard" });
+    await sideboard.getByText(sideboardName(player.name)).hover();
+    await preview.getByText(sideboardName(player.name), { exact: true }).waitFor();
+    await tab.hover();
+    await preview.waitFor({ state: "hidden" });
+    await list.getByRole("region", { name: "Main deck" }).getByText("Exploration").hover();
+    await preview.getByText("Exploration", { exact: true }).waitFor();
     assert.equal(await list.getByRole("region", { name: "Main deck" }).locator("li").count(), 2);
     assert.equal(await tab.getAttribute("aria-selected"), "true");
     assert.ok(!player.received.some(({ type, payload }) => type === "room.snapshot" && payload.liveDeckLists));
@@ -239,10 +246,15 @@ try {
   assert.equal(forests(actor).length, 0);
   await until(() => !zoneFor(viewer, "battlefield", seat).some(({ identity }) => identity?.name === "Forest"),
     "land rollback arrives in live view");
+  const opponent = peers.find((peer) => peer !== actor);
+  const revealedLand = opponent.page.locator('.opponent-hand [aria-label="Forest"]');
+  await revealedLand.waitFor();
+  assert.equal(zoneFor(opponent, "hand", seat).filter((card) => card.visible).length, 1);
   await button(actor, "Undo land").waitFor({ state: "hidden" });
 
   await playFromHand(actor, "Forest");
   await requireNextFor(actor);
+  await revealedLand.waitFor({ state: "detached" });
   await playFromHand(actor, "Exploration");
   await requireNextFor(actor);
   assert.equal(actor.prompt.kind, "payManaCost");

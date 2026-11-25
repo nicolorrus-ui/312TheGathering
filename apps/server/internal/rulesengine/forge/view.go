@@ -25,6 +25,7 @@ type GameView struct {
 	Players          []PlayerView      `json:"players"`
 	Zones            []ZoneView        `json:"zones"`
 	Stack            []StackObjectView `json:"stack"`
+	CardMoves        []CardMoveView    `json:"cardMoves,omitempty"`
 	GameOver         bool              `json:"gameOver"`
 	WinnerID         string            `json:"winnerId,omitempty"`
 }
@@ -95,6 +96,18 @@ type CardView struct {
 type CardAnnotationView struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
+}
+
+type CardMoveView struct {
+	ID   int64       `json:"id"`
+	From MoveEndView `json:"from"`
+	To   MoveEndView `json:"to"`
+}
+
+type MoveEndView struct {
+	Zone     string `json:"zone"`
+	PlayerID string `json:"playerId"`
+	ObjectID string `json:"objectId,omitempty"`
 }
 
 type StackObjectView struct {

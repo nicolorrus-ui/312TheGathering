@@ -6,16 +6,20 @@ import forge.LobbyPlayer;
 import forge.card.ColorSet;
 import forge.card.ICardFace;
 import forge.game.Game;
+import forge.game.ability.ApiType;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
+import forge.game.cost.CostPart;
+import forge.game.cost.CostPayLife;
 import forge.game.player.Player;
+import forge.game.player.actions.PayCostAction;
+import forge.gamemodes.match.input.InputConfirm;
 import forge.game.player.DelayedReveal;
 import forge.game.zone.ZoneType;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.player.PlayerControllerHuman;
 import java.util.List;
-import java.util.Set;
 import java.util.HashSet;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -25,8 +29,6 @@ final class NativeDecisionController extends PlayerControllerHuman {
     private final NativeSession session;
     private final Integer starts;
     final NativeLandUndo landUndo;
-    private record HiddenTop(Card card, Player viewer) {}
-    private volatile Set<HiddenTop> hiddenSearchTops = Set.of();
     private volatile SpellAbilityStackInstance ownStackAction;
 
     NativeDecisionController(NativeSession session, Game game, Player player, LobbyPlayer lobby, Integer starts) {
@@ -43,50 +45,39 @@ final class NativeDecisionController extends PlayerControllerHuman {
     @Override public Player chooseStartingPlayer(boolean firstGame) {
         return starts == null ? super.chooseStartingPlayer(firstGame) : getGame().getRegisteredPlayers().get(starts);
     }
-    // Forge temporarily grants visibility to the objects in a choice. Remember which
-    // physical tops were hidden before that grant so a snapshot cannot identify them
-    // among the authorized cards. The prompt still uses Forge's full disclosure.
-    private <T> T libraryChoice(List<ZoneType> origin, Supplier<T> action) {
-        if (!origin.contains(ZoneType.Library)) return action.get();
-        var hidden = new HashSet<HiddenTop>();
-        var players = getGame().getRegisteredPlayers();
-        for (Player owner : players) {
-            var library = owner.getCardsIn(ZoneType.Library);
-            if (library.isEmpty()) continue;
-            Card top = library.getFirst();
-            for (Player viewer : players) {
-                if (!top.getView().canBeShownTo(viewer.getView())) hidden.add(new HiddenTop(top, viewer));
-            }
+    @Override public boolean confirmPayment(CostPart cost, String question, SpellAbility ability) {
+        // A shock land's self-tap replacement offers exactly one alternative payment.
+        if (cost instanceof CostPayLife && ability != null && ability.isReplacementAbility()
+                && ability.getHostCard().isLand() && ability.getApi() == ApiType.Tap
+                && "True".equals(ability.getParam("ETB")) && "Self".equals(ability.getParam("Defined"))
+                && "You".equals(ability.getParam("UnlessPayer")) && "PayLife<2>".equals(ability.getParam("UnlessCost"))
+                && ability.getSubAbility() == null && !ability.hasParam("UnlessSwitched")) {
+            boolean paid = InputConfirm.confirm(this, ability, question, true, List.of("Pay 2 life", "Enters tapped"));
+            if (paid) macros().addRememberedAction(new PayCostAction(ability.getCardView()));
+            return paid;
         }
-        var previous = hiddenSearchTops;
-        hidden.addAll(previous);
-        hiddenSearchTops = Set.copyOf(hidden);
-        try { return action.get(); }
-        finally { hiddenSearchTops = previous; }
+        return super.confirmPayment(cost, question, ability);
     }
-
-    static boolean hidesSearchTop(Card top, Player viewer) {
-        if (viewer == null) return false;
-        for (Player player : viewer.getGame().getRegisteredPlayers()) {
-            if (player.getController() instanceof NativeDecisionController controller && !controller.hiddenSearchTops.isEmpty()
-                    && controller.hiddenSearchTops.contains(new HiddenTop(top, viewer))) return true;
-        }
-        return false;
-    }
-
     @Override public Card chooseSingleCardForZoneChange(ZoneType destination, List<ZoneType> origin, SpellAbility ability,
             CardCollection candidates, DelayedReveal reveal, String prompt, boolean optional, Player decider) {
-        return libraryChoice(origin, () -> super.chooseSingleCardForZoneChange(destination, origin, ability, candidates,
-                NativeLibrarySearch.forZoneChange(reveal, getPlayer()), prompt, optional, decider));
+        return super.chooseSingleCardForZoneChange(destination, origin, ability, candidates,
+                NativeLibrarySearch.forZoneChange(reveal, getPlayer()), prompt, optional, decider);
     }
 
     @Override public List<Card> chooseCardsForZoneChange(ZoneType destination, List<ZoneType> origin, SpellAbility ability,
             CardCollection candidates, int min, int max, DelayedReveal reveal, String prompt, Player decider) {
-        return libraryChoice(origin, () -> super.chooseCardsForZoneChange(destination, origin, ability, candidates, min, max,
-                NativeLibrarySearch.forZoneChange(reveal, getPlayer()), prompt, decider));
+        return super.chooseCardsForZoneChange(destination, origin, ability, candidates, min, max,
+                NativeLibrarySearch.forZoneChange(reveal, getPlayer()), prompt, decider);
+    }
+
+    @Override protected void reveal(forge.game.card.CardCollectionView cards, ZoneType zone,
+            forge.game.player.PlayerView owner, String message, boolean addSuffix) {
+        if (zone == ZoneType.Hand) session.knowledge.sawHand(cards, getPlayer());
+        super.reveal(cards, zone, owner, message, addSuffix);
     }
 
     @Override public void revealForDiscard(forge.game.card.CardCollectionView cards, Player owner) {
+        session.knowledge.sawHand(cards, getPlayer());
         // DiscardEffect calls this only when a choice follows immediately. Its
         // exact authorized disclosure is supplied again as visibleToChooser.
     }

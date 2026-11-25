@@ -23,7 +23,8 @@ NATIVE_TESTS = (
     "NativeLotusBloomRegressionTest", "NativeSnapshotRegressionTest", "NativePaymentIdRegressionTest",
     "NativePromptWaitRegressionTest", "NativeCrashDiagnosticsRegressionTest",
     "NativeTargetClickRegressionTest", "NativeAttackDeclarationRegressionTest",
-    "NativePriorityRegressionTest", "NativeDelayedRevealRegressionTest",
+    "NativeCardMovesRegressionTest", "NativeHandKnowledgeRegressionTest", "NativeTopRevealRegressionTest",
+    "NativePriorityRegressionTest", "NativeDelayedRevealRegressionTest", "NativePromptContextRegressionTest",
 )
 # Each selected Go test explicitly accepts the current overlay. Other live
 # tests still construct base-only commands and belong to the full runtime gate.

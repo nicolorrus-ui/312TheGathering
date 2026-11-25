@@ -82,7 +82,9 @@ Your hand fans out across the bottom of the table. Scroll horizontally if it
 does not fit. To play a land or cast a spell, drag the card onto your
 battlefield and release it. Moving the card back over your hand before
 release cancels the drag. Hover over a visible card to see its larger art
-on the left. The opponent's hand shows card backs based on the public count.
+on the left. The opponent's hand shows the cards revealed to you and a card
+back for each remaining card. Click a player's library when its top card is
+visible to you. The preview follows the current top and closes when it becomes hidden.
 The phase track on the right highlights the current Forge step. Priority
 controls sit at the bottom right. **Concede game** is in the upper-right
 corner of the game page and asks for confirmation.
@@ -98,8 +100,14 @@ mana to cast the most spells from your remaining hand together. Ties favor
 access to more colors, then sources that cost less life to use later. The
 search has a work limit for large boards. Forge checks the payment and handles
 mana abilities with costs that depend on other permanents.
-The stack tray appears beside the battlefield while it contains spells or
-abilities. On narrow screens it moves between the two battlefields.
+Spells and abilities appear as card thumbnails at the right-hand edge of the
+battlefield, centered vertically. As a spell leaves the stack, its card moves
+to the zone Forge selected. A hidden destination uses a card back. The browser
+honors the system's reduced-motion preference.
+
+Simple yes/no decisions use the priority buttons. When a shock land enters,
+choose **Pay 2 life** or **Enters tapped**. Optional effects offer **Yes** and
+**No** alongside the question.
 
 **Undo land** and **Undo mana** appear in the priority controls when Forge
 can reverse the last eligible action of that kind. Undo is available with
@@ -113,6 +121,8 @@ one legal defender the board assigns it immediately. With multiple defenders,
 click the highlighted opposing avatar, planeswalker, or battle. **All Strike**
 assigns eligible creatures to the opposing player. **Confirm** submits your
 plan, **Cancel** clears it, and **No Attack** submits an empty declaration.
+Selected attackers tilt 30 degrees while you edit the plan. After confirmation,
+Forge determines which attackers tap, including the exception for vigilance.
 Forge enforces attack requirements when you submit the declaration.
 
 Library search displays eligible cards first. The rest of the cards Forge
@@ -128,7 +138,8 @@ Enable **Live mode** when creating a two-player duel, then share **Copy watch
 link** with viewers. The watch link or room code allows spectators to see
 both hands and both registered decklists without a password. Viewers can
 switch between players in the decklist panel and see the quantities in each
-registered main deck and sideboard. The lists stay fixed through sideboarding.
+registered main deck and sideboard. Hover over a card in either list to preview
+that printing just as you would a card on the board. The lists stay fixed through sideboarding.
 Library order and private decisions are hidden. Players use the regular invite
 and room password to take a seat. Viewers can hover over visible cards for a
 close-up and follow the active phase in the read-only phase track.

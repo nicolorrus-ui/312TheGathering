@@ -17,7 +17,7 @@ const players = ["Alice", "Bob"].map((name, seat) => ({ name, seat, life: 20, ma
 function card(id, name, controllerSeat, typeLine) {
   return { id, identity: { name }, visible: true, ownerSeat: controllerSeat, controllerSeat, typeLine };
 }
-const mine = [card("bear", "Grizzly Bears", 0, "Creature"), card("lion", "Savannah Lions", 0, "Creature"),
+const mine = [card("bear", "Grizzly Bears", 0, "Creature"), card("lion", "Serra Angel", 0, "Creature"),
   card("siege", "Invasion of Zendikar", 0, "Battle — Siege")];
 const theirs = [card("walker", "Jace Beleren", 1, "Planeswalker"), card("land", "Island", 1, "Basic Land")];
 const game = { roomId, gameId, turn: 4, activeSeat: 0, prioritySeat: 0, step: "combatDeclareAttackers",
@@ -64,6 +64,12 @@ try {
     const controls = page.getByRole("group", { name: "Priority controls" });
     const button = (name) => controls.getByRole("button", { name, exact: true });
     const permanent = (id) => page.locator(`[data-card-id="${id}"]`);
+    const angle = (id) => permanent(id).evaluate((card) => {
+      const transform = getComputedStyle(card).transform;
+      if (transform === "none") return 0;
+      const matrix = new DOMMatrix(transform);
+      return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI);
+    });
     const avatar = page.getByRole("button", { name: "Target Bob" });
     const confirm = button("Confirm"), cancel = button("Cancel");
     async function expectResponse(action, assignments) {
@@ -78,6 +84,7 @@ try {
     assert.equal(await button("Pass priority").count(), 0);
     assert.equal(await cancel.count(), 0);
     await permanent("bear").click();
+    assert.equal(await angle("bear"), 30);
     for (const target of [avatar, permanent("walker"), permanent("siege")]) {
       assert.equal(await target.getAttribute("data-attack-state"), "target");
     }
@@ -85,14 +92,22 @@ try {
     await permanent("walker").click();
     await permanent("lion").click(); // one legal defender
     assert.equal(await permanent("lion").getAttribute("data-attack-state"), "attacking");
+    assert.deepEqual(await Promise.all(["bear", "lion"].map(angle)), [30, 30]);
     assert.equal(responses.length, 0);
     await cancel.click();
     assert.equal(await cancel.count(), 0);
     assert.equal(await page.locator('[data-attack-state="attacking"]').count(), 0);
+    assert.deepEqual(await Promise.all(["bear", "lion"].map(angle)), [0, 0]);
     await button("All Strike").click();
     assert.equal(await page.locator('[data-attack-state="attacking"]').count(), 2);
     assert.equal(responses.length, 0);
     await expectResponse(confirm, [{ sourceId: "source-bear", targetId: "face" }, { sourceId: "source-lion", targetId: "face" }]);
+    send("rules.snapshot", { ...game, zones: [{ ...game.zones[0], cards: mine.map((card) => ({
+      ...card, tapped: card.id === "bear", attacking: card.id !== "siege",
+    })) }, game.zones[1]] });
+    await page.locator('[data-card-id="bear"][data-tapped="true"]').waitFor();
+    assert.deepEqual(await Promise.all(["bear", "lion"].map(angle)), [90, 0]);
+    send("rules.snapshot", game);
 
     for (const [target, id] of [[permanent("walker"), "jace"], [permanent("siege"), "battle"], [avatar, "face"]]) {
       declare();

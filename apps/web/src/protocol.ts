@@ -17,11 +17,13 @@ export type Card = {
 export type Counter = { name: string; value: number };
 export type Player = { seat: number; name: string; life: number; manaPool: Counter[]; status: string };
 export type Zone = { zone: string; ownerSeat: number; count: number; cards: Card[] };
-export type StackObject = { id: string; identity: Identity; text: string };
+export type MoveEndpoint = { zone: string; seat: number; objectId?: string };
+export type CardMove = { id: number; from: MoveEndpoint; to: MoveEndpoint };
+export type StackObject = { id: string; identity: Identity; text: string; controllerSeat: number };
 export type Snapshot = {
   roomId: string; gameId: string; turn: number; step: string; activeSeat: number; prioritySeat: number;
   players: Player[]; zones: Zone[]; stack: StackObject[]; gameOver: boolean; winnerSeat?: number;
-  promptFollows?: boolean;
+  promptFollows?: boolean; cardMoves?: CardMove[];
 };
 export type Option = { responseId: string; kind: string; label: string; cardId?: string };
 export type Target = Option & { objectId?: string; seat?: number; selected?: boolean };

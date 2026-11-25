@@ -82,6 +82,18 @@ type RulesZoneState struct {
 	Cards     []RulesCardState `json:"cards"`
 }
 
+type RulesCardMove struct {
+	ID   int64        `json:"id"`
+	From RulesMoveEnd `json:"from"`
+	To   RulesMoveEnd `json:"to"`
+}
+
+type RulesMoveEnd struct {
+	Zone     string `json:"zone"`
+	Seat     int    `json:"seat"`
+	ObjectID string `json:"objectId,omitempty"`
+}
+
 type RulesStackObject struct {
 	ID             string             `json:"id"`
 	SourceID       string             `json:"sourceId"`
@@ -324,6 +336,7 @@ type RulesGameSnapshot struct {
 	Players       []RulesPlayerState `json:"players"`
 	Zones         []RulesZoneState   `json:"zones"`
 	Stack         []RulesStackObject `json:"stack"`
+	CardMoves     []RulesCardMove    `json:"cardMoves,omitempty"`
 	GameOver      bool               `json:"gameOver"`
 	WinnerSeat    *int               `json:"winnerSeat,omitempty"`
 	PromptFollows bool               `json:"promptFollows,omitempty"`

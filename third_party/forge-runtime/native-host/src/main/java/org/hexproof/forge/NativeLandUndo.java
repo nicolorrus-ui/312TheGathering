@@ -65,7 +65,7 @@ final class NativeLandUndo {
 
     @Subscribe
     public synchronized void observe(Event event) {
-        if (candidate == null || unsafe) return;
+        if (candidate == null || unsafe || event instanceof forge.game.GameAction.VisibilityEvent) return;
         int id = candidate.card().getId();
         // The normal land move publishes two zone events, a change-zone event,
         // and a land-play event. Allow a tap on that card and continuous updates.
@@ -146,6 +146,8 @@ final class NativeLandUndo {
         card.setTurnInZone(entry.turnInZone());
         card.setTurnInController(entry.turnInController());
         entry.hand().add(card, Math.min(entry.index(), entry.hand().size()), null, true);
+        // Everyone saw this face-up land leave the battlefield for its owner's hand.
+        game.fireEvent(new forge.game.GameAction.PublicHandReveal(new forge.game.card.CardCollection(card)));
         player.undoLandPlayedThisTurn();
         game.getAction().checkStaticAbilities();
         game.getTriggerHandler().resetActiveTriggers();
