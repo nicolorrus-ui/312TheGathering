@@ -7,48 +7,17 @@
 import json
 from pathlib import Path
 import sys
-import unicodedata
 
-
-COLOR_NAMES = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+from forge_card_data import card_scripts, card_style, normalize
 
 
 def index_cards(directory):
     cards = {}
-    for path in sorted(directory.rglob("*.txt")):
-        faces = []
-        mode = ""
-        for line in path.read_text(encoding="utf-8-sig").splitlines():
-            key, _, value = line.partition(":")
-            if key == "Name":
-                faces.append({"Name": value.strip()})
-            elif key == "AlternateMode":
-                mode = value.strip()
-            elif faces and key in ("ManaCost", "Types", "Colors"):
-                faces[-1][key] = value.strip()
-
-        if not faces:
-            continue
-        displayed_faces = faces if mode == "Split" else faces[:1]
-        costs = []
-        colors = set()
-        for face in displayed_faces:
-            cost = face.get("ManaCost", "")
-            if cost and cost != "no cost":
-                costs.append(cost)
-            if "Colors" in face:
-                colors.update(COLOR_NAMES[color] for name in face["Colors"].lower().split(",")
-                              if (color := name.strip()) in COLOR_NAMES)
-            else:
-                colors.update(set(cost) & set("WUBRG"))
-        frame = "land" if "Land" in faces[0].get("Types", "").split() else (
-            "gold" if len(colors) > 1 else next(iter(colors), "neutral"))
-        entry = [" // ".join(costs), frame]
-        name = unicodedata.normalize("NFC", faces[0]["Name"]).lower()
-        cards[name] = entry
+    for mode, faces in card_scripts(directory):
+        entry = card_style(mode, faces)
+        cards[normalize(faces[0]["Name"])] = entry
         if len(faces) > 1:
-            joined = " // ".join(face["Name"] for face in faces)
-            cards[unicodedata.normalize("NFC", joined).lower()] = entry
+            cards[normalize(" // ".join(face["Name"] for face in faces))] = entry
     if not cards:
         raise ValueError(f"No Forge card scripts found under {directory}")
     return cards

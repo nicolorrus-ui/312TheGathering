@@ -31,6 +31,34 @@ room code or invitation link and the password with the other player. Decklists
 are stored in that browser's local storage. A displayed user name serves as a
 screen name. The server-issued seat credential grants control of a seat.
 
+## Offline debugging
+
+Build the portable packages on Linux with the tools listed above and the
+`zip` utility for Windows builds.
+
+```sh
+CLUB_OFFLINE_TARGET=windows-amd64 ./deploy/club/build.sh build/club-offline-debug
+CLUB_OFFLINE_TARGET=linux-amd64 ./deploy/club/build.sh build/club-offline-debug
+```
+
+The build fetches the pinned Forge and Java inputs on first use. Each resulting
+archive includes a Java 21 runtime, Forge, the browser client with source maps,
+a searchable card and printing catalog, a Modern practice deck, and launch
+instructions. A SHA-256 checksum accompanies each archive.
+
+Extract the whole archive to a writable directory. On Windows x64 double-click
+`Start-Club.cmd`. On Linux x64 run `./start-club.sh`. The launcher opens
+`http://127.0.0.1:57325/` after the server is ready. Search, practice matches,
+two-player rooms, and the spectator view run on the same computer while offline.
+Use separate browser profiles to control both seats. Missing artwork is rendered
+locally with the card's rules text. To use your own compatible art pack, place
+its index and images in `web/assets/cards/` and restart.
+
+Inspect the browser's developer tools for client and WebSocket activity.
+The server writes `state/club-debug.log`. Set `CLUB_STATE_DIR` to move the
+server data, `CLUB_PORT` to change the port, or `CLUB_NO_BROWSER=1` to launch
+from a terminal without opening a browser.
+
 ## Deck builder
 
 Open **Deck builder** in the club lobby, tournament, or waiting room. Choose

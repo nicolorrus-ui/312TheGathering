@@ -14,8 +14,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -84,6 +86,8 @@ func main() {
 	maxConcurrentPasswordChecks := flag.Int("max-concurrent-password-checks", 8,
 		"maximum concurrent bcrypt password checks")
 	clubWebRoot := flag.String("club-web-root", os.Getenv("HEXPROOF_CLUB_WEB_ROOT"), "serve the built web client and enable private Forge-only club mode")
+	clubOffline := flag.Bool("club-offline", false, "run Club on loopback with the bundled offline card catalog and artwork")
+	openBrowser := flag.Bool("club-open-browser", false, "open the offline Club in the system browser once ready")
 	forgeOverlay := flag.String("forge-overlay", os.Getenv("HEXPROOF_FORGE_OVERLAY"), "path to a verified matching Forge overlay jar")
 	forgeHeap := flag.Int("forge-heap-mib", 1536, "maximum Forge heap in MiB for club mode")
 	forgeStartTimeout := flag.Duration("forge-start-timeout", 45*time.Second, "maximum time for a Forge process readiness probe")
@@ -102,6 +106,15 @@ func main() {
 	peerSTUNServers := flag.String("peer-stun-servers", peerSTUNServersDefault(),
 		"comma-separated UDP STUN URLs, at most two (defaults to HEXPROOF_PEER_STUN_SERVERS or managed Server 1/2; empty disables STUN discovery)")
 	flag.Parse()
+	if *openBrowser && !*clubOffline {
+		log.Fatal("hexproof-server: -club-open-browser requires -club-offline")
+	}
+	if *clubOffline {
+		// A portable copy can run on a computer also configured as a network hub.
+		*clusterPath, *accountAuthority, *accountKeyFile, *accountDir = "", "", "", ""
+		*allowPlayerHosting = false
+		*peerSTUNServers = ""
+	}
 	if *showProtocol {
 		fmt.Println(protocol.ProtocolVersion)
 		return
@@ -127,9 +140,36 @@ func main() {
 		}
 	}
 	clubMode := *clubWebRoot != ""
+	if *clubOffline {
+		if !clubMode {
+			log.Fatal("hexproof-server: -club-offline requires -club-web-root")
+		}
+		if *bind == "localhost" {
+			*bind = "127.0.0.1"
+		}
+		if !net.ParseIP(*bind).IsLoopback() {
+			log.Fatal("hexproof-server: -club-offline requires a loopback bind address")
+		}
+		if *retentionDir != "" {
+			dir := filepath.Dir(*retentionDir)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				log.Fatalf("Offline Club state directory: %v", err)
+			}
+			file, err := os.OpenFile(filepath.Join(dir, "club-debug.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+			if err != nil {
+				log.Fatalf("Offline Club debug log: %v", err)
+			}
+			defer file.Close()
+			log.SetOutput(io.MultiWriter(os.Stderr, file))
+		}
+	}
+	mux := http.NewServeMux()
 	if clubMode {
 		if _, err := os.Stat(filepath.Join(*clubWebRoot, "index.html")); err != nil {
 			log.Fatalf("hexproof-server: club web build unavailable: %v", err)
+		}
+		if err := registerClubCardRoutes(mux, os.DirFS(*clubWebRoot), *clubOffline); err != nil {
+			log.Fatalf("hexproof-server: club card catalog: %v", err)
 		}
 		if *forgeOverlay == "" || *forgeHeap < 256 || *forgeGamesPerJVM != 1 {
 			log.Fatal("hexproof-server: club mode requires a Forge overlay, a heap of at least 256 MiB and dedicated Forge processes")
@@ -226,7 +266,6 @@ func main() {
 		}
 	}()
 
-	mux := http.NewServeMux()
 	// Ops/tunnel health checks (Cloudflare / curl). Not part of the game protocol.
 	mux.HandleFunc("/healthz", handler.ServeHealth)
 	mux.HandleFunc("/readyz", handler.ServeReadiness)
@@ -242,9 +281,6 @@ func main() {
 			http.ServeFileFS(w, r, files, "index.html")
 		})
 		mux.Handle("GET /assets/", http.FileServerFS(files))
-		cards := newClubCardArt()
-		mux.Handle("GET /card-art", cards)
-		mux.HandleFunc("GET /card-search", cards.serveSearch)
 	} else {
 		mux.HandleFunc("/internal/accounts", handler.ServeAccountAuthority)
 		mux.HandleFunc("/internal/cluster", handler.ServeClusterCoordinator)
@@ -276,11 +312,33 @@ func main() {
 		"hexproof-server %s listening on %s (ws path /ws, protocol %s)\n",
 		buildinfo.Version, listener.Addr(), protocol.ProtocolVersion)
 	log.Printf("hexproof-server %s ready on %s", buildinfo.Version, listener.Addr())
+	if *clubOffline {
+		url := "http://" + listener.Addr().String() + "/"
+		log.Printf("Offline Club is ready. Open %s", url)
+		if *openBrowser {
+			go openClubBrowser(url)
+		}
+	}
 
 	if err := <-serveDone; err != nil && err != http.ErrServerClosed {
 		log.Fatalf("hexproof-server: %v", err)
 	}
 	log.Printf("hexproof-server: stopped")
+}
+
+func openClubBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	if err := cmd.Run(); err != nil {
+		log.Printf("Could not open the default browser. Open %s manually.", url)
+	}
 }
 
 func hostedForgeRuntimeConfig(javaCommand, harness, home string) forge.ProcessConfig {

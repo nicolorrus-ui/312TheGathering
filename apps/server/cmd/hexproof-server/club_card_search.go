@@ -31,7 +31,9 @@ type cardSearchEntry struct {
 	expires time.Time
 }
 
-func (a *clubCardArt) serveSearch(w http.ResponseWriter, r *http.Request) {
+type clubSearchFunc func(context.Context, string, bool, int) (cardSearchPage, bool)
+
+func (search clubSearchFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	text, name := strings.TrimSpace(query.Get("q")), strings.TrimSpace(query.Get("name"))
 	if (text == "") == (name == "") {
@@ -56,20 +58,9 @@ func (a *clubCardArt) serveSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	term := strconv.Quote(strings.ToLower(text))
-	params := url.Values{"unique": {"cards"}, "order": {"name"}, "page": {strconv.Itoa(page)}}
-	if exact {
-		term = "!" + term
-		params.Set("unique", "prints")
-		params.Set("order", "released")
-		params.Set("dir", "desc")
-	}
-	params.Set("q", term)
-	key := params.Encode()
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	result, ok := a.searchPage(ctx, key, name)
+	result, ok := search(ctx, text, exact, page)
 	if !ok {
 		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, "Card search is temporarily unavailable", http.StatusServiceUnavailable)
@@ -78,6 +69,21 @@ func (a *clubCardArt) serveSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=600")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (a *clubCardArt) search(ctx context.Context, text string, exact bool, page int) (cardSearchPage, bool) {
+	term := strconv.Quote(strings.ToLower(text))
+	params := url.Values{"unique": {"cards"}, "order": {"name"}, "page": {strconv.Itoa(page)}}
+	var name string
+	if exact {
+		name = text
+		term = "!" + term
+		params.Set("unique", "prints")
+		params.Set("order", "released")
+		params.Set("dir", "desc")
+	}
+	params.Set("q", term)
+	return a.searchPage(ctx, params.Encode(), name)
 }
 
 func (a *clubCardArt) searchPage(ctx context.Context, key, name string) (cardSearchPage, bool) {

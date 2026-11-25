@@ -35,7 +35,7 @@ func TestClubCardSearch(t *testing.T) {
 			})
 			for i := 0; i < 2; i++ {
 				w := httptest.NewRecorder()
-				catalog.serveSearch(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+				clubSearchFunc(catalog.search).ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
 				var result cardSearchPage
 				want := cardSearchPrinting{"Urza's Mine", "2XM", "329", "Double Masters"}
 				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || w.Code != http.StatusOK || !result.HasMore ||
@@ -61,7 +61,7 @@ func TestClubPrintingSearchDoesNotOfferOtherCardsWithMatchingBack(t *testing.T) 
 		]}`))}, nil
 	})
 	w := httptest.NewRecorder()
-	catalog.serveSearch(w, httptest.NewRequest(http.MethodGet, "/card-search?name=Lightning+Bolt", nil))
+	clubSearchFunc(catalog.search).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-search?name=Lightning+Bolt", nil))
 	var result cardSearchPage
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || len(result.Cards) != 1 || result.Cards[0].Name != "Lightning Bolt" {
 		t.Fatalf("unexpected printings: %s", w.Body)
@@ -76,19 +76,19 @@ func TestClubCardSearchHandlesEmptyAndUnavailable(t *testing.T) {
 	})
 	for _, query := range []string{"q=&name=", "q=a&name=b", "q=name&page=0", "name=un%00safe"} {
 		w := httptest.NewRecorder()
-		catalog.serveSearch(w, httptest.NewRequest(http.MethodGet, "/card-search?"+query, nil))
+		clubSearchFunc(catalog.search).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-search?"+query, nil))
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("invalid query %s returned %d", query, w.Code)
 		}
 	}
 	w := httptest.NewRecorder()
-	catalog.serveSearch(w, httptest.NewRequest(http.MethodGet, "/card-search?q=no-match", nil))
+	clubSearchFunc(catalog.search).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-search?q=no-match", nil))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"cards":[]`) {
 		t.Fatalf("expected empty list, got %d %s", w.Code, w.Body)
 	}
 	upstream = http.StatusTooManyRequests
 	w = httptest.NewRecorder()
-	catalog.serveSearch(w, httptest.NewRequest(http.MethodGet, "/card-search?q=throttled", nil))
+	clubSearchFunc(catalog.search).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-search?q=throttled", nil))
 	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("expected retryable failure, got %d", w.Code)
 	}

@@ -1,0 +1,16 @@
+// Mono-Red Burn (Modern)
+Deck
+24 Mountain (M11) 242
+4 Monastery Swiftspear (KTK) 118
+4 Ghitu Lavarunner (DOM) 127
+4 Viashino Pyromancer (M19) 166
+4 Ash Zealot (RTR) 86
+4 Hellspark Elemental (CFX) 65
+4 Lightning Bolt (M11) 149
+4 Lava Spike (CHK) 178
+4 Burst Lightning (ZEN) 119
+4 Searing Blood (BNG) 111
+
+Sideboard
+3 Smash to Smithereens (SHM) 107
+3 Relic of Progenitus (ALA) 218
