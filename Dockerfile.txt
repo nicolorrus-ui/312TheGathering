@@ -1,34 +1,47 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-FROM golang:1.26-bookworm AS go
-FROM node:22-bookworm-slim AS node
+ARG CLUB_IMAGE_REGISTRY_PREFIX
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}golang:1.26-bookworm AS server
+WORKDIR /src/apps/server
+COPY apps/server/ ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -o /hexproof-server ./cmd/hexproof-server
 
-FROM eclipse-temurin:21-jdk-noble AS build
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git python3 \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=go /usr/local/go /usr/local/go
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
-COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
-ENV PATH="/usr/local/go/bin:${PATH}"
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}node:22-bookworm-slim AS web
 WORKDIR /src
-COPY apps/server/ apps/server/
+COPY apps/web/package.json apps/web/package-lock.json apps/web/
+RUN --mount=type=cache,target=/root/.npm npm --prefix apps/web ci --no-audit --no-fund
 COPY apps/web/ apps/web/
 COPY apps/client-qt/qml/assets/card-back.jpg apps/client-qt/qml/assets/card-back.jpg
 COPY apps/client-qt/qml/assets/mana/ apps/client-qt/qml/assets/mana/
-COPY deploy/club/ deploy/club/
-COPY third_party/forge-runtime/ third_party/forge-runtime/
-COPY LICENSE THIRD-PARTY-NOTICES.md ./
-RUN bash deploy/club/build.sh /tmp/bundles \
-    && mkdir /release \
-    && mv /tmp/bundles/*/* /release/ \
-    && sed -i 's/-bind 127[.]0[.]0[.]1 /-bind 0.0.0.0 /' /release/run.sh
+RUN npm --prefix apps/web run build
 
-FROM eclipse-temurin:21-jre-noble
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}eclipse-temurin:21-jdk-noble AS forge
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git python3 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY apps/server/internal/runtimepkg/manifest.json apps/server/internal/runtimepkg/manifest.json
+COPY third_party/forge-runtime/ third_party/forge-runtime/
+COPY deploy/club/build-forge.sh deploy/club/build-forge.sh
+RUN --mount=type=cache,target=/forge-downloads \
+    CLUB_FORGE_CACHE=/forge-downloads bash deploy/club/build-forge.sh /forge
+COPY deploy/club/deck-card-index.py deploy/club/offline-card-catalog.py deploy/club/
+RUN mkdir /catalog \
+    && python3 deploy/club/deck-card-index.py /forge/hexproof-forge-runtime/forge-gui/res/cardsfolder /catalog/deck-cards.json \
+    && python3 deploy/club/offline-card-catalog.py /forge/hexproof-forge-runtime/forge-gui/res /catalog/offline-cards.json
+
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}eclipse-temurin:21-jre-noble
 RUN useradd --system --user-group --uid 10001 --home-dir /var/lib/hexproof-club --shell /usr/sbin/nologin club \
     && install -d -o club -g club -m 0700 /var/lib/hexproof-club
 WORKDIR /opt/hexproof-club
-COPY --from=build /release/ ./
+COPY --from=forge /forge/ ./
+COPY --from=forge /catalog/ web/assets/
+COPY --from=web /src/apps/web/dist/ web/
+COPY --from=server /hexproof-server ./
+COPY LICENSE THIRD-PARTY-NOTICES.md ./
+COPY deploy/club/run.sh ./
+RUN chmod 755 run.sh && sed -i 's/-bind 127[.]0[.]0[.]1 /-bind 0.0.0.0 /' run.sh
 ENV CLUB_BIND=0.0.0.0 \
     CLUB_PORT=10000 \
     CLUB_STATE_DIR=/var/lib/hexproof-club \

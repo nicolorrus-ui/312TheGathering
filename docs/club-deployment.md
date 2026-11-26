@@ -31,6 +31,33 @@ room code or invitation link and the password with the other player. Decklists
 are stored in that browser's local storage. A displayed user name serves as a
 screen name. The server-issued seat credential grants control of a seat.
 
+## Docker Desktop
+
+From the source root, run `docker volume create hexproof-club-state` once.
+Compose uses this same volume as the earlier standalone container. It binds
+the app to `http://127.0.0.1:57320`, uses the local card catalog, and pulls
+base images from the ECR Public Docker Official Images mirror by default.
+Set `CLUB_IMAGE_REGISTRY_PREFIX` to an empty value in a Compose `.env` file
+to use Docker Hub instead.
+
+To migrate from an existing standalone container named `hexproof-club`,
+run `docker compose build` first. After the build succeeds and active matches
+have finished, run `docker stop hexproof-club` and `docker compose up -d`.
+Compose uses its own container name. An existing tunnel to port 57320
+continues to use the same address.
+
+For later updates, enter the updated source directory and run:
+
+```sh
+docker compose up -d --build
+```
+
+The first build with this Dockerfile prepares Forge. Subsequent builds in
+the same Docker builder reuse that layer when Forge inputs are unchanged.
+Compose replaces the container when the image changes, so update between
+matches. Use `docker compose logs -f club` to follow the service log and
+`docker compose ps` to see its status.
+
 ## Offline debugging
 
 Build the portable packages on Linux with the tools listed above and the

@@ -5,7 +5,6 @@ set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 output="${1:-$root/build/club-deploy}"
-cache="${CLUB_FORGE_CACHE:-$root/build/forge-overlay/downloads}"
 architecture="${CLUB_GOARCH:-$(go env GOARCH)}"
 offline="${CLUB_OFFLINE_TARGET:-}"
 system=linux
@@ -34,36 +33,16 @@ if [[ -n "$offline" ]]; then
 else
   npm --prefix apps/web run build
 fi
-python3 third_party/forge-runtime/build-overlay.py --output "$stage/overlay" --cache "$cache"
+bash deploy/club/build-forge.sh "$stage"
 (
   cd apps/server
   CGO_ENABLED=0 GOOS="$system" GOARCH="$architecture" go build -trimpath -o "$stage/$server" ./cmd/hexproof-server
 )
 
-python3 - "$cache" "$stage" <<'PY'
-import importlib.util
-import json
-from pathlib import Path
-import sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, Path(path).resolve())
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-base = load("club_overlay", "third_party/forge-runtime/build-overlay.py")
-packager = load("club_packager", "third_party/forge-runtime/source-package.py")
-manifest = json.loads(base.BASE_MANIFEST.read_text())
-archive = base.pinned_file(manifest["forge"], Path(sys.argv[1]).resolve(), None)
-packager.extract_archive(archive, Path(sys.argv[2]), "hexproof-forge-runtime")
-PY
-
 cp -a apps/web/dist "$stage/web"
 python3 deploy/club/deck-card-index.py "$stage/hexproof-forge-runtime/forge-gui/res/cardsfolder" "$stage/web/assets/deck-cards.json"
 python3 deploy/club/offline-card-catalog.py "$stage/hexproof-forge-runtime/forge-gui/res" "$stage/web/assets/offline-cards.json"
 install -m 644 LICENSE THIRD-PARTY-NOTICES.md "$stage/"
-cp "$stage/overlay/forge-overlay.jar" "$stage/"
 commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'source')"
 if [[ -n "$offline" ]]; then
   portable="$stage/Hexproof-Club"
