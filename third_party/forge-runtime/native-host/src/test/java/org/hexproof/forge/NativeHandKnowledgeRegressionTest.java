@@ -44,7 +44,7 @@ public final class NativeHandKnowledgeRegressionTest {
                                 {"name":"Owner","deck":[{"name":"Forest"}]},
                                 {"name":"Other","deck":[{"name":"Mountain"}]}]}
                     """).getAsJsonObject();
-            for (String effect : List.of("probe", "thoughtseize", "guide-land", "guide-nonland", "scrying", "courser")) {
+            for (String effect : List.of("probe", "brainsurge", "thoughtseize", "guide-land", "guide-nonland", "scrying", "courser")) {
                 try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
                     base.setTestSession(session);
                     Player viewer = session.game.getPlayers().get(0);
@@ -54,6 +54,7 @@ public final class NativeHandKnowledgeRegressionTest {
                     session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, viewer, false, 2);
                     switch (effect) {
                         case "probe" -> effects(session, viewer, owner);
+                        case "brainsurge" -> brainsurge(session, viewer, owner);
                         case "thoughtseize" -> thoughtseize(session, viewer, owner);
                         case "guide-land", "guide-nonland" -> goblinGuide(session, viewer, owner, effect.equals("guide-land"));
                         case "scrying" -> searchedLibraryCard(session, viewer, owner);
@@ -63,7 +64,7 @@ public final class NativeHandKnowledgeRegressionTest {
                 }
             }
         }
-        System.out.println("PASS recipient-scoped hands, Brainstorm, Thoughtseize, Goblin Guide and shuffle invalidation");
+        System.out.println("PASS recipient-scoped hands, Brainstorm, Brainsurge resolution and countering, Thoughtseize, Goblin Guide and shuffle invalidation");
     }
 
     private static void effects(NativeSession session, Player viewer, Player owner) throws Exception {
@@ -150,22 +151,87 @@ public final class NativeHandKnowledgeRegressionTest {
                         "Private hand look was routed to a different player");
                 return NativeSession.object("type", "revealCardsAcknowledged");
             }
-            if (type.equals("chooseCards")) {
-                JsonArray selected = new JsonArray();
-                selected.add(NativeSession.cardId(library.get(1)));
-                selected.add(NativeSession.cardId(library.get(2)));
-                JsonObject result = NativeSession.object("type", "chooseCardsDecision");
-                result.add("chosenCardIds", selected);
-                return result;
-            }
-            require(type.equals("reorder"), "Unexpected Brainstorm prompt: " + input);
-            JsonArray ids = new JsonArray();
-            for (JsonElement item : input.getAsJsonArray("items")) ids.add(item.getAsJsonObject().get("id"));
-            JsonObject result = NativeSession.object("type", "reorderDecision");
-            result.add("orderedIds", ids);
-            return result;
+            return putBack(input, library.get(1), library.get(2));
         });
         require(reveals.get() == 3, "Missing a native private hand look");
+    }
+
+    private static void brainsurge(NativeSession session, Player viewer, Player owner) throws Exception {
+        Card publicCard = card(session.game, owner, "Island", ZoneType.Hand);
+        Card privateCard = card(session.game, owner, "Lightning Bolt", ZoneType.Hand);
+        List<Card> library = List.of("Forest", "Swamp", "Plains", "Mountain", "Grizzly Bears", "Counterspell")
+                .stream().map(name -> card(session.game, owner, name, ZoneType.Library)).toList();
+        owner.getZone(ZoneType.Library).setCards(library);
+        AtomicInteger choices = new AtomicInteger();
+        drive(session, owner, () -> {
+            var game = session.game;
+            game.getAction().reveal(new CardCollection(publicCard), owner);
+            game.getAction().revealTo(new CardCollection(privateCard), viewer);
+            owner.drawCard();
+
+            // Merely putting Brainsurge on the stack, and later countering it,
+            // makes no hidden choice about cards already in hand.
+            SpellAbility first = card(game, owner, "Brainsurge", ZoneType.Stack).getFirstSpellAbility();
+            first.setActivatingPlayer(owner);
+            game.getStack().add(first);
+            checkpoint(session, owner);
+            expectHand(session, 0, 3, publicCard, privateCard);
+            for (int seat : List.of(2, -1)) expectHand(session, seat, 3, publicCard);
+
+            SpellAbility counter = card(game, viewer, "Counterspell", ZoneType.Stack).getFirstSpellAbility();
+            counter.setActivatingPlayer(viewer);
+            require(counter.canTargetSpellAbility(first), "Counterspell cannot target the stacked Brainsurge");
+            counter.getTargets().add(first);
+            game.getStack().add(counter);
+            game.getStack().resolveStack();
+            require(game.getStack().isEmpty() && owner.getCardsIn(ZoneType.Graveyard).stream()
+                    .anyMatch(c -> c.getId() == first.getHostCard().getId()), "Counterspell did not counter Brainsurge");
+            checkpoint(session, owner);
+            expectHand(session, 0, 3, publicCard, privateCard);
+            for (int seat : List.of(2, -1)) expectHand(session, seat, 3, publicCard);
+
+            SpellAbility second = card(game, owner, "Brainsurge", ZoneType.Stack).getFirstSpellAbility();
+            second.setActivatingPlayer(owner);
+            game.getStack().add(second);
+            game.getStack().resolveStack();
+            checkpoint(session, owner);
+            var top = owner.getTopXCardsFromLibrary(2).stream().map(Card::getId).toList();
+            require(top.containsAll(List.of(library.get(1).getId(), library.get(2).getId())),
+                    "Brainsurge did not return both selected, previously unseen draws");
+            expectHand(session, 1, 5, publicCard, privateCard, library.get(0), library.get(3), library.get(4));
+            for (int seat : List.of(0, 2, -1)) {
+                expectHand(session, seat, 5);
+                expectZone(session, seat, "library", 3);
+            }
+        }, input -> {
+            String type = input.get("type").getAsString();
+            if (type.equals("chooseCards")) {
+                choices.incrementAndGet();
+                expectHand(session, 1, 7, publicCard, privateCard, library.get(0), library.get(1),
+                        library.get(2), library.get(3), library.get(4));
+                expectHand(session, 0, 7, publicCard, privateCard);
+                for (int seat : List.of(2, -1)) expectHand(session, seat, 7, publicCard);
+            }
+            if (type.equals("chooseCards") || type.equals("reorder")) return putBack(input, library.get(1), library.get(2));
+            return acknowledge(input);
+        });
+        require(choices.get() == 1, "Only the resolving Brainsurge should ask which cards to return");
+    }
+
+    private static JsonObject putBack(JsonObject input, Card first, Card second) {
+        JsonArray ids = new JsonArray();
+        if (input.get("type").getAsString().equals("chooseCards")) {
+            ids.add(NativeSession.cardId(first));
+            ids.add(NativeSession.cardId(second));
+            JsonObject answer = NativeSession.object("type", "chooseCardsDecision");
+            answer.add("chosenCardIds", ids);
+            return answer;
+        }
+        require(input.get("type").getAsString().equals("reorder"), "Unexpected library placement prompt: " + input);
+        for (JsonElement item : input.getAsJsonArray("items")) ids.add(item.getAsJsonObject().get("id"));
+        JsonObject answer = NativeSession.object("type", "reorderDecision");
+        answer.add("orderedIds", ids);
+        return answer;
     }
 
     private static void thoughtseize(NativeSession session, Player viewer, Player owner) throws Exception {

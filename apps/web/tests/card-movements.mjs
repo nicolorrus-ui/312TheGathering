@@ -19,6 +19,90 @@ const empty = () => ({ roomId, gameId: "motion-test", turn: 1, activeSeat: 0, pr
 const point = (rect) => [rect.x + rect.width / 2, rect.y + rect.height / 2];
 const near = (a, b) => assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 3, `centers ${a} / ${b}`);
 
+async function verifyStackPile(page, update, send, events) {
+  const pile = page.getByRole("complementary", { name: "Spell and ability stack" });
+  const object = (id) => pile.locator(`[data-stack-id="${id}"]`);
+  const middle = { ...spell, id: "stack-5", identity: { name: "Prodigal Sorcerer" }, text: "Deal 1 damage to any target." };
+  const newest = { ...spell, id: "stack-6", identity: { name: "Counterspell" }, text: "Counter target spell." };
+  const push = (stack) => update({ ...empty(), stack });
+  const inspect = page.getByRole("region", { name: "Card preview" });
+  const edge = async (id) => {
+    const rect = await object(id).boundingBox();
+    const [x, y] = [rect.x + rect.width / 2, rect.y + rect.height - 7];
+    assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[data-stack-id]")?.dataset.stackId,
+      [x, y]), id, "the lower card must have a pointer-accessible edge");
+    return [x, y];
+  };
+  assert.equal(await pile.getByText("Stack", { exact: true }).count(), 0);
+  assert.ok(await object(spell.id).evaluate((button) => {
+    for (let wrapper = button.parentElement; wrapper && !wrapper.matches(".table"); wrapper = wrapper.parentElement) {
+      const css = getComputedStyle(wrapper);
+      if (css.borderTopWidth !== "0px" || css.backgroundColor !== "rgba(0, 0, 0, 0)" || css.boxShadow !== "none") return false;
+    }
+    return true;
+  }), "a lone stack card must not have a visible tray around it");
+
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 960 });
+    // Forge sends top first. Verify the actual pointer hit where all three card images overlap.
+    push([newest, middle, spell]);
+    await object(newest.id).waitFor();
+    const [front, back] = await Promise.all([object(newest.id).boundingBox(), object(spell.id).boundingBox()]);
+    const overlap = Math.min(front.y + front.height, back.y + back.height) - Math.max(front.y, back.y);
+    assert.ok(overlap > front.height / 4, "three stack cards should visibly overlap");
+    const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[data-stack-id]")?.dataset.stackId,
+      [front.x + front.width / 2, Math.max(front.y, back.y) + overlap / 2]);
+    assert.equal(hit, newest.id, "the newest object must cover older spells and abilities");
+    await page.mouse.move(...await edge(middle.id));
+    await page.locator(".card-hover-preview").getByText(middle.identity.name, { exact: true }).waitFor();
+    await page.mouse.click(...await edge(middle.id));
+    await inspect.getByText(middle.text, { exact: true }).waitFor();
+    await inspect.getByRole("button", { name: "Close" }).click();
+
+    const target = { kind: "spell", objectId: spell.id, responseId: "target:0", label: spell.identity.name };
+    send("rules.prompt", { roomId, gameId: empty().gameId, promptId: width, pending: true, supported: true,
+      kind: "chooseBoardTargets", title: "Choose a target", minSelections: 1, maxSelections: 1, targets: [target],
+      options: [], choices: [], cards: [], contextCards: [], orderItems: [], scryDestinations: [], damageTargets: [] });
+    const choice = page.getByRole("region", { name: "Choose a target" });
+    await choice.getByRole("button", { name: "Minimize" }).click();
+    await page.mouse.click(...await edge(spell.id));
+    assert.equal(await object(spell.id).getAttribute("aria-pressed"), "true");
+    const [[reply]] = await Promise.all([once(events, "response", { signal: AbortSignal.timeout(6000) }),
+      choice.getByRole("button", { name: "Confirm" }).click()]);
+    assert.deepEqual(reply, { promptId: width, responseId: "$submit", targetIds: [target.responseId] });
+    send("rules.prompt", { roomId, gameId: empty().gameId, promptId: width, pending: false });
+    await choice.waitFor({ state: "detached" });
+    push([middle, spell]);
+    await object(newest.id).waitFor({ state: "detached" });
+    const center = point(await object(middle.id).boundingBox());
+    await page.mouse.click(...center);
+    await inspect.getByText(middle.text, { exact: true }).waitFor();
+    await inspect.getByRole("button", { name: "Close" }).click();
+  }
+  const many = Array.from({ length: 36 }, (_, index) => ({ ...middle, id: `ability-${index}` }));
+  push(many);
+  const last = many.at(-1).id;
+  await object(last).waitFor({ state: "attached" });
+  await pile.hover();
+  await page.mouse.wheel(0, 2000);
+  await page.waitForFunction(() => {
+    const stack = document.querySelector("[data-motion-zone=stack] aside");
+    return stack.scrollTop > 0 && stack.scrollTop + stack.clientHeight >= stack.scrollHeight - 2;
+  });
+  await page.mouse.click(...await edge(last));
+  await inspect.getByText(middle.text, { exact: true }).waitFor();
+  await inspect.getByRole("button", { name: "Close" }).click();
+  assert.ok(await pile.evaluate((stack) => stack.scrollTop > 0));
+  push([newest, ...many]);
+  await object(newest.id).waitFor({ state: "attached" });
+  await page.waitForFunction(() => document.querySelector("[data-motion-zone=stack] aside").scrollTop === 0);
+  const topCenter = point(await object(newest.id).boundingBox());
+  assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[data-stack-id]")?.dataset.stackId,
+    topCenter), newest.id, "a new spell should be in front and visible after scrolling deep into the stack");
+  push([spell]);
+  await object(spell.id).waitFor();
+}
+
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
@@ -48,7 +132,9 @@ try {
   await page.routeWebSocket("**/ws", (ws) => {
     socket = ws;
     ws.onMessage((raw) => {
-      if (JSON.parse(raw).type !== "session.hello") return;
+      const { type, payload } = JSON.parse(raw.toString());
+      if (type === "rules.respond") events.emit("response", payload);
+      if (type !== "session.hello") return;
       ++connections;
       send("session.welcome", { seat: 0, resumed: connections > 1, resumeToken: "motion-seat", roomId, forgeRulesAvailable: true });
       send("room.snapshot", { roomId, phase: "started", seats: players.map((p) => ({ occupied: true, displayName: p.name })) });
@@ -64,6 +150,7 @@ try {
   await thumbnail.waitFor();
   const ghost = page.locator(".moving-card");
   assert.equal(await ghost.count(), 0, "historical moves replayed at join");
+  await verifyStackPile(page, update, send, events);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 960 });
     const [table, pile, image] = await Promise.all([page.locator(".table"), tray, thumbnail.locator("img")].map((e) => e.boundingBox()));
@@ -179,7 +266,7 @@ try {
   await page.evaluate(() => new Promise(requestAnimationFrame));
   assert.equal(await ghost.count(), 0, "reconnecting should not replay the server's recent history");
   assert.deepEqual(errors, []);
-  console.log("PASS centered stack thumbnails, stack and ordinary zone moves, private endpoints and revocation, joined paths, replay and reduced motion");
+  console.log("PASS overlapping stack order, exposed-edge preview and targeting, scrolling, centered thumbnails, zone moves, privacy, replay and reduced motion");
 } finally {
   await browser.close();
 }
