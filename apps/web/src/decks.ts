@@ -1,30 +1,74 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Deck, DeckCard, Identity } from "./protocol";
+import mtgoFaces from "./mtgo-card-names.json";
 
 export const deckStorage = "hexproof-club.decks.v1";
 
 export type DeckZone = "mainboard" | "sideboard";
 export type DeckList = Pick<Deck, DeckZone>;
 
+const normalizedName = (name: string) => name.trim().normalize("NFC").toLowerCase();
+const multifaceNames = new Map<string, { club: string; mtgo: string }>();
+for (const [group, names] of Object.entries(mtgoFaces)) {
+  for (const full of names) {
+    const faces = full.split(" // ");
+    const front = faces[0];
+    const joined = faces.join("/");
+    const entry = { club: group === "meldOrSpecialize" ? front : full, mtgo: group === "split" ? joined : front };
+    multifaceNames.set(normalizedName(front), entry);
+    multifaceNames.set(normalizedName(joined), entry);
+  }
+}
+
+function knownFaceNames(name: string) {
+  const key = normalizedName(name);
+  const exact = multifaceNames.get(key);
+  if (exact || !key.includes("/")) return exact;
+  // A slash is also literal in ordinary names such as Summon: Choco/Mog.
+  // Only match alternate spellings when Forge supplies the actual face pair.
+  return multifaceNames.get(key.split(/\/{1,2}/).map((face) => face.trim()).join("/"));
+}
+
+export function cardNameKey(name: string): string {
+  return normalizedName(knownFaceNames(name)?.club ?? name);
+}
+
 export function printingKey(card: Identity): string {
-  return JSON.stringify([card.name.trim().normalize("NFC").toLowerCase(),
+  return JSON.stringify([cardNameKey(card.name),
     card.setCode.toUpperCase(), card.collectorNumber.toLowerCase()]);
 }
 
-export function changeCopies(cards: DeckCard[], identity: Identity, change: number): DeckCard[] {
-  const key = printingKey(identity);
-  const index = cards.findIndex((card) => printingKey(card) === key);
-  if (index < 0) return change > 0 ? [...cards, { ...identity, count: change }] : cards;
+export function findDeckCard(cards: DeckCard[], name: string) {
+  const key = cardNameKey(name);
+  return cards.find((card) => cardNameKey(card.name) === key);
+}
+
+function setCopies(cards: DeckCard[], identity: Identity, count: number): DeckCard[] {
+  const key = cardNameKey(identity.name);
+  const index = cards.findIndex((card) => cardNameKey(card.name) === key);
+  const entry = { name: identity.name, setCode: identity.setCode, collectorNumber: identity.collectorNumber, count };
+  if (index < 0) return count ? [...cards, entry] : cards;
   const next = cards.slice();
-  const count = cards[index].count + change;
-  if (count <= 0) next.splice(index, 1);
-  else next[index] = { ...cards[index], count };
+  if (!count) next.splice(index, 1);
+  else next[index] = entry;
   return next;
 }
 
-export function parseDeckList(text: string): DeckList {
-  const groups = { mainboard: new Map<string, DeckCard>(), sideboard: new Map<string, DeckCard>() };
+export function editDeckCard(list: DeckList, zone: DeckZone, printing: Identity, total: number, move = 0): DeckList {
+  const other = zone === "mainboard" ? "sideboard" : "mainboard";
+  const kept = Math.min(total, findDeckCard(list[other], printing.name)?.count ?? 0);
+  return { ...list, [zone]: setCopies(list[zone], printing, total - kept - move),
+    [other]: setCopies(list[other], printing, kept + move) };
+}
+
+export function addDeckCard(list: DeckList, zone: DeckZone, result: Identity): DeckList {
+  const main = findDeckCard(list.mainboard, result.name), side = findDeckCard(list.sideboard, result.name);
+  return editDeckCard(list, zone, main ?? side ?? result, (main?.count ?? 0) + (side?.count ?? 0) + 1);
+}
+
+function readDeckLines(text: string, onCard: (zone: DeckZone, entry: Identity, count: number) => void,
+  onComment?: (zone: DeckZone, line: string) => void) {
   let zone: DeckZone = "mainboard";
   let started = false;
   let possibleSideboard = false;
@@ -44,36 +88,70 @@ export function parseDeckList(text: string): DeckList {
       possibleSideboard = false;
       continue;
     }
-    if (line.startsWith("//") || line.startsWith("#")) continue;
+    if (line.startsWith("//") || line.startsWith("#")) {
+      onComment?.(zone, raw);
+      continue;
+    }
     const card = line.match(/^(SB:\s*)?(\d+)x?\s+(.+?)(?:\s+\(([a-z0-9]+)\)\s+(\S+))?$/i);
     if (!card || Number(card[2]) < 1 || Number(card[2]) > 1000) {
       throw new Error(`Line ${index + 1} needs a quantity and card name.`);
     }
     if (possibleSideboard && zone === "mainboard" && !card[1]) zone = "sideboard";
-    const entry: DeckCard = {
-      count: Number(card[2]), name: card[3], setCode: card[4]?.toUpperCase() ?? "", collectorNumber: card[5] ?? "",
+    const entry: Identity = {
+      name: knownFaceNames(card[3])?.club ?? card[3], setCode: card[4]?.toUpperCase() ?? "", collectorNumber: card[5] ?? "",
     };
-    const byPrinting = groups[card[1] ? "sideboard" : zone];
-    const key = printingKey(entry);
-    const existing = byPrinting.get(key);
-    if (existing) existing.count += entry.count;
-    else byPrinting.set(key, entry);
+    onCard(card[1] ? "sideboard" : zone, entry, Number(card[2]));
     started = true;
     possibleSideboard = false;
   }
-  return { mainboard: [...groups.mainboard.values()], sideboard: [...groups.sideboard.values()] };
 }
 
-export function formatDeckList(deck: DeckList): string {
-  function lines(cards: DeckCard[]) {
-    return cards.flatMap((card) => {
-      const name = card.name + (card.setCode && card.collectorNumber ? ` (${card.setCode}) ${card.collectorNumber}` : "");
-      // Keep each MTGA text entry within the parser's per-line quantity range.
-      return Array.from({ length: Math.ceil(card.count / 1000) }, (_, index) =>
-        `${Math.min(1000, card.count - index * 1000)} ${name}`);
-    });
+export function parseDeckList(text: string): DeckList {
+  const groups = { mainboard: new Map<string, number>(), sideboard: new Map<string, number>() };
+  const printings = new Map<string, Identity>();
+  readDeckLines(text, (zone, entry, count) => {
+    const key = cardNameKey(entry.name);
+    const existing = printings.get(key);
+    // On importing mixed lists, the first explicit printing applies across both zones.
+    if (!existing || (!existing.setCode && entry.setCode)) printings.set(key, entry);
+    const counts = groups[zone];
+    counts.set(key, (counts.get(key) ?? 0) + count);
+  });
+  const entries = (counts: Map<string, number>) => Array.from(counts, ([key, count]) => ({ ...printings.get(key)!, count }));
+  return { mainboard: entries(groups.mainboard), sideboard: entries(groups.sideboard) };
+}
+
+// Keep each text entry within the club importer's per-line quantity range.
+function quantityLines(count: number, name: string): string[] {
+  return Array.from({ length: Math.ceil(count / 1000) }, (_, index) =>
+    `${Math.min(1000, count - index * 1000)} ${name}`);
+}
+
+export function formatDeckList(deck: DeckList, original = ""): string {
+  const lines: Record<DeckZone, string[]> = { mainboard: [], sideboard: [] };
+  const remaining = (cards: DeckCard[]) => new Map(cards.map((card) => [cardNameKey(card.name), card]));
+  const cards = { mainboard: remaining(deck.mainboard), sideboard: remaining(deck.sideboard) };
+  function append(zone: DeckZone, key: string) {
+    const card = cards[zone].get(key);
+    if (!card) return;
+    const name = card.name + (card.setCode && card.collectorNumber ? ` (${card.setCode}) ${card.collectorNumber}` : "");
+    lines[zone].push(...quantityLines(card.count, name));
+    cards[zone].delete(key);
   }
-  return ["Deck", ...lines(deck.mainboard), ...(deck.sideboard.length ? ["", "Sideboard", ...lines(deck.sideboard)] : [])].join("\n");
+  // Retain comments next to surviving entries when a card edit rebuilds the list.
+  if (/^[ \t]*(?:#|\/\/)/m.test(original)) {
+    readDeckLines(original, (zone, card) => append(zone, cardNameKey(card.name)), (zone, line) => lines[zone].push(line));
+  }
+  for (const zone of ["mainboard", "sideboard"] as const) {
+    for (const key of cards[zone].keys()) append(zone, key);
+  }
+  return ["Deck", ...lines.mainboard, ...(lines.sideboard.length ? ["", "Sideboard", ...lines.sideboard] : [])]
+    .join(original.includes("\r\n") ? "\r\n" : "\n");
+}
+
+export function formatMtgoDeckList(deck: DeckList): string {
+  const lines = (cards: DeckCard[]) => cards.flatMap((card) => quantityLines(card.count, knownFaceNames(card.name)?.mtgo ?? card.name));
+  return [...lines(deck.mainboard), ...(deck.sideboard.length ? ["", ...lines(deck.sideboard)] : [])].join("\r\n") + "\r\n";
 }
 
 export function parseDeck(id: string, name: string, text: string): Deck {

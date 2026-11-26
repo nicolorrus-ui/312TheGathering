@@ -27,19 +27,19 @@ export type Snapshot = {
   promptFollows?: boolean; cardMoves?: CardMove[]; pendingCast?: PendingCast;
 };
 export type Option = { responseId: string; kind: string; label: string; cardId?: string };
-export type Target = Option & { objectId?: string; seat?: number; selected?: boolean };
-export type Choice = { responseId: string; label: string; weight: number; canRepeat: boolean; manaSymbols?: string[] };
+export type Target = Option & Partial<Identity> & { objectId?: string; seat?: number; selected?: boolean };
+export type Choice = { responseId: string; label: string; weight: number; canRepeat: boolean; manaSymbols?: string[]; card?: Identity; actionLabel?: string };
 export type PromptCard = Identity & { id: string; selected?: boolean; readOnly?: boolean };
 export type Prompt = {
   roomId: string; gameId: string; pending: boolean; promptId: number; kind: string; supported: boolean;
   manaSourceId?: string;
-  title: string; detail: string; options: Option[]; contextText: string; contextCards: PromptCard[];
+  title: string; detail: string; options: Option[]; contextText: string; contextCards: PromptCard[]; contextTargets?: Target[];
   targets: Target[]; choices: Choice[]; cards: PromptCard[]; cancellable: boolean;
   minSelections: number; maxSelections: number; minCardSelections: number; maxCardSelections: number;
   minChoiceTotal: number; maxChoiceTotal: number; minNumber: number; maxNumber: number;
-  scryDestinations: string[]; orderItems: (Identity & { responseId: string; oracle?: string })[];
+  scryDestinations: string[]; orderItems: (Identity & { responseId: string; oracle?: string; abilityText?: string })[];
   combatSources: (Identity & { responseId: string; objectId: string; validTargetIds: string[]; label: string; maxAssignments?: number })[];
-  combatTargets: (Target & { maxAssignments?: number })[]; damageSource?: { label: string }; damageTargets: (Target & { lethalDamage: number })[];
+  combatTargets: (Target & { maxAssignments?: number })[]; damageSource?: Partial<Identity> & { label: string; objectId?: string }; damageTargets: (Target & { lethalDamage: number })[];
   totalDamage: number; damageAssignmentMode?: string;
 };
 export type RulesPriority = { roomId: string; hold: boolean; stops: string[] };

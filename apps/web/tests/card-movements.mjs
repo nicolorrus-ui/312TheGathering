@@ -60,7 +60,7 @@ async function verifyStackPile(page, update, send, events) {
       [Math.max(front.x, back.x) + overlap / 2, front.y + front.height / 2]);
     assert.equal(hit, newest.id, "the newest object must cover older spells and abilities");
     await page.mouse.move(...await edge(middle.id));
-    await page.locator(".card-hover-preview").getByText(middle.identity.name, { exact: true }).waitFor();
+    await page.locator('.card-hover-preview img[src*="name=prodigal+sorcerer"]').waitFor();
     await page.mouse.click(...await edge(middle.id));
     await inspect.getByText(middle.text, { exact: true }).waitFor();
     await inspect.getByRole("button", { name: "Close" }).click();

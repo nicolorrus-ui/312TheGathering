@@ -2,17 +2,18 @@
 
 import { ManaPip } from "./ManaSymbols";
 import { useId, useState, type ReactNode } from "react";
-import { CardImage, type CardHover } from "./CardImages";
+import { DecisionCard } from "./DecisionCard";
+import { CardChoiceGrid } from "./CardChoiceGrid";
 import { dismissPanel } from "./boardMotion";
 import type { Choice, Option, Prompt, PromptCard, Response, Target } from "./protocol";
 
-export function DecisionPanel({ title, children, compactActions }: {
-  title: string; children: ReactNode; compactActions?: ReactNode;
+export function DecisionPanel({ title, children, compactActions, hideTitle = false }: {
+  title: string; children: ReactNode; compactActions?: ReactNode; hideTitle?: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const bodyId = useId();
   return <section className={`decision ${expanded ? "floating" : "collapsed"}`} aria-label={title}>
-    <header><h2>{title}</h2><button className="quiet" type="button" onClick={(event) => {
+    <header className={hideTitle ? "decision-actions" : undefined}>{!hideTitle && <h2>{title}</h2>}<button className="quiet" type="button" onClick={(event) => {
       dismissPanel(event.currentTarget.closest(".decision"));
       setExpanded(!expanded);
     }}
@@ -47,16 +48,38 @@ export function simpleConfirmation(prompt?: Prompt) {
   if (yes && no) return { prompt, yes, no };
 }
 
+function namesDisplayedCard(prompt: Prompt, text: string) {
+  return text && ([prompt.contextCards, prompt.cards, prompt.orderItems, prompt.targets, prompt.contextTargets,
+    prompt.combatSources, prompt.combatTargets, prompt.damageTargets].some((group) => group?.some((card) => card.name === text)) ||
+    prompt.choices.some((choice) => choice.card?.name === text) || prompt.damageSource?.name === text);
+}
+
+function PromptContext({ prompt }: { prompt: Prompt }) {
+  return <>
+    {Boolean(prompt.contextCards.length || prompt.contextTargets?.length) && <div className="prompt-context" role="group" aria-label="Decision context">
+      {prompt.contextCards.map((card) => <DecisionCard key={card.id} card={card} focusable />)}
+      {prompt.contextTargets?.map((target) => <span key={target.responseId}><TargetFace target={target} /></span>)}
+    </div>}
+    {prompt.detail && prompt.detail !== prompt.title && !namesDisplayedCard(prompt, prompt.detail) &&
+      !(prompt.contextCards.length && prompt.detail === prompt.contextText) && <p>{prompt.detail}</p>}
+    {!prompt.contextCards.length && prompt.contextText && prompt.contextText !== prompt.detail && prompt.contextText !== prompt.title &&
+      <small>{prompt.contextText}</small>}
+  </>;
+}
+
+function TargetFace({ target }: { target: Target }) {
+  return ["card", "spell", "attacker", "planeswalker", "battle"].includes(target.kind)
+    ? <DecisionCard card={target} label={target.label} /> : <>{target.label}</>;
+}
+
 export function ConfirmationActions({ confirmation, submit }: {
   confirmation: NonNullable<ReturnType<typeof simpleConfirmation>>; submit: (response: Response) => void;
 }) {
   const { prompt, yes, no } = confirmation;
   return <>
     <div className="confirmation-question" role="status">
-      <strong>{prompt.title}</strong>
-      {prompt.detail && prompt.detail !== prompt.title && <span>{prompt.detail}</span>}
-      {prompt.contextText && prompt.contextText !== prompt.detail && prompt.contextText !== prompt.title &&
-        <small>{prompt.contextText}</small>}
+      {!namesDisplayedCard(prompt, prompt.title) && <strong>{prompt.title}</strong>}
+      <PromptContext prompt={prompt} />
     </div>
     <button type="button" onClick={() => submit({ responseId: "$submit", choiceIds: [no.responseId] })}>{no.label}</button>
     <button type="button" className="primary" onClick={() => submit({ responseId: "$submit", choiceIds: [yes.responseId] })}>{yes.label}</button>
@@ -64,9 +87,9 @@ export function ConfirmationActions({ confirmation, submit }: {
 }
 
 type Props = { prompt: Prompt; targetIds: string[]; toggleTarget: (id: string) => void;
-  submit: (response: Response) => void; disabled: boolean; hoverCard: CardHover };
+  submit: (response: Response) => void; disabled: boolean };
 
-export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, hoverCard }: Props) {
+export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: Props) {
   const [cards, setCards] = useState<string[]>([]);
   const [choices, setChoices] = useState<string[]>([]);
   const [order, setOrder] = useState(() => (prompt.kind === "chooseDamageAssignmentOrder"
@@ -106,8 +129,9 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
         const selectable = (target: Target) => !target.selected &&
           (targetIds.includes(target.responseId) || targetIds.length < prompt.maxSelections);
         return [<div className="choices">{selectableFirst(prompt.targets, selectable).map((target) => <button key={target.responseId} type="button"
+          className={target.kind === "player" ? undefined : "choice-card"} aria-label={target.label}
           aria-pressed={target.selected || targetIds.includes(target.responseId)} disabled={!selectable(target)}
-          onClick={() => toggleTarget(target.responseId)}>{target.label}</button>)}</div>,
+          onClick={() => toggleTarget(target.responseId)}><TargetFace target={target} /></button>)}</div>,
           within(targetIds.length, prompt.minSelections, prompt.maxSelections), { targetIds }] as const;
       }
       case "chooseCards":
@@ -119,13 +143,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
         const matching = prompt.cards.filter((card) => card.name.toLowerCase().includes(filter.toLowerCase()));
         return [<><div className="prompt-filter">{prompt.cards.length > 10 && <input aria-label="Filter cards" placeholder="Filter cards"
           value={filter} onChange={(event) => setFilter(event.target.value)} />}{!reveal && <span>{cards.length} selected</span>}</div>
-        <div className="choice-grid">{selectableFirst(matching, selectable).map((card) =>
-          <button className="choice-card" type="button" key={card.id} disabled={!selectable(card)}
-            onMouseEnter={(event) => hoverCard(card, event.currentTarget)} onMouseLeave={() => hoverCard()}
-            aria-pressed={card.selected || cards.includes(card.id)} onClick={() => toggleCard(card.id)}>
-            <CardImage identity={card} className="choice-card-image" decorative />
-            <strong>{card.name}</strong><small>{card.setCode} {card.collectorNumber}</small>
-          </button>)}</div></>, !reveal && within(cards.length, prompt.minCardSelections, prompt.maxCardSelections), { cardIds: cards }] as const;
+        <CardChoiceGrid cards={selectableFirst(matching, selectable)} selected={cards} selectable={selectable} choose={toggleCard} /></>, !reveal && within(cards.length, prompt.minCardSelections, prompt.maxCardSelections), { cardIds: cards }] as const;
       }
       case "chooseBoolean":
       case "chooseColor":
@@ -136,10 +154,10 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
         return [<div className="choices">{selectableFirst(prompt.choices, selectable).map((choice) => {
           const count = choices.filter((id) => id === choice.responseId).length;
           return <div key={choice.responseId} className="choice-group">
-            <button type="button" aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
+            <button type="button" className={choice.card ? "choice-card" : undefined} aria-label={choice.card ? choice.label : undefined} aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
               if (!choice.canRepeat && count) setChoices(choices.filter((id) => id !== choice.responseId));
               else if (canAdd(choice)) setChoices([...choices, choice.responseId]);
-            }}>{choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
+            }}>{choice.card ? <><DecisionCard card={choice.card} />{choice.actionLabel && <span>{choice.actionLabel}</span>}</> : choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
             {choice.canRepeat && count > 0 && <button type="button" aria-label={`Remove ${choice.label}`} onClick={() => {
               const index = choices.lastIndexOf(choice.responseId);
               setChoices(choices.filter((_, i) => i !== index));
@@ -158,17 +176,25 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
       case "chooseDamageAssignmentOrder":
         return [<ol className="order-list">{order.map((id) => {
           const item = prompt.orderItems.find((entry) => entry.responseId === id);
-          const label = item?.name ?? prompt.damageTargets.find((entry) => entry.responseId === id)?.label ?? id;
-          return <li key={id}><div>{label}{item?.oracle && <small>{item.oracle}</small>}</div>
-            {orderControls(order, id, setOrder, label)}</li>;
+          const target = prompt.damageTargets.find((entry) => entry.responseId === id);
+          const label = item?.name || item?.oracle || target?.label || id;
+          const instruction = item?.abilityText || (item?.oracle !== item?.name ? item?.oracle : undefined);
+          // Keep distinct cards image-only. If two abilities share the same
+          // face, the actual ability text identifies the choice, even offline.
+          const distinguish = item?.name && instruction && prompt.orderItems.some((other) =>
+            other.name === item.name && (other.setCode || "") === (item.setCode || "") &&
+            (other.collectorNumber || "") === (item.collectorNumber || "") && Boolean(other.token) === Boolean(item.token) &&
+            (other.abilityText || other.oracle) !== (item.abilityText || item.oracle));
+          return <li key={id} data-art-focus aria-description={instruction}><div>{item?.name ? <><DecisionCard card={item} />{distinguish && <span>{instruction}</span>}</>
+            : target ? <TargetFace target={target} /> : label}</div>
+            {orderControls(order, id, setOrder, distinguish ? `${label} — ${instruction}` : label)}</li>;
         })}</ol>, true, prompt.kind === "reorder" ? { orderedIds: order } : { damageOrderIds: order }] as const;
       case "scry":
         return [<div className="pile-grid">{prompt.scryDestinations.map((zone) => <section key={zone}>
           <h3>{zone}</h3><ol className="order-list">{scry[zone].map((id) => {
             const card = prompt.cards.find((entry) => entry.id === id);
             const label = card?.name ?? id;
-          return <li key={id}><div onMouseEnter={(event) => hoverCard(card, event.currentTarget)} onMouseLeave={() => hoverCard()}>
-            <CardImage identity={card} className="choice-card-image" decorative />{label}<select aria-label={`Destination for ${label}`} value={zone} onChange={(event) => {
+          return <li key={id} data-art-focus><div><DecisionCard card={card} /><select aria-label={`Destination for ${label}`} value={zone} onChange={(event) => {
               const destination = event.target.value;
               setScry({ ...scry, [zone]: scry[zone].filter((cardId) => cardId !== id), [destination]: [...scry[destination], id] });
             }}>{prompt.scryDestinations.map((destination) => <option key={destination}>{destination}</option>)}</select></div>
@@ -177,24 +203,25 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
             ({ destination, cardIds: scry[destination] })) }] as const;
       case "chooseBlockers":
         return [<div className="choice-grid">{prompt.combatSources.map((source) => <section key={source.responseId} className="combat-source">
-          <strong>{source.label || source.name}</strong>
+          <DecisionCard card={source} label={source.label} focusable />
           {prompt.combatTargets.filter((target) => source.validTargetIds.includes(target.responseId)).map((target) => {
             const assignment = { sourceId: source.responseId, targetId: target.responseId };
             const matches = (value: typeof assignment) => value.sourceId === assignment.sourceId && value.targetId === assignment.targetId;
             const chosen = combat.some(matches);
-            return <button key={target.responseId} type="button" aria-pressed={chosen} onClick={() => {
+            return <button key={target.responseId} type="button" aria-label={target.label} aria-pressed={chosen} onClick={() => {
               if (chosen) setCombat(combat.filter((value) => !matches(value)));
               else setCombat([...combat, assignment]);
-            }}>{target.label}</button>;
+            }}><TargetFace target={target} /></button>;
           })}
         </section>)}</div>, true, { assignments: combat }] as const;
       case "chooseCombatDamageAssignment": {
         const assigned = prompt.damageTargets.map((target) => ({ targetId: target.responseId, damage: damage[target.responseId] ?? 0 }));
         const total = assigned.reduce((sum, target) => sum + target.damage, 0);
-        return [<><p>{prompt.damageSource?.label} · {total} / {prompt.totalDamage}</p>
-          {prompt.damageTargets.map((target) => <label className="damage-row" key={target.responseId}>
-            {target.label}{target.lethalDamage >= 0 && ` (lethal ${target.lethalDamage})`}
-            <input type="number" min={0} max={prompt.totalDamage} value={damage[target.responseId] ?? 0}
+        return [<><div className="damage-source">{prompt.damageSource && <DecisionCard card={prompt.damageSource} label={prompt.damageSource.label} focusable />}
+          <span>{total} / {prompt.totalDamage}</span></div>
+          {prompt.damageTargets.map((target) => <label className="damage-row" key={target.responseId} data-art-focus>
+            <TargetFace target={target} />{target.lethalDamage >= 0 && ` (lethal ${target.lethalDamage})`}
+            <input type="number" aria-label={`Damage to ${target.label}`} min={0} max={prompt.totalDamage} value={damage[target.responseId] ?? 0}
               onChange={(event) => setDamage({ ...damage, [target.responseId]: Number(event.target.value) })} />
           </label>)}</>, total === prompt.totalDamage && assigned.every((target) => Number.isInteger(target.damage) && target.damage >= 0),
           { damageAssignments: assigned }] as const;
@@ -212,12 +239,11 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
     "chooseBlockers", "chooseCombatDamageAssignment"];
   const confirmButton = prompt.supported && submitKinds.includes(prompt.kind) &&
     <button className="primary" type="button" disabled={disabled || !enabled} onClick={() => confirm(response)}>Confirm</button>;
-  return <DecisionPanel title={prompt.title || "Forge decision"}
+  return <DecisionPanel title={prompt.title || "Forge decision"} hideTitle={Boolean(namesDisplayedCard(prompt, prompt.title))}
     compactActions={prompt.kind === "chooseBoardTargets" && confirmButton ? <footer>{confirmButton}</footer> : undefined}>
     <fieldset disabled={disabled}>
       <div className="decision-content">
-        {prompt.detail && <p>{prompt.detail}</p>}
-        {prompt.contextText && prompt.contextText !== prompt.detail && <small>{prompt.contextText}</small>}
+        <PromptContext prompt={prompt} />
         {content}
       </div>
       {prompt.supported && <footer>

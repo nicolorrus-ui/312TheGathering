@@ -179,7 +179,8 @@
         {"name": "setCode", "type": "string", "required": false},
         {"name": "collectorNumber", "type": "string", "required": false},
         {"name": "token", "type": "boolean", "required": false},
-        {"name": "oracle", "type": "string", "required": false}
+        {"name": "oracle", "type": "string", "required": false},
+        {"name": "abilityText", "type": "string", "required": false}
       ]
     },
     {
@@ -198,7 +199,9 @@
         {"name": "label", "type": "string", "required": true},
         {"name": "weight", "type": "integer", "required": true},
         {"name": "canRepeat", "type": "boolean", "required": true},
-        {"name": "manaSymbols", "type": "array", "required": false, "items": {"type": "string"}}
+        {"name": "manaSymbols", "type": "array", "required": false, "items": {"type": "string"}},
+        {"name": "card", "type": "object", "required": false, "ref": "RulesCardIdentity", "goType": "*RulesCardIdentity"},
+        {"name": "actionLabel", "type": "string", "required": false}
       ]
     },
     {

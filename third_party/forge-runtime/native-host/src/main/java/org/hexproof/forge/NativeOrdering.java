@@ -43,7 +43,7 @@ final class NativeOrdering {
         }
         List<?> selected = min == total && max == total && revealed.isEmpty() ? candidates
                 : select(session, owner, title, min, max, candidates, revealed);
-        return new IGuiGame.OrderResult<>(reorder(session, owner, title, selected), false);
+        return new IGuiGame.OrderResult<>(reorder(session, owner, title, selected, revealed, candidates.stream().allMatch(CardView.class::isInstance)), false);
     }
 
     static List<?> insertInList(NativeSession session, Player owner, String title, Object item, List<?> oldItems) {
@@ -53,10 +53,9 @@ final class NativeOrdering {
         JsonObject input = input("chooseFromSelection", title);
         JsonArray options = new JsonArray();
         JsonObject first = object("label", "First"); first.addProperty("weight", 1); first.addProperty("canRepeat", false); options.add(first);
-        for (Object existing : result) {
-            JsonObject option = object("label", "After " + label(owner, existing));
-            option.addProperty("weight", 1); option.addProperty("canRepeat", false); options.add(option);
-        }
+        NativePromptCard presentation = new NativePromptCard(session, owner);
+        for (Object existing : result)
+            options.add(presentation.scalarOption(existing, label(owner, existing), false, true, List.of()));
         input.add("options", options); input.addProperty("minTotal", 1); input.addProperty("maxTotal", 1);
         int position = session.ask(owner, input, raw -> {
             requireType(raw, "selectionDecision");
@@ -83,8 +82,7 @@ final class NativeOrdering {
                 if (cards.put("card-" + card.getId(), candidate) != null) throw new IllegalArgumentException("Duplicate native card candidate");
                 choices.add(presentation.describe(card));
             } else {
-                JsonObject option = object("label", label(owner, candidate));
-                option.addProperty("weight", 1); option.addProperty("canRepeat", false); choices.add(option);
+                choices.add(presentation.scalarOption(candidate, label(owner, candidate), false, false, revealed));
             }
         }
         input.add(cardsOnly ? "cards" : "options", cardsOnly ? presentation.withRevealed(choices, revealed) : choices);
@@ -111,7 +109,7 @@ final class NativeOrdering {
         });
     }
 
-    private static List<?> reorder(NativeSession session, Player owner, String title, List<?> selected) {
+    private static List<?> reorder(NativeSession session, Player owner, String title, List<?> selected, List<CardView> revealed, boolean cardsOnly) {
         List<?> candidates = List.copyOf(selected);
         if (candidates.size() < 2) return candidates;
         JsonObject input = input("reorder", title);
@@ -121,9 +119,25 @@ final class NativeOrdering {
         for (int i = 0; i < candidates.size(); i++) {
             Object candidate = candidates.get(i);
             String id = "order-" + i;
-            JsonObject item = object("id", id); item.addProperty("oracle", label(owner, candidate));
-            CardView card = candidate instanceof CardView c ? c : candidate instanceof SpellAbilityView ability ? ability.getHostCard() : null;
-            if (card != null) item.add("card", presentation.describe(card));
+            String text = label(owner, candidate);
+            JsonObject item = object("id", id);
+            CardView card = candidate instanceof CardView view ? view
+                    : candidate instanceof SpellAbilityView ability ? ability.getHostCard() : null;
+            if (card != null) {
+                // A pure list of cards explicitly supplied for ordering is also
+                // used after private looks. Mixed choices grant no such access.
+                JsonObject identity = cardsOnly ? presentation.describe(card).getAsJsonObject("identity")
+                        : presentation.choiceIdentity(card, revealed);
+                JsonObject description = new JsonObject();
+                description.add("identity", identity);
+                item.add("card", description);
+                if (identity.get("name").getAsString().equals("Face-down card")) text = "Face-down card";
+                else if (candidate instanceof SpellAbilityView) {
+                    String detail = NativePromptCard.actionText(text, card, identity);
+                    if (!detail.isEmpty()) item.addProperty("abilityText", detail);
+                }
+            }
+            item.addProperty("oracle", text);
             items.add(item); allowed.put(id, candidate);
         }
         input.add("items", items);

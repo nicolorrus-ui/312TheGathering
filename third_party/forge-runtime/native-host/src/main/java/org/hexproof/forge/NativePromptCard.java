@@ -7,7 +7,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import forge.game.card.Card;
 import forge.game.card.CardView;
+import forge.game.card.CardFaceView;
 import forge.game.player.Player;
+import forge.game.spellability.SpellAbilityView;
 import forge.util.Visitor;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -55,6 +57,57 @@ final class NativePromptCard {
             result.add("identity", card == null ? object("name", view.getName()) : NativeSnapshot.identity(card));
         }
         return result;
+    }
+
+    /** Scalar answers use the option index. Never send a physical ID as an image hint. */
+    JsonObject scalarOption(Object candidate, String label, boolean customDisplay, boolean after, List<CardView> revealed) {
+        CardView view = candidate instanceof CardView card ? card
+                : candidate instanceof SpellAbilityView ability ? ability.getHostCard() : null;
+        JsonObject option = object("label", after ? "After " + label : label);
+        option.addProperty("weight", 1);
+        option.addProperty("canRepeat", false);
+        JsonObject identity;
+        if (view != null) identity = choiceIdentity(view, revealed);
+        else if (candidate instanceof CardFaceView face) identity = object("name", face.getName());
+        else return option;
+        option.add("card", identity);
+        if (identity.get("name").getAsString().equals("Face-down card")) {
+            option.addProperty("label", after ? "After Face-down card" : "Face-down card");
+            if (after) option.addProperty("actionLabel", "After");
+            return option;
+        }
+        String detail = customDisplay || candidate instanceof SpellAbilityView ? actionText(label, candidate, identity) : "";
+        if (after || !detail.isEmpty())
+            option.addProperty("actionLabel", after ? (detail.isEmpty() ? "After" : "After — " + detail) : detail);
+        return option;
+    }
+
+    JsonObject choiceIdentity(CardView view, List<CardView> revealed) {
+        boolean disclosed = view.canBeShownTo(viewer.getView()) || revealed.stream().anyMatch(card -> card == view);
+        return disclosed ? describe(view).getAsJsonObject("identity") : object("name", "Face-down card");
+    }
+
+    static String actionText(String label, Object candidate, JsonObject identity) {
+        String text = label == null ? "" : label.strip();
+        String name = identity.get("name").getAsString();
+        if (text.isEmpty() || text.equalsIgnoreCase(name)
+                || candidate instanceof CardView card && text.equals(card.toString())
+                || candidate instanceof CardFaceView face && text.equals(face.toString())) return "";
+        // Forge's default view label can append its physical ID. A catalog
+        // label can append the edition and collector number for the same card.
+        if (text.regionMatches(true, 0, name, 0, name.length())) {
+            String suffix = text.substring(name.length()).strip();
+            if (suffix.matches("[\\[(]#?[0-9]+[\\])]")) return "";
+            String set = identity.has("setCode") ? identity.get("setCode").getAsString() : "";
+            String number = identity.has("cardNumber") ? identity.get("cardNumber").getAsString() : "";
+            if (!set.isEmpty() && (suffix.equalsIgnoreCase("(" + set + ") " + number)
+                    || suffix.equalsIgnoreCase("[" + set + "] " + number))) return "";
+            for (String separator : List.of(" — ", " - ", ": ")) {
+                if (text.regionMatches(name.length(), separator, 0, separator.length()))
+                    return text.substring(name.length() + separator.length()).strip();
+            }
+        }
+        return text;
     }
 
     JsonArray withRevealed(JsonArray candidates, List<CardView> revealed) {

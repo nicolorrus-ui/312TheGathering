@@ -109,12 +109,11 @@ async function progress(player) {
         { name: player.prompt.choices[0].label, exact: true }).click());
     case "chooseCards": {
       assert.equal(player.game.step, "cleanup", "the fixture only uses hand-size discard");
-      const choices = player.page.locator(".decision .choice-card:not([disabled])");
-      const spells = choices.filter({ hasText: "Exploration" });
-      const other = choices.filter({ hasNotText: "Exploration" });
-      const spellCount = await spells.count();
+      const panel = player.page.locator(".decision");
+      const selectable = panel.locator(".choice-card:enabled").and(panel.getByRole("button", { pressed: false }));
+      const spells = selectable.and(panel.getByRole("button", { name: "Exploration", exact: true }));
       for (let index = 0; index < player.prompt.minCardSelections; index++) {
-        await (index < spellCount ? spells.nth(index) : other.nth(index - spellCount)).click();
+        await (await spells.count() ? spells : selectable).first().click();
       }
       return click(player, "Confirm");
     }
@@ -169,11 +168,11 @@ async function checkSpectator(viewer, host) {
     const list = page.getByRole("tabpanel", { name: player.name, exact: true });
     const sideboard = list.getByRole("region", { name: "Sideboard" });
     await sideboard.getByText(sideboardName(player.name)).hover();
-    await preview.getByText(sideboardName(player.name), { exact: true }).waitFor();
+    await preview.locator("img, .card-image-fallback").waitFor();
     await tab.hover();
     await preview.waitFor({ state: "hidden" });
     await list.getByRole("region", { name: "Main deck" }).getByText("Exploration").hover();
-    await preview.getByText("Exploration", { exact: true }).waitFor();
+    await preview.locator("img, .card-image-fallback").waitFor();
     assert.equal(await list.getByRole("region", { name: "Main deck" }).locator("li").count(), 2);
     assert.equal(await tab.getAttribute("aria-selected"), "true");
     assert.ok(!player.received.some(({ type, payload }) => type === "room.snapshot" && payload.liveDeckLists));

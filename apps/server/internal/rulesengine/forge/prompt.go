@@ -32,6 +32,8 @@ type PromptOption struct {
 type PromptChoice struct {
 	ResponseID  string
 	Label       string
+	Card        *CardIdentityView
+	ActionLabel string
 	Weight      int
 	CanRepeat   bool
 	ManaSymbols []string
@@ -69,6 +71,7 @@ type PromptOrderItem struct {
 	CollectorNumber string
 	Token           bool
 	Oracle          string
+	AbilityText     string
 }
 
 // PromptTarget keeps the upstream target id private while assigning a
@@ -263,10 +266,12 @@ type promptDamageHint struct {
 }
 
 type promptSelectionOption struct {
-	Label       string   `json:"label"`
-	Weight      int      `json:"weight"`
-	CanRepeat   bool     `json:"canRepeat"`
-	ManaSymbols []string `json:"manaSymbols"`
+	Label       string              `json:"label"`
+	Weight      int                 `json:"weight"`
+	CanRepeat   bool                `json:"canRepeat"`
+	ManaSymbols []string            `json:"manaSymbols"`
+	Card        *promptCardIdentity `json:"card"`
+	ActionLabel string              `json:"actionLabel"`
 }
 
 type promptPresentation struct {
@@ -300,9 +305,10 @@ type promptCardIdentity struct {
 }
 
 type promptOrderItem struct {
-	ID     string     `json:"id"`
-	Card   promptCard `json:"card"`
-	Oracle string     `json:"oracle"`
+	ID          string      `json:"id"`
+	Card        *promptCard `json:"card"`
+	Oracle      string      `json:"oracle"`
+	AbilityText string      `json:"abilityText"`
 }
 
 type promptTargetRef struct {

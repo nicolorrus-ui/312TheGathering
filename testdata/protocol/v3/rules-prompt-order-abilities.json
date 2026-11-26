@@ -1,0 +1,52 @@
+{
+  "type": "rules.prompt",
+  "payload": {
+    "roomId": "ABCDEF",
+    "gameId": "ABCDEF-1",
+    "pending": true,
+    "promptId": 92,
+    "kind": "reorder",
+    "supported": true,
+    "title": "Order triggered abilities",
+    "detail": "",
+    "options": [],
+    "choices": [],
+    "cards": [],
+    "scryDestinations": [],
+    "orderItems": [
+      {
+        "responseId": "order:0",
+        "name": "Blood Artist",
+        "setCode": "AVR",
+        "collectorNumber": "86",
+        "abilityText": "Target player loses 1 life and you gain 1 life."
+      },
+      {
+        "responseId": "order:1",
+        "name": "Midnight Reaper",
+        "setCode": "GRN",
+        "collectorNumber": "77",
+        "abilityText": "Midnight Reaper deals 1 damage to you and you draw a card."
+      }
+    ],
+    "contextCards": [],
+    "contextTargets": [],
+    "contextText": "",
+    "requiredSelections": 0,
+    "minCardSelections": 0,
+    "maxCardSelections": 0,
+    "targets": [],
+    "combatSources": [],
+    "combatTargets": [],
+    "damageTargets": [],
+    "totalDamage": 0,
+    "damageDeathtouch": false,
+    "minSelections": 0,
+    "maxSelections": 0,
+    "cancellable": false,
+    "minChoiceTotal": 0,
+    "maxChoiceTotal": 0,
+    "minNumber": 0,
+    "maxNumber": 0
+  }
+}

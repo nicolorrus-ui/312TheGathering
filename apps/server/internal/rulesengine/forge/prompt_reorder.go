@@ -24,13 +24,20 @@ func normalizeReorderItems(items []promptOrderItem) ([]PromptOrderItem, error) {
 			return nil, errors.New("Forge reorder prompt contains duplicate items")
 		}
 		seen[item.ID] = struct{}{}
-		result = append(result, PromptOrderItem{
-			ResponseID: "order:" + strconv.Itoa(index), ID: item.ID,
-			Name:            boundedPromptText(item.Card.Identity.Name),
-			SetCode:         boundedPromptText(item.Card.Identity.SetCode),
-			CollectorNumber: boundedPromptText(item.Card.Identity.CardNumber),
-			Token:           item.Card.Identity.IsToken, Oracle: boundedPromptText(item.Oracle),
-		})
+		view := PromptOrderItem{ResponseID: "order:" + strconv.Itoa(index), ID: item.ID, Oracle: boundedPromptText(item.Oracle)}
+		if item.Card != nil {
+			identity := item.Card.Identity.view()
+			view.Name = identity.Name
+			view.SetCode = identity.SetCode
+			view.CollectorNumber = identity.CardNumber
+			view.Token = identity.Token
+			if view.Name == faceDownPromptCard {
+				view.Oracle = ""
+			} else {
+				view.AbilityText = boundedPromptText(item.AbilityText)
+			}
+		}
+		result = append(result, view)
 	}
 	return result, nil
 }

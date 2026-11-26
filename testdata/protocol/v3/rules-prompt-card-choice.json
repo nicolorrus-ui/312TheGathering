@@ -1,0 +1,68 @@
+{
+  "type": "rules.prompt",
+  "payload": {
+    "roomId": "ABCDEF",
+    "gameId": "ABCDEF-1",
+    "pending": true,
+    "promptId": 92,
+    "kind": "chooseFromSelection",
+    "supported": true,
+    "title": "Choose an insertion point",
+    "detail": "",
+    "options": [],
+    "choices": [
+      {
+        "responseId": "choice:0",
+        "label": "Before all items",
+        "weight": 1,
+        "canRepeat": false
+      },
+      {
+        "responseId": "choice:1",
+        "label": "After Blood Artist",
+        "weight": 1,
+        "canRepeat": false,
+        "card": {
+          "name": "Blood Artist",
+          "setCode": "AVR",
+          "collectorNumber": "86"
+        },
+        "actionLabel": "After"
+      },
+      {
+        "responseId": "choice:2",
+        "label": "After Face-down card",
+        "weight": 1,
+        "canRepeat": false,
+        "card": {
+          "name": "Face-down card",
+          "setCode": "",
+          "collectorNumber": ""
+        },
+        "actionLabel": "After"
+      }
+    ],
+    "cards": [],
+    "scryDestinations": [],
+    "orderItems": [],
+    "contextCards": [],
+    "contextTargets": [],
+    "contextText": "",
+    "requiredSelections": 0,
+    "minCardSelections": 0,
+    "maxCardSelections": 0,
+    "targets": [],
+    "combatSources": [],
+    "combatTargets": [],
+    "damageTargets": [],
+    "totalDamage": 0,
+    "damageDeathtouch": false,
+    "minSelections": 0,
+    "maxSelections": 0,
+    "cancellable": false,
+    "minChoiceTotal": 1,
+    "maxChoiceTotal": 1,
+    "minNumber": 0,
+    "maxNumber": 0
+  }
+}

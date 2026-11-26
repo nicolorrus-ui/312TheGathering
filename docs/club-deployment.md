@@ -76,10 +76,17 @@ to finish and Forge to become ready, then ready up again in the same room.
 Open **Deck builder** in the club lobby, tournament, or waiting room. Choose
 **New deck** or select a saved deck. Paste an MTGA or MTGO list under **Import
 decklist**, or use **Card search** to add individual cards to either board.
-Both views edit the same deck. The main deck and sideboard show card images
-and quantities as you work. Click a card to choose how many copies to move,
-remove, or change to another printing. **Save deck** makes the edited list
-available for room selection and tournament registration in this browser.
+Both views edit the same deck. Click a card image to edit it. **Copies** sets
+the total across the main deck and sideboard. Changes in quantity apply to
+the section you opened first. Setting the total to zero removes the card.
+Selecting a printing applies it to every copy in both sections. An imported
+list with several printings of one card uses the first explicit printing
+in the list. You can also move a chosen number of copies between sections.
+**Export decklist** downloads the current list as an MTGO text file. Each
+line contains a quantity and a card name. A blank line starts the sideboard.
+Split cards and Rooms use names such as `Fire/Ice`. Transforming, modal
+double-faced and Adventure cards use their front name. **Save deck** makes
+the deck available for room selection and tournament registration in this browser.
 
 ## Duel controls
 
@@ -138,7 +145,8 @@ Selected attackers tilt 30 degrees while you edit the plan. After confirmation,
 Forge determines which attackers tap, including the exception for vigilance.
 Forge enforces attack requirements when you submit the declaration.
 
-Selection windows show available choices first. With Collected Company, the
+Selection windows show each card as a card image, with available choices
+first. Hover or focus a card to inspect the image. With Collected Company, the
 eligible creatures appear first among the six cards. With Narset, Parter of
 Veils, the eligible noncreature, nonland cards appear first among the cards
 you looked at. The remaining visible cards follow in their original order.
