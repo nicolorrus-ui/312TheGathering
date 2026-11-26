@@ -26,8 +26,10 @@ prepared download cache.
 Club builds apply `deploy/club/forge-resources.patch` to the pinned runtime
 before generating the card catalogs. This fills in the upstream Forge scripts,
 TRK printings, and sanctioned-format eligibility for Genesis Device and Warp
-Speed. Recheck this patch when updating the pinned base. The remainder of the
-card pool and format data follows the pinned runtime.
+Speed. It also adds the TRK reprints of Engineered Explosives so Forge can
+recognize the card's eligibility in Pioneer and Standard. Recheck this patch
+when updating the pinned base. The remainder of the card pool and format data
+follows the pinned runtime.
 
 Run `./run.sh` inside the staged directory and open
 [http://127.0.0.1:57320](http://127.0.0.1:57320). Each browser tab keeps its
