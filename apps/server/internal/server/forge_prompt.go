@@ -148,11 +148,16 @@ func projectedRulesPrompt(roomID, gameID string,
 	}
 	prompt.Choices = make([]protocol.RulesPromptChoice, 0, len(view.Choices))
 	for _, choice := range view.Choices {
-		prompt.Choices = append(prompt.Choices, protocol.RulesPromptChoice{
+		projected := protocol.RulesPromptChoice{
 			ResponseID: choice.ResponseID, Label: choice.Label,
 			Weight: choice.Weight, CanRepeat: choice.CanRepeat,
-			ManaSymbols: choice.ManaSymbols,
-		})
+			ManaSymbols: choice.ManaSymbols, ActionLabel: choice.ActionLabel,
+		}
+		if choice.Card != nil {
+			identity := rulesIdentity(*choice.Card)
+			projected.Card = &identity
+		}
+		prompt.Choices = append(prompt.Choices, projected)
 	}
 	prompt.Cards = make([]protocol.RulesPromptCard, 0, len(view.Cards))
 	for _, card := range view.Cards {
@@ -169,7 +174,7 @@ func projectedRulesPrompt(roomID, gameID string,
 	for _, item := range view.OrderItems {
 		prompt.OrderItems = append(prompt.OrderItems, protocol.RulesPromptOrderItem{
 			ResponseID: item.ResponseID, Name: item.Name, SetCode: item.SetCode,
-			CollectorNumber: item.CollectorNumber, Token: item.Token, Oracle: item.Oracle,
+			CollectorNumber: item.CollectorNumber, Token: item.Token, Oracle: item.Oracle, AbilityText: item.AbilityText,
 		})
 	}
 	prompt.ContextCards = make([]protocol.RulesPromptCard, 0, len(view.ContextCards))

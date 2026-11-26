@@ -38,11 +38,7 @@ func normalizePromptCards(handCardIDs []string, cards []promptCard,
 			return nil, errors.New("Forge card-selection prompt repeats a hand card")
 		}
 		seen[cardID] = struct{}{}
-		result = append(result, PromptCard{
-			ID: cardID, Name: boundedPromptText(identity.Name),
-			SetCode:         boundedPromptText(identity.SetCode),
-			CollectorNumber: boundedPromptText(identity.CardNumber), Token: identity.IsToken,
-		})
+		result = append(result, promptCardView(promptCard{ID: cardID, Identity: identity}))
 	}
 	return result, nil
 }
@@ -90,14 +86,24 @@ func normalizeChooseCards(input promptInput) ([]PromptCard, int, int, error) {
 	return result, minimum, maximum, nil
 }
 
+const faceDownPromptCard = "Face-down card"
+
+func (raw promptCardIdentity) view() CardIdentityView {
+	name := boundedPromptText(raw.Name)
+	if name == "" || strings.EqualFold(name, faceDownPromptCard) {
+		return CardIdentityView{Name: faceDownPromptCard}
+	}
+	return CardIdentityView{Name: name, SetCode: boundedPromptText(raw.SetCode),
+		CardNumber: boundedPromptText(raw.CardNumber), Token: raw.IsToken}
+}
+
 func promptCardView(card promptCard) PromptCard {
+	identity := card.Identity.view()
 	return PromptCard{
-		ID: card.ID, Name: boundedPromptText(card.Identity.Name),
-		SetCode:         boundedPromptText(card.Identity.SetCode),
-		CollectorNumber: boundedPromptText(card.Identity.CardNumber),
-		Token:           card.Identity.IsToken,
-		Selected:        card.Selected,
-		ReadOnly:        card.ReadOnly,
+		ID: card.ID, Name: identity.Name, SetCode: identity.SetCode,
+		CollectorNumber: identity.CardNumber, Token: identity.Token,
+		Selected: card.Selected,
+		ReadOnly: card.ReadOnly,
 	}
 }
 

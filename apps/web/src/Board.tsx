@@ -5,6 +5,7 @@ import { dismissOpenDetails, dismissPanel, prepareHandReturn } from "./boardMoti
 import { cardArtURL, CardImage, useCardHover, type CardHover } from "./CardImages";
 import { CardMovements } from "./CardMovements";
 import { SpellStack } from "./SpellStack";
+import { DecisionCard } from "./DecisionCard";
 import { isManaChoice, ManaChoiceMenu, type ManaAnchor } from "./ManaChoiceMenu";
 import { ConfirmationActions, Decision, DecisionPanel, Options, simpleConfirmation } from "./Decisions";
 import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
@@ -30,10 +31,10 @@ type TouchDragHandlers = {
 
 const visibleFace = (card: Card) => card.visible && !card.faceDown && card.identity?.name ? card.identity : undefined;
 
-function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style, attack }: {
+function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style, attack, inZoneViewer }: {
   card: Card; actionable?: boolean; selected?: boolean; activate?: () => void;
   drag?: (event: DragEvent) => void; touch?: TouchDragHandlers; inspect?: () => void; hover: CardHover; style?: CSSProperties;
-  dragEnd?: (event: DragEvent) => void; dragging?: boolean; attack?: AttackControl;
+  dragEnd?: (event: DragEvent) => void; dragging?: boolean; attack?: AttackControl; inZoneViewer?: boolean;
 }) {
   const face = visibleFace(card);
   const name = face?.name ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
@@ -41,18 +42,14 @@ function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd,
     <button key={face ? cardArtURL(face) : "back"} type="button" className={`table-card ${face && card.land ? "land" : ""} ${face ? "" : "card-back"}`}
       data-card-id={card.id} data-attack-state={attack?.state} data-actionable={Boolean(actionable)} data-tapped={Boolean(card.tapped)}
       aria-label={name} aria-description={attack?.label ? `Attacking ${attack.label}` : attack?.state === "target" ? "Attack target" : undefined}
-      aria-pressed={selected || undefined} title={face && card.typeLine ? `${name} · ${card.typeLine}` : name}
+      aria-pressed={selected || undefined}
       aria-disabled={!activate && !drag || undefined} tabIndex={!activate && !drag ? -1 : undefined}
       draggable={Boolean(drag)} onDragStart={drag} onDragEnd={dragEnd} onClick={activate} {...touch}
       onMouseEnter={(event) => hover(face, event.currentTarget)} onMouseLeave={() => hover()}
-      onContextMenu={inspect && ((event) => { event.preventDefault(); inspect(); })}>
-      {face && <>
-        <strong>{name}</strong>
-        {card.typeLine && <small>{card.typeLine}</small>}
-        {card.oracle && <span className="card-text">{card.oracle}</span>}
-        <CardImage identity={face} className="table-card-image" decorative eager compact />
-      </>}
-      {card.power !== undefined && <b className="pt">{card.power}/{card.toughness}</b>}
+      onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) hover(face, event.currentTarget); }}
+      onBlur={() => hover()} onContextMenu={inspect && ((event) => { event.preventDefault(); inspect(); })}>
+      {face && <CardImage identity={face} className="table-card-image" decorative eager compact fallbackName />}
+      {!inZoneViewer && card.power !== undefined && <b className="pt">{card.power}/{card.toughness}</b>}
       {attack?.state === "attacking" ? <span className="combat-tag">→ {attack.label}</span>
         : card.attacking && <span className="combat-tag">Attacking</span>}
       {Boolean(card.blocking?.length) && <span className="combat-tag">Blocking</span>}
@@ -167,6 +164,9 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const opponentHand = zoneFor(opponent.seat, "hand");
   const opponentHandCount = opponentHand?.count ?? 0;
   const currentMenu = actionMenu?.promptId === decision?.promptId ? actionMenu?.options : undefined;
+  const actionSource = currentMenu?.[0]?.cardId;
+  const actionCard = actionSource && currentMenu?.every((option) => option.cardId === actionSource)
+    ? game.zones.flatMap((zone) => zone.cards).find((card) => card.id === actionSource) : undefined;
   const respond = (response: Response) => {
     if (decision && !locked) {
       setActionMenu(undefined);
@@ -271,7 +271,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     };
   }
 
-  function showCard(card: Card, zone: string, fan?: { index: number; count: number }) {
+  function showCard(card: Card, zone: string, fan?: { index: number; count: number }, inZoneViewer = false) {
     const targets = decision?.targets.filter((target) => target.objectId === card.id && !target.selected) ?? [];
     const options = decision?.options.filter((option) => option.cardId === card.id && !undoAction(option)) ?? [];
     const dragOptions = options.filter((option) => playsCard(option, zone));
@@ -286,7 +286,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       else if (!targets.length) inspect?.();
     };
     const actionable = !locked && Boolean(combat?.activate || options.length || targets.length);
-    return <TableCard key={card.id} card={card} actionable={actionable} attack={combat}
+    return <TableCard key={card.id} card={card} actionable={actionable} attack={combat} inZoneViewer={inZoneViewer}
       selected={combat?.state === "choosing" || combat?.state === "attacking" || targets.some((target) => targetIds.includes(target.responseId))}
       activate={activate} inspect={inspect} hover={hoverCard}
       style={fan ? fanPosition(fan.index, fan.count) : undefined}
@@ -400,9 +400,12 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       <CardMovements key={`${game.roomId}:${game.gameId}:${seat}:${spectating}`} game={game} online={online} pending={pendingCast} />
       {!spectating && <div className="action-dock">
         {decision && !priority && !payment && !attackPrompt && !confirmation && !manaPrompt && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
-          toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} hoverCard={hoverCard} />}
+          toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} />}
         {currentMenu?.length && <DecisionPanel key={decision?.promptId} title="Choose an action">
-          <Options options={currentMenu} submit={respond} />
+          <div data-art-focus>
+            {actionCard && <DecisionCard card={visibleFace(actionCard)} focusable />}
+            <Options options={currentMenu} submit={respond} />
+          </div>
           <footer><button type="button" className="quiet" onClick={(event) => {
             dismissPanel(event.currentTarget.closest(".decision"));
             setActionMenu(undefined);
@@ -448,19 +451,18 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       spectatorNames={spectating ? [owner.name, opponent.name] : undefined} />
     {activeDrag && dragView && <div ref={floatingCard} className="floating-hand-card" aria-hidden="true" style={{ left: activeDrag.x, top: activeDrag.y }}>
       {visibleFace(dragView) ? <>
-        <strong>{dragView.identity?.name}</strong>
-        <CardImage identity={dragView.identity} className="table-card-image" decorative eager compact />
+        <CardImage identity={dragView.identity} className="table-card-image" decorative eager compact fallbackName />
       </> : <div className="floating-card-back card-back" />}
     </div>}
-    {review && <section className="inspection" aria-label={libraryTop ? "Library top" : "Card preview"}><header><h2>{review.identity?.name || "Face-down card"}</h2>
+    {review && <section className="inspection" aria-label={libraryTop ? "Library top" : "Card preview"}><header className="inspection-actions">
       <button type="button" className="quiet" onClick={(event) => {
         dismissPanel(event.currentTarget.closest(".inspection"));
         setReviewId(undefined);
         if (libraryTop) setOpenedZone(undefined);
       }}>Close</button></header>
-      {!review.faceDown && <CardImage identity={review.identity} className="preview-card-image" eager />}
-      <small>{review.typeLine} {review.identity?.setCode && `· ${review.identity.setCode} ${review.identity.collectorNumber}`}</small>
-      <p>{review.oracle}</p>
+      {review.identity?.name && !review.faceDown ? <CardImage identity={review.identity} className="preview-card-image" eager fallbackName />
+        : <span className="preview-card-image choice-card-back card-back" role="img" aria-label="Face-down card" />}
+      {reviewedStackObject && reviewedStackObject.text && reviewedStackObject.text !== review.identity?.name && <p>{reviewedStackObject.text}</p>}
       {review.counters?.map((counter) => <p key={counter.name}>{counter.name} × {counter.value}</p>)}
     </section>}
     {visibleZone && visibleZone.zone !== "library" && !review && visibleZone.cards.some(visibleFace) && <section className="inspection" aria-label="Zone contents"><header><h2>{visibleZone.zone}</h2>
@@ -468,7 +470,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         dismissPanel(event.currentTarget.closest(".inspection"));
         setOpenedZone(undefined);
       }}>Close</button></header>
-      <div className="choice-grid">{visibleZone.cards.filter(visibleFace).map((card) => showCard(card, visibleZone.zone))}</div>
+      <div className="choice-grid">{visibleZone.cards.filter(visibleFace).map((card) => showCard(card, visibleZone.zone, undefined, true))}</div>
     </section>}
   </main>;
 }

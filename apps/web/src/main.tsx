@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "./Board";
-import { CardImage, CardImages } from "./CardImages";
+import { CardImages } from "./CardImages";
+import { DecisionCard } from "./DecisionCard";
 import { DeckBuilder } from "./DeckBuilder";
 import { deckStorage, readDecks } from "./decks";
 import { formatLabel, formats, type Deck, type DeckFormat, type GameMetadata, type RulesCrashReport, type RulesPriority } from "./protocol";
@@ -187,10 +188,10 @@ function Sideboard({ metadata, session }: { metadata: GameMetadata; session: Ses
       <div className="form-row">
         {(["mainboard", "sideboard"] as const).map((zone) => <section key={zone}>
           <h3>{zone === "mainboard" ? "Main deck" : "Sideboard"}</h3>
-          <ul className="deck-list">{(board[zone] ?? []).map((card, index) => <li key={index}><div>
-            <CardImage identity={card} className="sideboard-card-image" decorative />
-            <strong>{card.count} × {card.name}</strong><small>{card.setCode} {card.collectorNumber}</small></div>
-            <button type="button" disabled={ready}
+          <ul className="deck-list">{(board[zone] ?? []).map((card, index) => <li key={index} data-art-focus><div className="sideboard-card">
+            <DecisionCard card={card} className="sideboard-card-image" />
+            <strong aria-label={`${card.count} copies`}>×{card.count}</strong></div>
+            <button type="button" disabled={ready} aria-label={`Move one ${card.name} to ${zone === "mainboard" ? "sideboard" : "mainboard"}`}
               onClick={() => session.send("sideboard.move", { name: card.name, setCode: card.setCode, collectorNumber: card.collectorNumber,
                 fromZone: zone, toZone: zone === "mainboard" ? "sideboard" : "mainboard" })}>Move one</button>
           </li>)}</ul>

@@ -133,21 +133,22 @@ final class NativeGuiGame implements InvocationHandler {
             case "chooseSingleEntityForEffect" -> {
                 List<?> choices = (List<?>) a[1];
                 DelayedReveal delayed = (DelayedReveal) a[2];
-                if (delayed != null && choices.stream().allMatch(CardView.class::isInstance)) {
-                    List<?> chosen = choose((String) a[0], (Boolean) a[3] ? 0 : 1, 1,
-                            choices, null, NativeLibrarySearch.visibleChoices(delayed, choices));
+                if (delayed != null) {
+                    List<CardView> shown = choices.stream().allMatch(CardView.class::isInstance)
+                            ? NativeLibrarySearch.visibleChoices(delayed, choices) : delayedReveal(delayed);
+                    List<?> chosen = choose((String) a[0], (Boolean) a[3] ? 0 : 1, 1, choices, null, shown);
                     yield chosen.isEmpty() ? null : chosen.get(0);
                 }
-                delayedReveal(delayed);
                 yield chooseOne((String) a[0], choices, (Boolean) a[3], null);
             }
             case "chooseEntitiesForEffect" -> {
                 List<?> choices = (List<?>) a[1];
                 DelayedReveal delayed = (DelayedReveal) a[4];
                 boolean cardChoice = choices.stream().allMatch(CardView.class::isInstance);
-                if (!cardChoice) delayedReveal(delayed);
+                List<CardView> shown = delayed == null ? List.of() : cardChoice
+                        ? NativeLibrarySearch.visibleChoices(delayed, choices) : delayedReveal(delayed);
                 yield NativeOrdering.order(session, owner(), (String) a[0], choices.size() - (Integer) a[3], choices.size() - (Integer) a[2], choices, null,
-                        cardChoice && delayed != null ? NativeLibrarySearch.visibleChoices(delayed, choices) : List.of()).ordered();
+                        shown).ordered();
             }
             case "reveal" -> { reveal((String) a[0], (List<?>) a[1]); yield null; }
             case "message" -> { acknowledge((String) a[0]); yield null; }
@@ -815,10 +816,10 @@ final class NativeGuiGame implements InvocationHandler {
         }
         JsonObject in = callbackInput("chooseFromSelection", title);
         JsonArray options = new JsonArray();
+        NativePromptCard presentation = new NativePromptCard(session, owner());
         for (Object choice : choices) {
             String label = display == null ? label(choice) : ((FSerializableFunction<Object, String>) display).apply(choice);
-            JsonObject option = object("label", label);
-            option.addProperty("weight", 1); option.addProperty("canRepeat", false); options.add(option);
+            options.add(presentation.scalarOption(choice, label, display != null, false, revealed));
         }
         in.add("options", options); in.addProperty("minTotal", min); in.addProperty("maxTotal", upper);
         return session.ask(owner(), in, raw -> {
@@ -882,8 +883,10 @@ final class NativeGuiGame implements InvocationHandler {
             acknowledge(aiAdvisory ? "AI deck advisory" : "Game notice", detail);
         }
     }
-    private void delayedReveal(DelayedReveal delayed) {
-        if (delayed != null) reveal(delayed.getMessagePrefix(), delayed.getCards());
+    private List<CardView> delayedReveal(DelayedReveal delayed) {
+        List<CardView> shown = List.copyOf(delayed.getCards());
+        reveal(delayed.getMessagePrefix(), shown);
+        return shown;
     }
     private void acknowledge(String message) { acknowledge("Game notice", message); }
     private void acknowledge(String title, String message) {

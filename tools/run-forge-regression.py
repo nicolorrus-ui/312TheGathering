@@ -21,7 +21,7 @@ FORGE = ROOT / "third_party/forge-runtime"
 NATIVE_TESTS = (
     "NativeAutoPayRegressionTest", "NativeManaUndoRegressionTest", "NativePriorityManaUndoRegressionTest",
     "NativeManaChoiceRegressionTest", "NativeLotusBloomRegressionTest", "NativeSnapshotRegressionTest",
-    "NativePaymentIdRegressionTest",
+    "NativeChoiceCardRegressionTest", "NativePaymentIdRegressionTest",
     "NativePromptWaitRegressionTest", "NativeCrashDiagnosticsRegressionTest",
     "NativeTargetClickRegressionTest", "NativeAttackDeclarationRegressionTest",
     "NativeCardMovesRegressionTest", "NativeHandKnowledgeRegressionTest", "NativeTopRevealRegressionTest",

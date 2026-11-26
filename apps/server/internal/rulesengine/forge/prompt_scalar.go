@@ -78,10 +78,26 @@ func normalizeSelection(input promptInput) ([]PromptChoice, int, int, error) {
 		if label == "" {
 			return nil, 0, 0, errors.New("Forge selection prompt has an empty label")
 		}
-		choices = append(choices, PromptChoice{
+		choice := PromptChoice{
 			ResponseID: "choice:" + strconv.Itoa(index), Label: label,
 			Weight: option.Weight, CanRepeat: option.CanRepeat, Value: strconv.Itoa(index),
-		})
+			ActionLabel: boundedPromptText(option.ActionLabel),
+		}
+		if option.Card != nil {
+			identity := option.Card.view()
+			choice.Card = &identity
+			if identity.Name == faceDownPromptCard {
+				// "After" identifies a public insertion point. Any other description
+				// could identify the hidden card or one of its abilities.
+				if choice.ActionLabel == "After" {
+					choice.Label = "After " + faceDownPromptCard
+				} else {
+					choice.Label = faceDownPromptCard
+					choice.ActionLabel = ""
+				}
+			}
+		}
+		choices = append(choices, choice)
 	}
 	if !choiceRangeReachable(choices, *input.MinTotal, *input.MaxTotal) {
 		return nil, 0, 0, errors.New("Forge selection prompt has no valid choice total")
@@ -104,7 +120,7 @@ func applyManaChoiceHints(input promptInput, choices []PromptChoice) string {
 		}
 	}
 	for index, option := range input.SelectionOptions {
-		if validManaGroup(option.ManaSymbols) {
+		if (choices[index].Card == nil || choices[index].Card.Name != faceDownPromptCard) && validManaGroup(option.ManaSymbols) {
 			choices[index].ManaSymbols = option.ManaSymbols
 		}
 	}

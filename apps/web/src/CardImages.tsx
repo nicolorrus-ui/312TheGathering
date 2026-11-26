@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Identity } from "./protocol";
 
-export type CardHover = (identity?: Identity, source?: Element) => void;
+export type CardHover = (identity?: Identity, source?: Element, art?: Element) => void;
 const CardHoverContext = createContext<CardHover>(() => {});
 export const useCardHover = () => useContext(CardHoverContext);
 
@@ -23,16 +23,37 @@ export function cardArtURL(card: Identity, compact = false, revision = 0) {
 
 export function CardImages({ children }: { children: ReactNode }) {
   const [pack, setPack] = useState<ImagePack | null>();
-  const [preview, setPreview] = useState<{ identity: Identity; source: Element }>();
-  const hoverCard = useCallback<CardHover>((identity, source) => {
-    setPreview(identity?.name && source ? { identity, source } : undefined);
+  const [preview, setPreview] = useState<{ identity: Identity; source: Element; art?: Element }>();
+  const hoverCard = useCallback<CardHover>((identity, source, art) => {
+    setPreview(identity?.name && source ? { identity, source, art } : undefined);
   }, []);
+  useEffect(() => {
+    // A single listener covers card buttons, read-only gallery cells and
+    // controls beside an image (for example sorting arrows and pile selectors).
+    const focus = (event: FocusEvent) => {
+      const source = event.target;
+      if (!(source instanceof HTMLElement) || !source.matches(":focus-visible")) return;
+      const scope = source.closest("[data-art-focus]") ?? source;
+      const art = source.matches(".decision-art") ? source : source.querySelector<HTMLElement>(".decision-art")
+        ?? scope.querySelector<HTMLElement>(".decision-art");
+      if (!art?.dataset.artName) return;
+      hoverCard({ name: art.dataset.artName, setCode: art.dataset.artSet || "", collectorNumber: art.dataset.artNumber || "",
+        token: art.dataset.artToken === "true" }, source, art);
+    };
+    const blur = (event: FocusEvent) => setPreview((current) => current?.source === event.target ? undefined : current);
+    document.addEventListener("focusin", focus);
+    document.addEventListener("focusout", blur);
+    return () => {
+      document.removeEventListener("focusin", focus);
+      document.removeEventListener("focusout", blur);
+    };
+  }, [hoverCard]);
   useEffect(() => {
     if (!preview) return;
     // A new seat, zone or prompt can remove the source without a mouseleave.
     const dismiss = () => setPreview((current) => current === preview ? undefined : current);
     const checkSource = () => {
-      if (!preview.source.isConnected || !preview.source.matches(":hover, :focus-visible")) dismiss();
+      if (!preview.source.isConnected || (preview.art && !preview.art.isConnected) || !preview.source.matches(":hover, :focus-visible")) dismiss();
     };
     checkSource();
     const observer = new MutationObserver(checkSource);
@@ -56,12 +77,14 @@ export function CardImages({ children }: { children: ReactNode }) {
   </CardHoverContext.Provider></ImagePackContext.Provider>;
 }
 
-export function CardImage({ identity, className, decorative = false, eager = false, compact = false, revision }: {
-  identity?: Identity; className: string; decorative?: boolean; eager?: boolean; compact?: boolean; revision?: number;
+export function CardImage({ identity, className, decorative = false, eager = false, compact = false, revision, fallbackName = false }: {
+  identity?: Identity; className: string; decorative?: boolean; eager?: boolean; compact?: boolean; revision?: number; fallbackName?: boolean;
 }) {
   const pack = useContext(ImagePackContext);
   const [failed, setFailed] = useState<string[]>([]);
-  if (!identity?.name || pack === undefined) return null;
+  if (!identity?.name) return null;
+  if (pack === undefined) return fallbackName
+    ? <span className={`${className} card-image-loading`} aria-hidden="true" /> : null;
 
   const name = identity.name.trim().normalize("NFC").toLowerCase();
   if (!name) return null;
@@ -78,7 +101,8 @@ export function CardImage({ identity, className, decorative = false, eager = fal
     ? [printing?.faces && Object.keys(printing.faces).length ? printedFace : printedFront, remote]
     : [printedFace, printedFront, ...(set && number ? [remote, named] : [named, remote])];
   const src = sources.find((source) => source && !failed.includes(source));
-  if (!src) return null;
+  if (!src) return fallbackName ? <span className={`${className} card-image-fallback`} role="img"
+    aria-label={identity.name}>{identity.name}</span> : null;
 
   return <img key={src} className={className} src={src} alt={decorative ? "" : identity.name}
     draggable={false} decoding="async" loading={eager ? "eager" : "lazy"} referrerPolicy="no-referrer"
@@ -87,7 +111,6 @@ export function CardImage({ identity, className, decorative = false, eager = fal
 
 export function CardHoverPreview({ identity }: { identity: Identity }) {
   return <div className="card-hover-preview" aria-hidden="true">
-    <strong>{identity.name}</strong>
-    <CardImage identity={identity} className="card-hover-preview-image" decorative eager />
+    <CardImage identity={identity} className="card-hover-preview-image" decorative eager fallbackName />
   </div>;
 }

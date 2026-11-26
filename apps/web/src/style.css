@@ -557,3 +557,40 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
   .live-decks[data-expanded="false"] #live-deck-content { display: none; }
   #live-deck-panel { max-height: 45dvh; }
 }
+
+.card-image-loading, .card-image-fallback, .choice-card-back { aspect-ratio: 63 / 88; }
+.card-image-loading, .card-image-fallback {
+  display: inline-grid; place-content: center; vertical-align: middle; background: #282d40;
+  border-radius: 5px;
+}
+.card-image-fallback {
+  padding: .3em; overflow: hidden; overflow-wrap: anywhere; text-align: center; color: var(--ink);
+  font-size: .86em; font-weight: 600;
+}
+.decision-art { display: inline-flex; vertical-align: middle; max-width: 100%; }
+.choice-card-back { display: inline-block; width: 6rem; max-width: 100%; }
+.decision .choice-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 6rem), 1fr)); }
+.decision .choice-card {
+  min-height: 0; padding: .18rem; align-items: center; justify-content: center;
+  width: fit-content; max-width: 100%; border-radius: 7px;
+}
+.decision .choice-card:is([aria-pressed="true"]) { outline: 2px solid var(--accent); outline-offset: -1px; }
+.decision .choice-card-image {
+  display: inline-block; width: 6.25rem; max-width: 100%; aspect-ratio: 63 / 88; object-fit: contain; vertical-align: middle;
+}
+.decision .choice-card-image.card-image-fallback, .sideboard-card-image.card-image-fallback,
+.preview-card-image.card-image-fallback, .card-hover-preview-image.card-image-fallback { display: inline-grid; }
+.decision .choices { align-items: center; }
+.prompt-context, .damage-source, .sideboard-card { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.prompt-context:not(:empty), .damage-source { margin-bottom: .5rem; }
+.prompt-context .choice-card-image, .combat-source .choice-card-image, .damage-source .choice-card-image,
+.damage-row .choice-card-image { width: 3.75rem; }
+.confirmation-question .choice-card-image { width: 2.75rem; }
+.combat-source .choice-card-back, .damage-row .choice-card-back { width: 3.75rem; }
+.order-list .decision-art { display: inline-flex; vertical-align: middle; }
+.order-list .decision-art + span { display: block; }
+.sideboard .sideboard-card-image { float: none; margin: 0; width: clamp(3.2rem, 6vw, 4.75rem); }
+.decision > .decision-actions, .inspection > .inspection-actions { justify-content: flex-end; margin-bottom: .2rem; }
+.inspection .preview-card-image { display: block; }
+.inspection .preview-card-image.card-image-fallback { display: grid; }
+.choice-grid [data-choice-index]:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; }

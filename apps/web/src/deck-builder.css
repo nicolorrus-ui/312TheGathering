@@ -7,33 +7,28 @@
 .builder-library p, .deck-gallery p { margin: .5rem 0 0; font-size: .88rem; }
 .builder-decks, .catalog-results, .deck-gallery ul { list-style: none; margin: 0; padding: 0; }
 .builder-decks li + li { margin-top: .4rem; }
-.builder-decks button, .catalog-results button { width: 100%; text-align: left; }
-.builder-decks strong, .builder-decks small, .catalog-results small { display: block; overflow-wrap: anywhere; }
-.builder-decks small, .catalog-results small { padding-top: .2rem; }
+.builder-decks button { width: 100%; text-align: left; }
+.builder-decks strong, .builder-decks small { display: block; overflow-wrap: anywhere; }
+.builder-decks small { padding-top: .2rem; }
 .builder-input { margin: 1rem 0; padding-block: 1rem; border-block: 1px solid var(--line); }
 .deck-search { display: grid; gap: .65rem; }
 .deck-search > label:has(select) { display: flex; align-items: center; gap: .5rem; }
 .deck-search select { width: auto; }
-.catalog-results { max-height: 17rem; overflow-y: auto; }
-.catalog-results button { display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); }
-.catalog-results b, .builder-status { color: var(--mint); }
+.deck-search .catalog-results { max-height: 24rem; overflow-y: auto; padding: .3rem; }
 .catalog-pager, .catalog-error { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; font-size: .84rem; }
 .catalog-pager, .catalog-error { margin-top: .45rem; }
-.builder-status { display: block; margin-block: .65rem; }
+.builder-status { display: block; margin-block: .65rem; color: var(--mint); }
 .deck-gallery + .deck-gallery { border-top: 1px solid var(--line); margin-top: 1.25rem; padding-top: 1rem; }
 .deck-gallery h3 { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .6rem; }
 .deck-gallery h3 small { color: var(--accent); font-weight: 500; font-variant-numeric: tabular-nums; }
-.deck-gallery ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.25rem), 1fr)); gap: .65rem; }
-.deck-gallery button { display: block; width: 100%; padding: .25rem; text-align: left; height: 100%; min-width: 0; }
-.deck-gallery button > strong, .deck-gallery button > small { display: block; overflow-wrap: anywhere; padding: .1rem .2rem; font-size: .76rem; }
-.deck-gallery button > small { font-size: .68rem; }
+.deck-gallery ul, .catalog-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.25rem), 1fr)); gap: .65rem; }
+.deck-gallery button, .catalog-results button { display: block; width: 100%; padding: .18rem; min-width: 0; }
 .deck-art-frame, .deck-card-preview { display: block; position: relative; background: #101813; border-radius: 5px; aspect-ratio: 63 / 88; overflow: hidden; }
 .deck-card-art { width: 100%; height: 100%; object-fit: contain; display: block; }
 .deck-art-frame .deck-quantity { position: absolute; right: .2rem; bottom: .22rem; color: #fff; background: #111b14ec; border: 1px solid #87958b; border-radius: .3rem; padding: .05rem .3rem; font-size: .8rem; }
 .deck-card-dialog { color: var(--ink); background: var(--paper); width: min(36rem, calc(100% - 1.5rem)); max-height: 90dvh; border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
 .deck-card-dialog::backdrop { background: #070d0bc9; }
-.deck-card-dialog header { display: flex; justify-content: space-between; align-items: start; gap: .7rem; margin-bottom: .9rem; }
-.deck-card-dialog h2 { margin-top: .25rem; }
+.deck-card-dialog header { display: flex; justify-content: flex-end; margin-bottom: .9rem; }
 .deck-card-tools { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .card-edit-controls { display: grid; gap: .65rem; }
 @media (max-width: 720px) {

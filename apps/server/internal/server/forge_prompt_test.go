@@ -84,6 +84,57 @@ func TestProjectedRulesPromptPreservesReadOnlyCards(t *testing.T) {
 	}
 }
 
+func TestProjectedSelectionAndOrderCardIdentities(t *testing.T) {
+	project := func(input string) protocol.RulesPrompt {
+		t.Helper()
+		view, err := forge.NormalizePrompt(json.RawMessage(`{"promptId":19,"decidingPlayerId":"player-0","input":` + input + `}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		prompt, err := projectedRulesPrompt("ROOM", "game-1", view, forgeRoomGame{}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(prompt)
+		if err != nil || strings.Contains(string(data), "PRIVATE") {
+			t.Fatalf("private printing, description or engine ID escaped: %s, %v", data, err)
+		}
+		return prompt
+	}
+	choices := project(`{"type":"chooseFromSelection","minTotal":1,"maxTotal":1,"manaSourceId":"card-9","options":[
+		{"label":"Before all items","weight":1},
+		{"label":"After Opt","weight":1,"card":{"name":"Opt","setCode":"XLN","cardNumber":"65","id":"PRIVATE-id"},"actionLabel":"After"},
+		{"label":"After PRIVATE","weight":1,"card":{"name":"Face-down card","setCode":"PRIVATE","cardNumber":"PRIVATE","isToken":true},"actionLabel":"After"},
+		{"label":"PRIVATE ability","weight":1,"card":{"name":"Face-down card"},"actionLabel":"PRIVATE","manaSymbols":["B"]},
+		{"label":"PRIVATE empty identity","weight":1,"card":{},"actionLabel":"PRIVATE"}
+	]}`).Choices
+	face := protocol.RulesCardIdentity{Name: "Opt", SetCode: "XLN", CollectorNumber: "65"}
+	back := protocol.RulesCardIdentity{Name: "Face-down card"}
+	want := []protocol.RulesPromptChoice{
+		{ResponseID: "choice:0", Label: "Before all items", Weight: 1},
+		{ResponseID: "choice:1", Label: "After Opt", Card: &face, ActionLabel: "After", Weight: 1},
+		{ResponseID: "choice:2", Label: "After Face-down card", Card: &back, ActionLabel: "After", Weight: 1},
+		{ResponseID: "choice:3", Label: "Face-down card", Card: &back, Weight: 1},
+		{ResponseID: "choice:4", Label: "Face-down card", Card: &back, Weight: 1},
+	}
+	if !reflect.DeepEqual(choices, want) {
+		t.Fatalf("projected choices = %+v", choices)
+	}
+	items := project(`{"type":"reorder","items":[
+		{"id":"PRIVATE-a","card":{"identity":{"name":"Harmonic Prodigy","setCode":"MH2","cardNumber":"132"}},"oracle":"Full rules","abilityText":"Draw a card."},
+		{"id":"PRIVATE-b","card":{"identity":{"name":"Face-down card","setCode":"PRIVATE","cardNumber":"PRIVATE","isToken":true}},"oracle":"PRIVATE","abilityText":"PRIVATE"},
+		{"id":"PRIVATE-c","oracle":"A non-card option"}
+	]}`).OrderItems
+	wantItems := []protocol.RulesPromptOrderItem{
+		{ResponseID: "order:0", Name: "Harmonic Prodigy", SetCode: "MH2", CollectorNumber: "132", Oracle: "Full rules", AbilityText: "Draw a card."},
+		{ResponseID: "order:1", Name: "Face-down card"},
+		{ResponseID: "order:2", Oracle: "A non-card option"},
+	}
+	if !reflect.DeepEqual(items, wantItems) {
+		t.Fatalf("projected order items = %+v", items)
+	}
+}
+
 // Go accepts both null and [] when decoding a slice; Qt's protocol model
 // correctly requires arrays. Check the wire before decoding it into Go DTOs,
 // including nested arrays and any future array fields added to these types.

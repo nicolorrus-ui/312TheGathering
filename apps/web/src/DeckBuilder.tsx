@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CardImage, cardArtURL } from "./CardImages";
 import "./deck-builder.css";
-import { changeCopies, formatDeckList, parseDeck, parseDeckList, printingKey, type DeckList, type DeckZone } from "./decks";
+import { addDeckCard, editDeckCard, findDeckCard, formatDeckList, formatMtgoDeckList, parseDeck, parseDeckList, printingKey, type DeckList, type DeckZone } from "./decks";
 import type { Deck, DeckCard, Identity } from "./protocol";
 
 const zoneNames = { mainboard: "Main deck", sideboard: "Sideboard" };
@@ -69,7 +69,7 @@ function CardSearch({ add, disabled }: { add: (zone: DeckZone, card: Identity) =
           {!catalog.data.cards.length && <small role="status">No matching cards.</small>}
           <ul className="catalog-results">{catalog.data.cards.map((card) => <li key={printingKey(card)}>
             <button type="button" disabled={disabled} aria-label={`Add ${card.name} to ${zoneNames[zone]}`} onClick={() => add(zone, card)}>
-              <span>{card.name}<small>{edition(card)}</small></span><b aria-hidden="true">＋</b>
+              <span className="deck-art-frame"><CardImage identity={card} className="deck-card-art" decorative compact fallbackName /></span>
             </button></li>)}</ul>
           <CatalogPager page={page} hasMore={catalog.data.hasMore} setPage={setPage} />
         </>}
@@ -77,18 +77,24 @@ function CardSearch({ add, disabled }: { add: (zone: DeckZone, card: Identity) =
   </section>;
 }
 
-function CardEditor({ card, zone, close, change }: {
-  card: DeckCard; zone: DeckZone; close: () => void;
-  change: (copies: number, destination?: DeckZone, printing?: Identity) => void;
+function CardEditor({ card, zone, otherCount, close, change }: {
+  card: DeckCard; zone: DeckZone; otherCount: number; close: () => void;
+  change: (printing: Identity, total: number, move?: number) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [page, setPage] = useState(1);
-  const [copies, setCopies] = useState("1");
+  const initialCount = card.count + otherCount;
+  const [copies, setCopies] = useState(String(initialCount));
+  const [moving, setMoving] = useState("1");
   const [chosen, setChosen] = useState<CatalogCard>();
   const catalog = useCatalog("name", card.name, page);
   const other = zone === "mainboard" ? "sideboard" : "mainboard";
   const amount = Number(copies);
-  const valid = Number.isInteger(amount) && amount > 0 && amount <= card.count;
+  const limit = Math.max(1000, initialCount);
+  const valid = copies !== "" && Number.isInteger(amount) && amount >= 0 && amount <= limit;
+  const move = Number(moving);
+  const available = Math.max(0, amount - otherCount);
+  const canMove = valid && Number.isInteger(move) && move > 0 && move <= available;
   const versions = catalog.data?.cards ?? [];
   const preview = chosen ?? card;
   const previewKey = printingKey(preview);
@@ -97,12 +103,12 @@ function CardEditor({ card, zone, close, change }: {
     node.showModal();
     return () => node.close();
   }, []);
-  return <dialog ref={dialog} className="deck-card-dialog" aria-labelledby="deck-card-title" onCancel={close}>
-    <header><div><small>{zoneNames[zone]} · {card.count} × {edition(card)}</small><h2 id="deck-card-title">{card.name}</h2></div>
-      <button type="button" className="quiet" onClick={close}>Close</button></header>
-    <div className="deck-card-tools"><div className="deck-card-preview"><CardImage identity={preview} className="deck-card-art" eager /></div>
+  return <dialog ref={dialog} className="deck-card-dialog" aria-label={`Edit ${card.name} in ${zoneNames[zone].toLowerCase()}`} onCancel={close}>
+    <header><button type="button" className="quiet" onClick={close}>Close</button></header>
+    <div className="deck-card-tools"><div className="deck-card-preview"><CardImage identity={preview} className="deck-card-art" eager fallbackName /></div>
       <div className="card-edit-controls">
-        <label>Copies to change<input type="number" min={1} max={card.count} value={copies} onChange={(event) => setCopies(event.target.value)} /></label>
+        <label title="Total copies in the main deck and sideboard">Copies<input type="number" min={0} max={limit} value={copies}
+          onChange={(event) => setCopies(event.target.value)} /></label>
         <div><label>Printing<select aria-label="Printing" value={previewKey} onChange={(event) => {
           setChosen(versions.find((item) => printingKey(item) === event.target.value));
         }}>
@@ -115,13 +121,26 @@ function CardEditor({ card, zone, close, change }: {
               <CatalogPager page={page} hasMore={catalog.data.hasMore} setPage={setPage} />
             </>}
         </div>
-        <button type="button" className="primary" disabled={!valid || !chosen || printingKey(card) === previewKey}
-          onClick={() => change(amount, zone, chosen)}>Apply printing</button>
-        <button type="button" disabled={!valid} onClick={() => change(amount, other, card)}>Move to {zoneNames[other].toLowerCase()}</button>
-        <button type="button" className="quiet" disabled={!valid} onClick={() => change(amount)}>Remove from deck</button>
+        <button type="button" className="primary" disabled={!valid || (amount === initialCount && printingKey(card) === previewKey)}
+          onClick={() => change(preview, amount)}>Apply changes</button>
+        <label>Copies to move<input type="number" min={1} max={available} value={moving}
+          onChange={(event) => setMoving(event.target.value)} /></label>
+        <button type="button" disabled={!canMove} onClick={() => change(preview, amount, move)}>Move to {zoneNames[other].toLowerCase()}</button>
       </div>
     </div>
   </dialog>;
+}
+
+function downloadDecklist(name: string, list: DeckList) {
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(new Blob([formatMtgoDeckList(list)], { type: "text/plain;charset=utf-8" }));
+  const filename = name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/, "");
+  link.href = url;
+  link.download = (filename || "Deck") + ".txt";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function DeckArtDownload({ list, refresh }: { list: DeckList; refresh: () => void }) {
@@ -193,10 +212,10 @@ export function DeckBuilder({ decks, save }: { decks: Deck[]; save: (next: Deck[
     if (dirty && !window.confirm("Discard unsaved deck changes?")) return;
     edit(next); setSelection(undefined);
   }
-  function replace(next: DeckList) { edit({ ...draft, text: formatDeckList(next) }); }
+  function replace(next: DeckList) { edit({ ...draft, text: formatDeckList(next, draft.text) }); }
   function add(zone: DeckZone, card: Identity) {
     if (!list) return;
-    replace({ ...list, [zone]: changeCopies(list[zone], card, 1) });
+    replace(addDeckCard(list, zone, card));
     setStatus(`Added ${card.name} to ${zoneNames[zone].toLowerCase()}.`);
   }
   return <div className="builder-layout">
@@ -213,6 +232,8 @@ export function DeckBuilder({ decks, save }: { decks: Deck[]; save: (next: Deck[
           if (!window.confirm(`Delete ${current.name}?`)) return;
           save(decks.filter((item) => item.id !== current.id)); edit(blank());
         }}>Delete deck</button>}
+        <button type="button" className="quiet" title="Download an MTGO text decklist" disabled={!list?.mainboard.length}
+          onClick={() => list && downloadDecklist(draft.name, list)}>Export decklist</button>
         <button type="button" className="primary" onClick={() => {
           try {
             const deck = parseDeck(draft.id, draft.name, draft.text);
@@ -237,17 +258,14 @@ export function DeckBuilder({ decks, save }: { decks: Deck[]; save: (next: Deck[
         <h3>{zoneNames[zone]} <small>{total(list[zone])}</small></h3>
         {list[zone].length ? <ul>{list[zone].map((card) => <li key={printingKey(card)}><button type="button"
           aria-label={`${card.count} × ${card.name}, ${edition(card)}`} onClick={() => setSelection({ zone, card })}>
-          <span className="deck-art-frame"><CardImage className="deck-card-art" identity={card} revision={artRevision} decorative compact />
+          <span className="deck-art-frame"><CardImage className="deck-card-art" identity={card} revision={artRevision} decorative compact fallbackName />
             <b className="deck-quantity">×{card.count}</b></span>
-          <strong>{card.name}</strong><small>{edition(card)}</small>
         </button></li>)}</ul> : <p>No cards.</p>}
       </section>)}
-      {selection && list && <CardEditor card={selection.card} zone={selection.zone} close={() => setSelection(undefined)}
-        change={(copies, destination, printing) => {
-          const { zone, card } = selection;
-          const next = { ...list, [zone]: changeCopies(list[zone], card, -copies) };
-          if (destination && printing) next[destination] = changeCopies(next[destination], printing, copies);
-          replace(next); setSelection(undefined);
+      {selection && list && <CardEditor card={selection.card} zone={selection.zone}
+        otherCount={findDeckCard(list[selection.zone === "mainboard" ? "sideboard" : "mainboard"], selection.card.name)?.count ?? 0}
+        close={() => setSelection(undefined)} change={(printing, count, move) => {
+          replace(editDeckCard(list, selection.zone, printing, count, move)); setSelection(undefined);
         }} />}
     </section>
   </div>;

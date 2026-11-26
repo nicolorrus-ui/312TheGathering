@@ -29,6 +29,8 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `rules-prompt-cards-selected.json` | server | Previously selected private cards remain marked during incremental native choices; only the next click is submitted |
 | `rules-prompt-cards-disclosure.json` | server | One private card choice includes ineligible disclosed cards with display-only identities; only legal candidates may be submitted |
 | `rules-prompt-mana-source.json` | server | A mana source offers distinct combinations; selecting a group submits its existing choice ID |
+| `rules-prompt-card-choice.json` | server | A private selection shows insertion positions for a visible printing and a face-down card |
+| `rules-prompt-order-abilities.json` | server | A deciding player orders triggered abilities with their source printings and individual descriptions |
 | `tournament-create-forge.json` / `tournament-listed-forge.json` / `tournament-snapshot-forge.json` | both | Immutable Forge mode survives event creation, discovery and event projection; omitted mode remains manual |
 | `tournament-chat-*.json` | both | Event-scoped text messages and bounded history; server-authored names and sequences |
 | `forge-peer-*.json` | both | Explicit per-seat direct-transport consent, private binding and bounded signaling; no spectator delivery |

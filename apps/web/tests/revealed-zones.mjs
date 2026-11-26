@@ -88,9 +88,9 @@ try {
     const library = page.locator(".opponent-info").getByRole("button", { name: /library/i });
     await library.click();
     const top = page.getByRole("region", { name: "Library top" });
-    await top.getByRole("heading", { name: "Island" }).waitFor();
+    await top.locator('img[src*="name=island"]').waitFor();
     snapshot([], [forest]);
-    await top.getByRole("heading", { name: "Forest" }).waitFor();
+    await top.locator('img[src*="name=forest"]').waitFor();
     snapshot([], []);
     await top.waitFor({ state: "detached" });
     assert.ok(await library.isDisabled());

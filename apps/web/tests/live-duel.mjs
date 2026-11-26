@@ -385,13 +385,13 @@ async function act(peer, opponent) {
       const cardButtons = panel.locator(".choice-card");
       if (prompt.cards.length) await cardButtons.first().waitFor();
       const visible = await cardButtons.evaluateAll((items) =>
-        items.map((item) => [item.querySelector("strong").textContent, item.disabled]));
+        items.map((item) => [item.getAttribute("aria-label"), item.disabled]));
       const expected = [
         ...prompt.cards.filter((card) => !card.readOnly),
         ...prompt.cards.filter((card) => card.readOnly),
       ].map((card) => [card.name, Boolean(card.readOnly)]);
       assert.deepEqual(visible, expected, "selectable and read-only groups must each keep their Forge display order");
-      const selected = panel.locator(".choice-card:not([disabled])").filter({ hasText: /Mountain/ });
+      const selected = cardButtons.and(panel.getByRole("button", { name: "Mountain", exact: true, disabled: false }));
       if (await selected.count()) {
         await until(() => opponent.prompt?.pending === false, "private search projection");
         if (!stats.privateSearch) assert.ok(prompt.cards.some((card) => card.readOnly), "first search also displays read-only cards");
@@ -491,10 +491,14 @@ try {
       for (const player of [host, guest]) {
         const panel = player.page.locator(".sideboard");
         await panel.waitFor();
-        if (verifyImages) await verifyImage(panel.locator(".sideboard-card-image"));
+        if (verifyImages) {
+          const row = panel.locator(".sideboard-card").first();
+          await verifyImage(row.locator("img"));
+          assert.match((await row.innerText()).trim(), /^×\d+$/, "only the number of copies should accompany sideboard art");
+        }
         if (player === host && sideboardMoves === 0) {
           await panel.locator("section").filter({ has: player.page.getByRole("heading", { name: "Sideboard", exact: true }) })
-            .getByRole("button", { name: "Move one" }).click();
+            .getByRole("button", { name: "Move one Mountain to mainboard", exact: true }).click();
           await until(() => [...host.messages].reverse().find((frame) => frame.type === "game.snapshot")?.payload
             .sideboard?.sideboard?.reduce((sum, card) => sum + card.count, 0) === 1, "private moved sideboard card");
           sideboardMoves += 1;

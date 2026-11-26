@@ -135,11 +135,13 @@ type RulesPromptOption struct {
 // RulesPromptChoice is a countable scalar choice with a prompt-local opaque
 // response id. Weight contributes to the prompt's required total.
 type RulesPromptChoice struct {
-	ResponseID  string   `json:"responseId"`
-	Label       string   `json:"label"`
-	Weight      int      `json:"weight"`
-	CanRepeat   bool     `json:"canRepeat"`
-	ManaSymbols []string `json:"manaSymbols,omitempty"`
+	ResponseID  string             `json:"responseId"`
+	Label       string             `json:"label"`
+	Card        *RulesCardIdentity `json:"card,omitempty"`
+	ActionLabel string             `json:"actionLabel,omitempty"`
+	Weight      int                `json:"weight"`
+	CanRepeat   bool               `json:"canRepeat"`
+	ManaSymbols []string           `json:"manaSymbols,omitempty"`
 }
 
 // RulesPromptCard is a private card identity projected only to the authenticated
@@ -162,6 +164,7 @@ type RulesPromptOrderItem struct {
 	CollectorNumber string `json:"collectorNumber,omitempty"`
 	Token           bool   `json:"token,omitempty"`
 	Oracle          string `json:"oracle,omitempty"`
+	AbilityText     string `json:"abilityText,omitempty"`
 }
 
 // RulesPromptScryPile is one ordered destination pile in a scry response.
