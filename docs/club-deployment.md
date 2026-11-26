@@ -64,6 +64,20 @@ Compose replaces the container when the image changes, so update between
 matches. Use `docker compose logs -f club` to follow the service log and
 `docker compose ps` to see its status.
 
+If Docker reports a Forge archive size or checksum error, download the two
+pinned archives on Windows first. From the source root in PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\club\download-forge.ps1
+docker compose build
+```
+
+The script checks each archive's expected size and SHA-256 before saving it
+under `deploy/club/forge-archives/`. Interrupted downloads can resume when
+the server supports byte ranges. The build rechecks both files and reuses them
+without downloading them from inside Docker. Keep the verified files when
+switching source directories if the archive pins are the same.
+
 ## Offline debugging
 
 Build the portable packages on Linux with the tools listed above and the

@@ -25,7 +25,8 @@ COPY apps/server/internal/runtimepkg/manifest.json apps/server/internal/runtimep
 COPY third_party/forge-runtime/ third_party/forge-runtime/
 COPY deploy/club/build-forge.sh deploy/club/build-forge.sh
 RUN --mount=type=cache,target=/forge-downloads \
-    CLUB_FORGE_CACHE=/forge-downloads bash deploy/club/build-forge.sh /forge
+    --mount=type=bind,source=deploy/club/forge-archives,target=/forge-inputs \
+    CLUB_FORGE_CACHE=/forge-downloads CLUB_FORGE_ARCHIVES=/forge-inputs bash deploy/club/build-forge.sh /forge
 COPY deploy/club/deck-card-index.py deploy/club/offline-card-catalog.py deploy/club/
 COPY deploy/club/forge-resources.patch deploy/club/patch-forge-resources.sh deploy/club/
 RUN bash deploy/club/patch-forge-resources.sh /forge/hexproof-forge-runtime/forge-gui/res \

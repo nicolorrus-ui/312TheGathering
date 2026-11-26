@@ -238,6 +238,22 @@ class ForgeOverlayTests(unittest.TestCase):
                         download.assert_called_once()
                     self.assertEqual(target.read_bytes(), payload)
 
+    def test_truncated_archive_is_retried_before_cache_is_updated(self):
+        payload = b"verified immutable archive"
+        pin = {"url": "https://example.invalid/archive.tar.gz", "size": len(payload),
+               "sha256": hashlib.sha256(payload).hexdigest()}
+        responses = [io.BytesIO(data) for data in (payload[:5], payload)]
+        for response in responses:
+            response.url = pin["url"]
+        with tempfile.TemporaryDirectory() as temporary:
+            cache = Path(temporary)
+            with (patch.object(OVERLAY.urllib.request, "urlopen", side_effect=responses) as download,
+                  patch.object(OVERLAY.time, "sleep")):
+                archive = OVERLAY.pinned_file(pin, cache)
+            self.assertEqual(download.call_count, 2)
+            self.assertEqual(archive.read_bytes(), payload)
+            self.assertEqual(list(cache.iterdir()), [archive])
+
     def test_relocated_source_bundle_keeps_its_toolchain_and_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

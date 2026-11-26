@@ -11,6 +11,7 @@ release source packaging also preserves the complete pinned base source archive.
 
 import argparse
 import hashlib
+import http.client
 import importlib.util
 import json
 import os
@@ -21,7 +22,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
+from urllib.parse import urlsplit
 import zipfile
 
 # Dynamic imports must not alter a corresponding-source tree.
@@ -69,6 +72,19 @@ def pinned_file(asset, cache, supplied=None):
     if supplied:
         raise ValueError(f"Supplied archive fails its pinned size/checksum: {target}")
     cache.mkdir(parents=True, exist_ok=True)
+    filename = Path(urlsplit(asset["url"]).path).name
+    for attempt in range(1, 4):
+        try:
+            download_pinned_file(asset, cache, target)
+            return target
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            if attempt == 3:
+                raise ValueError(f"Could not verify {filename} after {attempt} attempts: {error}") from error
+            print(f"{filename}: attempt {attempt}/3 failed ({error}); retrying.", file=sys.stderr)
+            time.sleep(attempt)
+
+
+def download_pinned_file(asset, cache, target):
     with tempfile.NamedTemporaryFile(dir=cache, delete=False) as temporary:
         partial = Path(temporary.name)
         try:
@@ -84,14 +100,16 @@ def pinned_file(asset, cache, supplied=None):
                     temporary.write(block)
                     remaining -= len(block)
             temporary.flush()
-            if partial.stat().st_size != asset["size"] or digest(partial) != asset["sha256"]:
-                raise ValueError("Downloaded archive fails its pinned size/checksum")
+            actual_size = partial.stat().st_size
+            if actual_size != asset["size"]:
+                raise ValueError(f"Downloaded archive has {actual_size} bytes; expected {asset['size']}")
+            if digest(partial) != asset["sha256"]:
+                raise ValueError("Downloaded archive fails its pinned SHA-256 checksum")
         except BaseException:
             temporary.close()
             partial.unlink(missing_ok=True)
             raise
     os.replace(partial, target)
-    return target
 
 
 def patched_paths(patch):
