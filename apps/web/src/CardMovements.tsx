@@ -3,15 +3,19 @@
 
 import { Component, createRef } from "react";
 import { cardArtURL } from "./CardImages";
-import type { CardMove, Identity, MoveEndpoint, Snapshot } from "./protocol";
+import type { CardMove, Identity, MoveEndpoint, PendingCast, Snapshot } from "./protocol";
 
 type Point = { x: number; y: number; width: number };
 type ObjectView = { at: MoveEndpoint; identity?: Identity };
 type Anchor = { point: Point; element?: HTMLElement; art?: string };
 type Scene = { cards: Map<string, ObjectView>; objects: Map<string, Anchor>; zones: Map<string, Anchor> };
-type Leg = Pick<CardMove, "from" | "to">;
+type Leg = Pick<CardMove, "from" | "to" | "castId">;
 type Flight = { ghost: HTMLElement; animation: Animation; landing: Anchor; key?: string };
-type Props = { game: Snapshot; online: boolean };
+type Props = { game: Snapshot; online: boolean; pending?: PendingCast };
+
+function pendingEndpoint(cast: PendingCast): MoveEndpoint {
+  return { zone: "stack", seat: cast.controllerSeat, objectId: cast.id };
+}
 
 function zoneKey(at: MoveEndpoint) {
   return at.zone === "stack" ? "stack" : at.zone + ":" + at.seat;
@@ -22,7 +26,7 @@ function point(rect: DOMRect, isCard: boolean): Point {
     width: isCard ? Math.max(25, Math.min(rect.width, 120)) : Math.max(28, Math.min(rect.width * .8, 64)) };
 }
 
-function scene(table: HTMLElement, game: Snapshot): Scene {
+function scene(table: HTMLElement, game: Snapshot, pending?: PendingCast): Scene {
   const cards = new Map<string, ObjectView>();
   for (const zone of game.zones) {
     for (const card of zone.cards ?? []) {
@@ -34,6 +38,7 @@ function scene(table: HTMLElement, game: Snapshot): Scene {
     cards.set(item.id, { at: { zone: "stack", seat: item.controllerSeat, objectId: item.id },
       identity: item.identity?.name ? item.identity : undefined });
   }
+  if (pending) cards.set(pending.id, { at: pendingEndpoint(pending), identity: pending.identity });
   const objects = new Map<string, Anchor>();
   const zones = new Map<string, Anchor>();
   for (const element of table.querySelectorAll<HTMLElement>("[data-motion-zone], [data-card-id], [data-stack-id]")) {
@@ -100,6 +105,7 @@ export class CardMovements extends Component<Props, unknown, Scene | null> {
     this.reduced.addEventListener("change", this.clear);
     window.addEventListener("resize", this.clear);
     document.addEventListener("visibilitychange", this.clear);
+    document.addEventListener("scroll", this.onScroll, true);
   }
 
   componentWillUnmount() {
@@ -107,15 +113,16 @@ export class CardMovements extends Component<Props, unknown, Scene | null> {
     this.reduced.removeEventListener("change", this.clear);
     window.removeEventListener("resize", this.clear);
     document.removeEventListener("visibilitychange", this.clear);
+    document.removeEventListener("scroll", this.onScroll, true);
   }
 
   // Read before React removes the source. The destination is measured after the same commit.
   getSnapshotBeforeUpdate(prev: Props) {
     const table = this.layer.current?.parentElement;
     const { game, online } = this.props;
-    const moving = this.flights.size > 0 || watermark(game) > this.lastMove;
+    const moving = this.flights.size > 0 || watermark(game) > this.lastMove || prev.pending?.id !== this.props.pending?.id;
     return table && moving && prev.game !== game && online && !this.awaitingSnapshot && !this.reduced.matches
-      ? scene(table, prev.game) : null;
+      ? scene(table, prev.game, prev.pending) : null;
   }
 
   componentDidUpdate(prev: Props, _state: unknown, before: Scene | null) {
@@ -128,8 +135,31 @@ export class CardMovements extends Component<Props, unknown, Scene | null> {
       return;
     }
     if (!before || !this.layer.current?.parentElement) return;
-    const after = scene(this.layer.current.parentElement, game);
-    const moves: Leg[] = (game.cardMoves ?? []).filter((move) => move.id > this.lastMove);
+    const pending = this.props.pending;
+    const after = scene(this.layer.current.parentElement, game, pending);
+    let moves: Leg[] = (game.cardMoves ?? []).filter((move) => move.id > this.lastMove);
+    if (prev.pending?.id !== pending?.id) {
+      const old = prev.pending;
+      if (old) {
+        const origin = pendingEndpoint(old);
+        const incoming = moves.find((move) => move.castId === old.id);
+        const stackId = incoming?.to.objectId ?? game.stack.find((item) => item.castId === old.id)?.id;
+        if (stackId) {
+          // This viewer already saw the announcement. Continue any resolution in the
+          // same batch from that thumbnail, without replaying the inbound movement.
+          moves = moves.filter((move) => move !== incoming).map((move) => move.from.objectId === stackId
+            ? { from: origin, to: move.to } : move);
+          if (!moves.some((move) => move.from === origin)) {
+            for (const flight of this.flights) {
+              if (flight.key === origin.objectId) flight.key = stackId;
+            }
+          }
+        } else {
+          moves.push({ from: origin, to: old.from });
+        }
+      }
+      if (pending) moves.push({ from: pending.from, to: pendingEndpoint(pending) });
+    }
     this.lastMove = Math.max(this.lastMove, watermark(game));
     for (const path of paths(moves)) this.fly(path, before, after);
     // A later disclosure can expire while a card is travelling. Remove its face
@@ -198,6 +228,15 @@ export class CardMovements extends Component<Props, unknown, Scene | null> {
 
   private clear = () => {
     for (const flight of this.flights) this.remove(flight);
+  };
+
+  private onScroll = (event: Event) => {
+    if (event.target === document) this.clear();
+    else if (event.target instanceof Element) {
+      for (const flight of this.flights) {
+        if (flight.landing.element && event.target.contains(flight.landing.element)) this.remove(flight);
+      }
+    }
   };
 
   render() { return <div ref={this.layer} className="card-movements" aria-hidden="true" />; }

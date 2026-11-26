@@ -126,7 +126,7 @@ final class NativeSession implements AutoCloseable {
             knowledge = new NativeHandKnowledge(game);
             boolean recordReplay = !request.has("skipReplay") || !request.get("skipReplay").getAsBoolean();
             replay = new NativeReplay(game, id, recordReplay);
-            cardMoves = new NativeCardMoves(game);
+            cardMoves = new NativeCardMoves(game, knowledge);
             for (Player p : game.getRegisteredPlayers()) {
                 if (p.getController() instanceof PlayerControllerHuman human) {
                     NativeGuiGame gui = new NativeGuiGame(this, human);

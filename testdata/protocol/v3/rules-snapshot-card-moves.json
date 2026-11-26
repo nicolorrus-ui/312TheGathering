@@ -16,7 +16,7 @@
     "stack": [],
     "cardMoves": [
       {"id": 1, "from": {"zone": "library", "seat": 1}, "to": {"zone": "hand", "seat": 1}},
-      {"id": 2, "from": {"zone": "hand", "seat": 1}, "to": {"zone": "stack", "seat": 1, "objectId": "stack-18"}},
+      {"id": 2, "castId": "casting-17", "from": {"zone": "hand", "seat": 1}, "to": {"zone": "stack", "seat": 1, "objectId": "stack-18"}},
       {"id": 3, "from": {"zone": "stack", "seat": 1, "objectId": "stack-18"}, "to": {"zone": "graveyard", "seat": 1, "objectId": "card-27"}}
     ],
     "gameOver": false

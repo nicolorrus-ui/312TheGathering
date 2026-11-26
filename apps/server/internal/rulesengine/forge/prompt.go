@@ -30,11 +30,12 @@ type PromptOption struct {
 // mapped back to the canonical Forge value only after the current prompt is
 // revalidated.
 type PromptChoice struct {
-	ResponseID string
-	Label      string
-	Weight     int
-	CanRepeat  bool
-	Value      string
+	ResponseID  string
+	Label       string
+	Weight      int
+	CanRepeat   bool
+	ManaSymbols []string
+	Value       string
 }
 
 // PromptCard is the smallest card identity needed to present a private Forge
@@ -147,6 +148,7 @@ type PromptView struct {
 	AutoPassEligible     bool
 	AfterOwnStackAction  bool
 	PaymentID            string
+	ManaSourceID         string
 	Title                string
 	Detail               string
 	Options              []PromptOption
@@ -236,6 +238,7 @@ type promptInput struct {
 	ValidColors             []string                       `json:"validColors"`
 	Amount                  *int                           `json:"amount"`
 	RepeatAllowed           bool                           `json:"repeatAllowed"`
+	ManaSourceID            string                         `json:"manaSourceId"`
 	SelectionOptions        []promptSelectionOption        `json:"options"`
 	MinTotal                *int                           `json:"minTotal"`
 	MaxTotal                *int                           `json:"maxTotal"`
@@ -260,9 +263,10 @@ type promptDamageHint struct {
 }
 
 type promptSelectionOption struct {
-	Label     string `json:"label"`
-	Weight    int    `json:"weight"`
-	CanRepeat bool   `json:"canRepeat"`
+	Label       string   `json:"label"`
+	Weight      int      `json:"weight"`
+	CanRepeat   bool     `json:"canRepeat"`
+	ManaSymbols []string `json:"manaSymbols"`
 }
 
 type promptPresentation struct {
@@ -489,6 +493,9 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 		view.Supported = true
 		view.Title = firstPromptText(view.Title, "Choose options")
 		view.Choices, view.ChoiceMinimum, view.ChoiceMaximum, err = normalizeSelection(input)
+		if err == nil {
+			view.ManaSourceID = applyManaChoiceHints(input, view.Choices)
+		}
 	case "payManaCost":
 		view.Supported = true
 		view.PaymentID = normalizePaymentID(input.PaymentID)

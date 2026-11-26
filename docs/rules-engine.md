@@ -369,6 +369,14 @@ display category only; Forge still resolves their distinct rules steps.
   from their authorized owner projections. It never overlays libraries,
   sideboards, prompts or face-down battlefield identities. Public journals
   always use the explicit public projection, even in these rooms.
+- When Forge has moved a spell into the stack zone and is still collecting
+  its costs, `pendingCast` describes the announcement for each viewer. A
+  face-down spell shows a card back. An observer sees only the source zone
+  for a cast from another player's hidden hand. The announcement has its
+  own ID, which follows the spell onto the stack after payment. If casting
+  is cancelled and the card returns to hand, a viewer who saw its face
+  retains knowledge of that copy. Stack target choices and priority continue
+  to come from Forge.
 - A reveal grants knowledge to its recipients. A public hand reveal is visible
   to the table, while a private look stays with its recipient. The known cards
   appear in the hand zone alongside its total count. An ordinary draw preserves
@@ -1548,6 +1556,12 @@ prompt. Card identities and player labels are joined only from the deciding
 player's current normalized snapshot.
 
 R3's first scalar-decision slice supports Forge
+A mana source can publish a `chooseFromSelection` prompt with `manaSourceId`.
+Each offered output has its own choice ID. Its `manaSymbols` describe
+the mana produced together (for example, `["W", "B"]`). The prompt owner
+submits that choice ID. An optional ability also accepts an empty
+selection. The same rules apply when activation occurs inside another payment.
+
 `chooseBoolean`, `chooseNumber`, `chooseColor`, and `chooseFromSelection`
 prompts. Boolean labels, numeric bounds, color names, weighted totals, and
 repeat permissions are normalized into dedicated protocol fields and typed Qt

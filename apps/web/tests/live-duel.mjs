@@ -382,14 +382,19 @@ async function act(peer, opponent) {
       break;
     }
     case "chooseCards": {
+      const cardButtons = panel.locator(".choice-card");
+      if (prompt.cards.length) await cardButtons.first().waitFor();
+      const visible = await cardButtons.evaluateAll((items) =>
+        items.map((item) => [item.querySelector("strong").textContent, item.disabled]));
+      const expected = [
+        ...prompt.cards.filter((card) => !card.readOnly),
+        ...prompt.cards.filter((card) => card.readOnly),
+      ].map((card) => [card.name, Boolean(card.readOnly)]);
+      assert.deepEqual(visible, expected, "selectable and read-only groups must each keep their Forge display order");
       const selected = panel.locator(".choice-card:not([disabled])").filter({ hasText: /Mountain/ });
       if (await selected.count()) {
         await until(() => opponent.prompt?.pending === false, "private search projection");
-        const choices = await panel.locator(".choice-card").evaluateAll((items) => items.map((item) => item.disabled));
-        const eligible = choices.filter((disabled) => !disabled).length;
-        if (!stats.privateSearch) assert.ok(eligible < choices.length, "first search also displays read-only cards");
-        assert.deepEqual(choices, [...Array(eligible).fill(false), ...Array(choices.length - eligible).fill(true)],
-          "library search must show every eligible card before read-only cards");
+        if (!stats.privateSearch) assert.ok(prompt.cards.some((card) => card.readOnly), "first search also displays read-only cards");
         verifyPrivacy(opponent);
         if (verifyImages) {
           await verifyImage(selected.locator("img"));
@@ -532,8 +537,11 @@ try {
       verifiedHandAndPreview = true;
     }
     if (verifyLayout && seenBattlefieldOrientations.size < 2) {
-      const cards = await actor.page.locator(".battlefield .table-card").evaluateAll((elements) => elements.map((element) =>
-        ({ tapped: element.dataset.tapped === "true", transform: getComputedStyle(element).transform })));
+      const cards = await actor.page.locator(".battlefield .table-card").evaluateAll(async (elements) => {
+        await Promise.allSettled(elements.flatMap((card) => card.getAnimations()
+          .filter((animation) => animation.transitionProperty === "transform").map((animation) => animation.finished)));
+        return elements.map((card) => ({ tapped: card.dataset.tapped === "true", transform: getComputedStyle(card).transform }));
+      });
       for (const { tapped, transform } of cards) {
         assert.equal(transform, tapped ? "matrix(0, 1, -1, 0, 0, 0)" : "none");
         seenBattlefieldOrientations.add(tapped);

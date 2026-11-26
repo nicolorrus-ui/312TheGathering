@@ -30,7 +30,7 @@ public final class NativeDelayedRevealRegressionTest {
                 prefs.setPref(FPref.UI_SELECT_FROM_CARD_DISPLAYS, false);
                 return null;
             });
-            for (String scenario : List.of("company", "single", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice", "public-visibility")) {
+            for (String scenario : List.of("company", "single", "narset", "other-recipient", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice", "public-visibility")) {
                 JsonObject config = JsonParser.parseString("{\"gameId\":\"delayed-reveal-test\",\"seed\":42,\"variant\":\"constructed\",\"startingLife\":20,\"players\":[{\"name\":\"Reveal A\",\"deck\":[{\"name\":\"Forest\"}]},{\"name\":\"Reveal B\",\"deck\":[{\"name\":\"Forest\"}]}]}").getAsJsonObject();
                 try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
                     base.setTestSession(session);
@@ -40,6 +40,7 @@ public final class NativeDelayedRevealRegressionTest {
                     session.game.getPhaseHandler().devModeSet(PhaseType.MAIN1, owner, false, 1);
                     switch (scenario) {
                         case "company", "single" -> run(session, owner, scenario.equals("single"));
+                        case "narset", "other-recipient" -> narset(session, owner, scenario.equals("other-recipient"));
                         case "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search" -> fetch(session, owner, scenario);
                         case "discard", "no-discard" -> discard(session, owner, scenario.equals("no-discard"));
                         case "no-choice" -> noChoice(session, owner);
@@ -49,7 +50,7 @@ public final class NativeDelayedRevealRegressionTest {
                 }
             }
         }
-        System.out.println("PASS native combined choices: Company, fetch, Thoughtseize, no legal choice, privacy and invalid responses");
+        System.out.println("PASS native combined choices: Company, Narset, fetch, Thoughtseize, no legal choice, privacy and invalid responses");
     }
 
     private static void publicVisibility(NativeSession session, Player owner) {
@@ -152,6 +153,43 @@ public final class NativeDelayedRevealRegressionTest {
             return response;
         });
         require(decisions.get() == (single ? 1 : 2), "Missing native delayed-reveal decisions");
+    }
+
+    private static void narset(NativeSession session, Player owner, boolean otherRecipient) throws Exception {
+        Card narset = card(session.game, owner, "Narset, Parter of Veils", ZoneType.Battlefield);
+        List<Card> library = List.of("Island", "Ponder", "Grizzly Bears", "Lightning Bolt", "Primeval Titan").stream()
+                .map(name -> card(session.game, owner, name, ZoneType.Library)).toList();
+        owner.getZone(ZoneType.Library).setCards(library);
+        SpellAbility ability = narset.getSpellAbilities().stream()
+                .filter(sa -> sa.getApi() == forge.game.ability.ApiType.Dig).findFirst().orElseThrow();
+        ability.setActivatingPlayer(owner);
+        if (otherRecipient) {
+            ability.putParam("ForceReveal", "Opponent");
+            ability.putParam("NoLooking", "True");
+        }
+        AtomicInteger decisions = new AtomicInteger();
+        drive(session, owner, () -> {
+            AbilityUtils.resolve(ability);
+            require(owner.getCardsIn(ZoneType.Hand).getFirst().getId() == library.get(1).getId(), "Narset lost the chosen card");
+            require(owner.getCardsIn(ZoneType.Library).getFirst() == library.get(4), "Narset changed the unlooked top");
+        }, input -> {
+            int stage = decisions.getAndIncrement();
+            String decider = JsonParser.parseString(session.prompt(0)).getAsJsonObject().get("decidingPlayerId").getAsString();
+            require(!input.toString().contains("Primeval Titan"), "Narset disclosed a fifth card");
+            if (stage == 1) {
+                require(decider.equals("player-0") && input.get("type").getAsString().equals("chooseCards"), "Wrong Narset choice");
+                Set<String> eligible = Set.of("Ponder", "Lightning Bolt");
+                checkCards(input, otherRecipient ? eligible : Set.of("Island", "Ponder", "Grizzly Bears", "Lightning Bolt"), eligible);
+                rejectCard(session, library.getFirst());
+                return choose(library.get(1));
+            }
+            require(input.get("type").getAsString().equals("revealCards"), "Expected the separate Forge disclosure");
+            require(decider.equals(stage == 0 && !otherRecipient ? "player-0" : "player-1"), "Reveal went to the wrong seat");
+            require(shownNames(input).equals(stage == 0 ? library.subList(0, 4).stream().map(Card::getName).toList()
+                    : List.of("Ponder")), "Narset's private look or public choice disclosed the wrong cards");
+            return NativeSession.object("type", "revealCardsAcknowledged");
+        });
+        require(decisions.get() == 3, "Unexpected Narset decisions");
     }
 
     private static void checkCards(JsonObject input, Set<String> expected, Set<String> eligible) {

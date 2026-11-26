@@ -1,0 +1,18 @@
+{
+  "type": "rules.snapshot",
+  "seq": 16,
+  "payload": {
+    "roomId": "ABCDEF", "gameId": "ABCDEF-1", "turn": 2, "step": "main1", "activeSeat": 0, "prioritySeat": 0,
+    "players": [
+      {"seat": 0, "name": "Alice", "status": "playing", "life": 20, "counters": [], "manaPool": [], "commanders": []},
+      {"seat": 1, "name": "Bob", "status": "playing", "life": 20, "counters": [], "manaPool": [], "commanders": []}
+    ],
+    "zones": [{"zone": "hand", "ownerSeat": 0, "count": 0, "cards": []}],
+    "stack": [],
+    "pendingCast": {
+      "id": "casting-3", "controllerSeat": 0, "from": {"zone": "hand", "seat": 0, "objectId": "card-42"},
+      "identity": {"name": "Exploration", "setCode": "USG", "collectorNumber": "250"}
+    },
+    "gameOver": false
+  }
+}

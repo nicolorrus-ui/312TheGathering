@@ -11,7 +11,6 @@ import forge.game.combat.*;
 import forge.game.player.*;
 import forge.game.spellability.SpellAbilityView;
 import forge.game.spellability.SpellAbility;
-import forge.game.zone.MagicStack;
 import forge.game.zone.ZoneType;
 import forge.gamemodes.match.input.*;
 import forge.gui.interfaces.IGuiGame;
@@ -87,7 +86,30 @@ final class NativeGuiGame implements InvocationHandler {
                 else if (abilities.size() == 1 && a[2] == null) result = abilities.get(0);
                 else if (abilities.size() == 1 && !abilities.get(0).promptIfOnlyPossibleAbility()) {
                     result = abilities.get(0).canPlay() ? abilities.get(0) : null;
-                } else result = chooseOne("Choose an ability", abilities, true, null);
+                } else {
+                    var entries = new ArrayList<NativeManaChoices.Entry<NativeManaChoices.Activation>>();
+                    Card source = null;
+                    boolean hasMana = false, hasOther = false;
+                    if (human instanceof NativeDecisionController controller) for (var view : abilities) {
+                        if (!view.canPlay()) continue;
+                        SpellAbility ability = controller.abilityFor(view);
+                        if (ability == null || (source != null && source != ability.getHostCard())) {
+                            entries.clear();
+                            break;
+                        }
+                        source = ability.getHostCard();
+                        if (ability.isManaAbility()) hasMana = true; else hasOther = true;
+                        entries.addAll(NativeManaChoices.activationOptions(ability));
+                    }
+                    if (entries.isEmpty() || !hasMana) result = chooseOne("Choose an ability", abilities, true, null);
+                    else {
+                        var choice = NativeManaChoices.choose(session, owner(), source,
+                                hasOther ? "Choose an ability" : "Choose a mana ability", entries, true);
+                        var controller = (NativeDecisionController) human;
+                        controller.queueManaChoice(choice);
+                        result = choice == null ? null : choice.ability().getView();
+                    }
+                }
                 if (result == null) scheduleInput();
                 yield result;
             }
@@ -274,11 +296,11 @@ final class NativeGuiGame implements InvocationHandler {
                     options.add(action); actions.put("life:2", () -> human.selectPlayer(owner().getView(), null));
                 }
                 for (byte color : ManaAtom.MANATYPES) {
-                    if (owner().getManaPool().getAmountOfColor(color) <= 0) continue;
+                    if (!payment.canPayFromPool(color)) continue;
                     String id = "pool:" + color;
                     JsonObject action = object("id", id);
-                    action.addProperty("type", "activateAbility");
-                    action.addProperty("label", "Use floating " + MagicColor.toShortString(color) + " mana");
+                    action.addProperty("type", "spendFloatingMana");
+                    action.addProperty("label", MagicColor.toShortString(color));
                     options.add(action); actions.put(id, () -> human.useMana(color));
                 }
             }
@@ -297,7 +319,10 @@ final class NativeGuiGame implements InvocationHandler {
                     BooleanSupplier undoCheck = undoChecks.get(actionId);
                     if (undoCheck != null && (human.getInputProxy().getInput() != current || !undoCheck.getAsBoolean()))
                         throw new IllegalArgumentException("Action is no longer retractable");
-                    return action;
+                    return () -> {
+                        if (human instanceof NativeDecisionController controller) controller.queueManaChoice(null);
+                        action.run();
+                    };
                 }
                 if (paying && type.equals("cancel") && cancelEnabled) return () -> button(false);
                 if (paying && type.equals("pay") && okEnabled) return () -> button(true);
@@ -452,28 +477,19 @@ final class NativeGuiGame implements InvocationHandler {
 
     private void addUndoManaActions(InputPayMana payment, JsonArray options,
             Map<String, Runnable> actions, Map<String, BooleanSupplier> undoChecks) {
-        MagicStack stack = session.game.getStack();
-        if (!stack.canUndo(owner()))
-            return;
-        for (Card card : session.game.getCardsInGame()) {
-            if (!mayExpose(card))
-                continue;
-            SpellAbility undoable = null;
-            for (SpellAbility ability : stack.filterUndoStackByHost(card)) {
-                if (payment.canUndoManaAbility(ability))
-                    undoable = ability;
-            }
-            if (undoable == null)
-                continue;
-            String actionId = "undo:" + card.getId();
-            options.add(undoAction(actionId, "undoMana", card, "Undo mana"));
-            SpellAbility source = undoable;
-            undoChecks.put(actionId, () -> payment.canUndoManaAbility(source));
-            actions.put(actionId, () -> {
-                if (!payment.undoManaAbility(source))
-                    payment.showMessage();
-            });
-        }
+        InputPayMana.PaymentUndo choice = payment.lastPaymentUndo();
+        if (choice == null) return;
+        String id = choice.id();
+        JsonObject action = object("id", id);
+        action.addProperty("type", "undoMana");
+        action.addProperty("label", "Undo");
+        if (choice.source() != null && mayExpose(choice.source().getHostCard()))
+            action.addProperty("cardId", cardId(choice.source().getHostCard()));
+        options.add(action);
+        undoChecks.put(id, () -> payment.lastPaymentUndo() == choice);
+        actions.put(id, () -> {
+            if (!payment.undoLastPayment(choice)) payment.showMessage();
+        });
     }
 
     private void renderBattlefieldSelection(Input current, List<Card> cards) {

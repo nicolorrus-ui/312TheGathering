@@ -136,6 +136,7 @@ func projectedRulesPrompt(roomID, gameID string,
 	if view.Kind == "payManaCost" {
 		prompt.PaymentID = view.PaymentID
 	}
+	prompt.ManaSourceID = view.ManaSourceID
 	prompt.Title = view.Title
 	prompt.Detail = view.Detail
 	prompt.Options = make([]protocol.RulesPromptOption, 0, len(view.Options))
@@ -150,6 +151,7 @@ func projectedRulesPrompt(roomID, gameID string,
 		prompt.Choices = append(prompt.Choices, protocol.RulesPromptChoice{
 			ResponseID: choice.ResponseID, Label: choice.Label,
 			Weight: choice.Weight, CanRepeat: choice.CanRepeat,
+			ManaSymbols: choice.ManaSymbols,
 		})
 	}
 	prompt.Cards = make([]protocol.RulesPromptCard, 0, len(view.Cards))

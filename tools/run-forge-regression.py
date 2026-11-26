@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FORGE = ROOT / "third_party/forge-runtime"
 NATIVE_TESTS = (
     "NativeAutoPayRegressionTest", "NativeManaUndoRegressionTest", "NativePriorityManaUndoRegressionTest",
-    "NativeLotusBloomRegressionTest", "NativeSnapshotRegressionTest", "NativePaymentIdRegressionTest",
+    "NativeManaChoiceRegressionTest", "NativeLotusBloomRegressionTest", "NativeSnapshotRegressionTest",
+    "NativePaymentIdRegressionTest",
     "NativePromptWaitRegressionTest", "NativeCrashDiagnosticsRegressionTest",
     "NativeTargetClickRegressionTest", "NativeAttackDeclarationRegressionTest",
     "NativeCardMovesRegressionTest", "NativeHandKnowledgeRegressionTest", "NativeTopRevealRegressionTest",

@@ -234,6 +234,7 @@ func normalizeForgeSnapshotForSeat(roomID string, game forgeRoomGame, view forge
 		Zones:        make([]protocol.RulesZoneState, 0, len(view.Zones)),
 		Stack:        make([]protocol.RulesStackObject, 0, len(view.Stack)),
 		GameOver:     view.GameOver,
+		PendingCast:  projectedPendingCast(view.PendingCast, viewerSeat, seatForID),
 		CardMoves:    projectedCardMoves(view.CardMoves, viewerSeat, seatForID),
 	}
 	for _, player := range view.Players {
@@ -397,7 +398,7 @@ func normalizeForgeSnapshotForSeat(roomID string, game forgeRoomGame, view forge
 			}
 		}
 		snapshot.Stack = append(snapshot.Stack, protocol.RulesStackObject{
-			ID: stackObject.ID, SourceID: stackObject.SourceID,
+			ID: stackObject.ID, SourceID: stackObject.SourceID, CastID: validatedCastID(stackObject.CastID),
 			ControllerSeat: controllerSeat, OwnerSeat: ownerSeat,
 			Identity: rulesIdentity(stackObject.Identity), Text: stackObject.Text,
 			Targets: projectedRulesStackTargets(stackObject.Targets, view, seatForID),

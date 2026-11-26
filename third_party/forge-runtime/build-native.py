@@ -247,6 +247,7 @@ def build(source, output, upstream, *, standalone=False, preserved=None, env=Non
             "NativeOrderingRegressionTest", "NativeDelayedRevealRegressionTest",
             "NativeLethalDamageRegressionTest", "NativeMultiBlockRegressionTest", "NativeAttackDeclarationRegressionTest",
             "NativeCardMovesRegressionTest", "NativeHandKnowledgeRegressionTest", "NativeTopRevealRegressionTest",
+            "NativeManaChoiceRegressionTest",
             "NativeStartingHandRegressionTest", "NativeAutoPayRegressionTest", "NativeLotusBloomRegressionTest", "NativeManaUndoRegressionTest", "NativePriorityManaUndoRegressionTest", "NativeMulliganRegressionTest", "NativeSerumPowderRegressionTest", "NativeObjectDepartureRegressionTest",
             "NativeSynchronousConcedeRegressionTest", "NativeQueuedInputRegressionTest", "NativeControlledConcedeRegressionTest",
             "NativePriorityRegressionTest", "NativePromptContextRegressionTest", "NativeCardTextRegressionTest",

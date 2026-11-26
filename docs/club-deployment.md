@@ -94,9 +94,13 @@ The phase track on the right highlights the current Forge step. Priority
 controls sit at the bottom right. **Concede game** is in the upper-right
 corner of the game page and asks for confirmation.
 After dragging a spell onto the battlefield, choose its targets and modes
-if prompted. Mana payment stays on the battlefield. When Forge offers
-automatic payment, **Auto Pay** appears in the usual **Pass priority** position.
-Click it to pay, or select mana sources on the board to pay manually.
+if prompted. During payment, you can see the spell in the stack at the
+right of the battlefield. **Auto Pay** appears in the usual **Pass priority**
+position when Forge can cover the cost. You can also click a mana source.
+If it offers a choice of outputs, select the symbol or combination above the
+source. Each usable type of floating mana has one button. Click a symbol to spend
+one mana of that type. **Undo** appears when Forge can reverse the most recent
+payment choice.
 After you cast a spell or activate an ability that uses the stack, priority
 passes to the opponent. Turn on **Hold priority** to respond to your own action.
 You can still respond when an opponent's spell or ability goes on top of it.
@@ -106,8 +110,9 @@ access to more colors, then sources that cost less life to use later. The
 search has a work limit for large boards. Forge checks the payment and handles
 mana abilities with costs that depend on other permanents.
 Spells and abilities overlap directly on the battlefield at the right-hand edge,
-centered vertically. The newest object sits in front and resolves first. Hover
-over an older object's exposed edge to preview it. When Forge offers an
+centered vertically. The newest object is on the right and covers the older objects
+to its left. Hover over an exposed edge to preview an older object. Scroll
+horizontally to reach objects deeper in the stack. When Forge offers an
 on-board target, that edge can also be clicked to select it.
 As a spell leaves the stack, its card moves
 to the zone Forge selected. A hidden destination uses a card back. The browser
@@ -133,10 +138,12 @@ Selected attackers tilt 30 degrees while you edit the plan. After confirmation,
 Forge determines which attackers tap, including the exception for vigilance.
 Forge enforces attack requirements when you submit the declaration.
 
-Library search displays eligible cards first. The rest of the cards Forge
-lets the searching player see follow them. Forge selection windows open in the
-center. Use **Minimize** to free the
-board, then **Expand** near the priority controls to return to the same
+Selection windows show available choices first. With Collected Company, the
+eligible creatures appear first among the six cards. With Narset, Parter of
+Veils, the eligible noncreature, nonland cards appear first among the cards
+you looked at. The remaining visible cards follow in their original order.
+Ordering decisions preserve the order you are editing. Use **Minimize** to
+free the board, then **Expand** near the priority controls to return to the same
 selection. With a board-target decision minimized, you can still select a
 target on the board and confirm it at the bottom right.
 

@@ -89,6 +89,40 @@ func normalizeSelection(input promptInput) ([]PromptChoice, int, int, error) {
 	return choices, *input.MinTotal, *input.MaxTotal, nil
 }
 
+// A mana picker decorates the existing one-choice decision. Invalid or absent
+// presentation hints leave the ordinary selection and its response IDs intact.
+func applyManaChoiceHints(input promptInput, choices []PromptChoice) string {
+	number, ok := strings.CutPrefix(input.ManaSourceID, "card-")
+	id, err := strconv.ParseUint(number, 10, 31)
+	if !ok || err != nil || strconv.FormatUint(id, 10) != number ||
+		*input.MinTotal > 1 || *input.MaxTotal != 1 {
+		return ""
+	}
+	for _, choice := range choices {
+		if choice.Weight != 1 || choice.CanRepeat {
+			return ""
+		}
+	}
+	for index, option := range input.SelectionOptions {
+		if validManaGroup(option.ManaSymbols) {
+			choices[index].ManaSymbols = option.ManaSymbols
+		}
+	}
+	return input.ManaSourceID
+}
+
+func validManaGroup(group []string) bool {
+	if len(group) == 0 || len(group) > maxPromptOptions {
+		return false
+	}
+	for _, symbol := range group {
+		if len(symbol) != 1 || !strings.Contains("WUBRGC", symbol) {
+			return false
+		}
+	}
+	return true
+}
+
 func choiceRangeReachable(choices []PromptChoice, minimum, maximum int) bool {
 	reachable := make([]bool, maximum+1)
 	reachable[0] = true

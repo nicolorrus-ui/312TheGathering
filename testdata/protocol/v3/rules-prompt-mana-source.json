@@ -1,0 +1,69 @@
+{
+  "type": "rules.prompt",
+  "payload": {
+    "roomId": "ABCDEF",
+    "gameId": "ABCDEF-1",
+    "pending": true,
+    "promptId": 91,
+    "kind": "chooseFromSelection",
+    "supported": true,
+    "title": "Select Mana to Produce",
+    "detail": "",
+    "options": [],
+    "choices": [
+      {
+        "responseId": "choice:0",
+        "label": "Blue and blue",
+        "weight": 1,
+        "canRepeat": false,
+        "manaSymbols": [
+          "U",
+          "U"
+        ]
+      },
+      {
+        "responseId": "choice:1",
+        "label": "Blue and red",
+        "weight": 1,
+        "canRepeat": false,
+        "manaSymbols": [
+          "U",
+          "R"
+        ]
+      },
+      {
+        "responseId": "choice:2",
+        "label": "Red and red",
+        "weight": 1,
+        "canRepeat": false,
+        "manaSymbols": [
+          "R",
+          "R"
+        ]
+      }
+    ],
+    "cards": [],
+    "scryDestinations": [],
+    "orderItems": [],
+    "contextCards": [],
+    "contextTargets": [],
+    "contextText": "",
+    "requiredSelections": 0,
+    "minCardSelections": 0,
+    "maxCardSelections": 0,
+    "targets": [],
+    "combatSources": [],
+    "combatTargets": [],
+    "damageTargets": [],
+    "totalDamage": 0,
+    "damageDeathtouch": false,
+    "minSelections": 0,
+    "maxSelections": 0,
+    "cancellable": false,
+    "minChoiceTotal": 1,
+    "maxChoiceTotal": 1,
+    "minNumber": 0,
+    "maxNumber": 0,
+    "manaSourceId": "card-12"
+  }
+}

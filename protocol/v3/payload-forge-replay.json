@@ -64,6 +64,13 @@
           }
         },
         {
+          "name": "pendingCast",
+          "type": "object",
+          "required": false,
+          "ref": "RulesPendingCast",
+          "nullable": true
+        },
+        {
           "name": "cardMoves",
           "type": "array",
           "required": false,

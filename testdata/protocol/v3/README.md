@@ -28,6 +28,7 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 |------|-----------|---------|
 | `rules-prompt-cards-selected.json` | server | Previously selected private cards remain marked during incremental native choices; only the next click is submitted |
 | `rules-prompt-cards-disclosure.json` | server | One private card choice includes ineligible disclosed cards with display-only identities; only legal candidates may be submitted |
+| `rules-prompt-mana-source.json` | server | A mana source offers distinct combinations; selecting a group submits its existing choice ID |
 | `tournament-create-forge.json` / `tournament-listed-forge.json` / `tournament-snapshot-forge.json` | both | Immutable Forge mode survives event creation, discovery and event projection; omitted mode remains manual |
 | `tournament-chat-*.json` | both | Event-scoped text messages and bounded history; server-authored names and sequences |
 | `forge-peer-*.json` | both | Explicit per-seat direct-transport consent, private binding and bounded signaling; no spectator delivery |
@@ -81,6 +82,7 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `game-snapshot-owner.json` | S -> C | Owner sees their seven private hand identities and only opponent counts |
 | `game-snapshot-opponent.json` | S -> C | Opponent gets their own hand while Alice's hand identities remain absent |
 | `rules-snapshot-owner.json` | S -> C | Normalized Forge projection with seat-mapped players and viewer-authorized card identities |
+| `rules-snapshot-pending-cast.json` | S -> C | An announced spell during payment, including the hand origin visible to its owner |
 | `rules-snapshot-card-moves.json` | S -> C | Anonymous opponent draw and a physical spell moving from hand through the stack to a public graveyard object |
 | `rules-prompt-sequenced.json` / `rules-prompt-cleared-sequenced.json` | S -> C | A decision paired with `rules-snapshot-owner.json` at sequence 8, and a later empty decision at sequence 9; cleared prompts carry no private choices |
 | `rules-snapshot-relationships.json` | S -> C | Public colorless mana, confirmed blocking pairs and an attachment to a permanent |

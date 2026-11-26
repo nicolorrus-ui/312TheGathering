@@ -64,6 +64,13 @@
           }
         },
         {
+          "name": "pendingCast",
+          "type": "object",
+          "required": false,
+          "ref": "RulesPendingCast",
+          "nullable": true
+        },
+        {
           "name": "cardMoves",
           "type": "array",
           "required": false,
@@ -128,6 +135,11 @@
         {
           "name": "autoPassEligible",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "manaSourceId",
+          "type": "string",
           "required": false
         },
         {

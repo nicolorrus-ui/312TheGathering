@@ -64,7 +64,9 @@ try {
     const controls = page.getByRole("group", { name: "Priority controls" });
     const button = (name) => controls.getByRole("button", { name, exact: true });
     const permanent = (id) => page.locator(`[data-card-id="${id}"]`);
-    const angle = (id) => permanent(id).evaluate((card) => {
+    const angle = (id) => permanent(id).evaluate(async (card) => {
+      await Promise.allSettled(card.getAnimations().filter((animation) => animation.transitionProperty === "transform")
+        .map((animation) => animation.finished));
       const transform = getComputedStyle(card).transform;
       if (transform === "none") return 0;
       const matrix = new DOMMatrix(transform);
