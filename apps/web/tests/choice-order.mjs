@@ -129,6 +129,20 @@ async function checkChoices(viewport, touch) {
   assert.ok(await button("Confirm").isEnabled());
   await confirm({ cardIds: [] });
 
+  await show("chooseFromSelection", { searchKind: "name", minChoiceTotal: 1, maxChoiceTotal: 1,
+    contextCards: revealedHand.map((card, index) => ({ ...card, id: `context-card:${index}`, readOnly: true })),
+    choices: [{ label: "Lightning Bolt", responseId: "choice:0", weight: 1, canRepeat: false, card: { name: "Lightning Bolt" } }] });
+  const context = panel.getByRole("group", { name: "Decision context" });
+  await context.locator("img").last().waitFor();
+  assert.deepEqual(await imageNames(context), ["mountain", "lightning bolt"]);
+  const search = panel.getByRole("searchbox", { name: "Search card names" });
+  await search.fill("Mountain");
+  assert.equal(await button("Mountain").count(), 0);
+  assert.equal(await context.locator("img").count(), 2);
+  await search.fill("bolt");
+  await button("Lightning Bolt").press("Enter");
+  await confirm({ choiceIds: ["choice:0"] });
+
   const reprint = { ...cards[1], id: "other-ponder", setCode: "ALT", collectorNumber: "201" };
   await show("chooseCards", { cards: [cards[1], reprint], minCardSelections: 1, maxCardSelections: 1 });
   const otherPrinting = button("Ponder").filter({ has: page.locator('img[src*="set=alt"][src*="number=201"]') });

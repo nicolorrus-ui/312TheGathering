@@ -162,11 +162,12 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
         {prompt.searchKind && !listed.length && <p role="status">No matching options.</p>}
         <div className="choices">{selectableFirst(listed, selectable).map((choice) => {
           const count = choices.filter((id) => id === choice.responseId).length;
+          const face = choice.card ?? (prompt.searchKind === "name" ? { name: choice.label } : undefined);
           return <div key={choice.responseId} className="choice-group">
-            <button type="button" className={choice.card ? "choice-card" : undefined} aria-label={choice.card ? choice.label : undefined} aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
+            <button type="button" className={face ? "choice-card" : undefined} aria-label={face ? choice.label : undefined} aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
               if (!choice.canRepeat && count) setChoices(choices.filter((id) => id !== choice.responseId));
               else if (canAdd(choice)) setChoices(replaceChoice ? [choice.responseId] : [...choices, choice.responseId]);
-            }}>{choice.card ? <><DecisionCard card={choice.card} />{choice.actionLabel && <span>{choice.actionLabel}</span>}</> : choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
+            }}>{face ? <><DecisionCard card={face} />{choice.actionLabel && <span>{choice.actionLabel}</span>}</> : choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
             {choice.canRepeat && count > 0 && <button type="button" aria-label={`Remove ${choice.label}`} onClick={() => {
               const index = choices.lastIndexOf(choice.responseId);
               setChoices(choices.filter((_, i) => i !== index));

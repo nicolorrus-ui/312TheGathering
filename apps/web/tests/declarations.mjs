@@ -124,7 +124,7 @@ async function verify(seat, width) {
       await panel.getByText("No matching options.").waitFor();
       assert.ok(await confirm.isDisabled());
       await search.fill(query);
-      assert.deepEqual(await panel.locator(".choices button").allTextContents(), labels.filter((label) =>
+      assert.deepEqual(await panel.locator(".choices button").evaluateAll((items) => items.map((item) => item.getAttribute("aria-label") ?? item.textContent)), labels.filter((label) =>
         label.toLowerCase().includes(query.toLowerCase())));
       await panel.getByRole("button", { name: labels[1], exact: true }).click();
       await submit({ choiceIds: [choices[1].responseId] });
