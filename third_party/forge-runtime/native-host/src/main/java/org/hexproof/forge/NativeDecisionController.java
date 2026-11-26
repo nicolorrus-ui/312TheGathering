@@ -5,22 +5,31 @@ package org.hexproof.forge;
 import forge.LobbyPlayer;
 import forge.card.ColorSet;
 import forge.card.ICardFace;
+import forge.card.MagicColor;
 import forge.game.Game;
 import forge.game.ability.ApiType;
+import forge.game.ability.AbilityUtils;
 import forge.game.card.Card;
 import forge.game.card.CardCollection;
 import forge.game.cost.CostPart;
 import forge.game.cost.CostPayLife;
 import forge.game.player.Player;
 import forge.game.player.actions.PayCostAction;
+import forge.game.player.actions.ColorChoiceAction;
+import forge.game.player.actions.ManaComboAction;
 import forge.gamemodes.match.input.InputConfirm;
 import forge.game.player.DelayedReveal;
 import forge.game.zone.ZoneType;
 import forge.game.spellability.SpellAbility;
+import forge.game.spellability.SpellAbilityView;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.player.PlayerControllerHuman;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Map;
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -44,6 +53,98 @@ final class NativeDecisionController extends PlayerControllerHuman {
 
     @Override public Player chooseStartingPlayer(boolean firstGame) {
         return starts == null ? super.chooseStartingPlayer(firstGame) : getGame().getRegisteredPlayers().get(starts);
+    }
+    SpellAbility abilityFor(SpellAbilityView view) {
+        return spellViewCache == null ? null : spellViewCache.get(view);
+    }
+
+    // Selection happens on the UI executor. Consumption is scoped to exactly one
+    // play on the game executor, including nested or cancelled activation costs.
+    private final AtomicReference<NativeManaChoices.Activation> pendingManaChoice = new AtomicReference<>();
+    private final ThreadLocal<NativeManaChoices.Activation> resolvingManaChoice = new ThreadLocal<>();
+
+    void queueManaChoice(NativeManaChoices.Activation choice) {
+        pendingManaChoice.set(choice != null && !choice.output().isEmpty() ? choice : null);
+    }
+
+    @Override public boolean withManaActivation(SpellAbility ability, BooleanSupplier play) {
+        var queued = pendingManaChoice.getAndSet(null);
+        var previous = resolvingManaChoice.get();
+        try {
+            if (queued != null && queued.ability() == ability) {
+                // The payment helper can have suggested a color needed for the
+                // spell. Resolve the explicit manual choice against the full rules menu.
+                ability.setManaExpressChoice(ColorSet.fromMask(0));
+                resolvingManaChoice.set(queued);
+            } else resolvingManaChoice.remove();
+            return play.getAsBoolean();
+        } finally {
+            if (previous == null) resolvingManaChoice.remove();
+            else resolvingManaChoice.set(previous);
+        }
+    }
+
+    private boolean hasManaChoice(SpellAbility ability) {
+        var selected = resolvingManaChoice.get();
+        return selected != null && selected.ability() == ability;
+    }
+
+    private <T> T selectedOutput(SpellAbility ability, List<NativeManaChoices.Entry<T>> offered) {
+        if (!hasManaChoice(ability)) return null;
+        var expected = resolvingManaChoice.get().output();
+        resolvingManaChoice.remove();
+        for (var entry : offered) if (entry.symbols().equals(expected)) return entry.value();
+        return null;
+    }
+
+    private byte pickManaColor(String title, SpellAbility ability, List<MagicColor.Color> colors, int count) {
+        var entries = colors.stream().map(color -> NativeManaChoices.colorOption(color, count)).toList();
+        var result = selectedOutput(ability, entries);
+        if (result == null) {
+            Byte remembered = macros().consumeRememberedColorChoice(colors);
+            if (remembered != null) return remembered;
+            result = NativeManaChoices.choose(session, getPlayer(), ability.getHostCard(), title, entries, false);
+        }
+        macros().addRememberedAction(new ColorChoiceAction(result));
+        return result;
+    }
+
+    @Override public byte chooseColor(String title, SpellAbility ability, ColorSet colors) {
+        if (ability != null && ability.getRootAbility().isManaAbility() && !colors.isColorless()
+                && (colors.countColors() > 1 || hasManaChoice(ability))
+                && (ability.getApi() == ApiType.Mana || ability.getApi() == ApiType.ManaReflected)) {
+            int count = ability.getManaPart().isAnyMana() || ability.getApi() == ApiType.ManaReflected
+                    ? ability.amountOfManaGenerated(false)
+                    : ability.hasParam("Each") ? AbilityUtils.calculateAmount(ability.getHostCard(), ability.getParam("Each"), ability) : 1;
+            return pickManaColor(title, ability, List.copyOf(colors.getOrderedColors()), count);
+        }
+        return super.chooseColor(title, ability, colors);
+    }
+
+    @Override public byte chooseManaColorAllowColorless(String title, SpellAbility ability, ColorSet colors) {
+        if (ability.getRootAbility().isManaAbility() && !colors.isColorless()) {
+            var offered = new ArrayList<>(colors.getOrderedColors());
+            offered.add(MagicColor.Color.COLORLESS);
+            int count = ability.getApi() == ApiType.ManaReflected ? ability.amountOfManaGenerated(false) : 1;
+            return pickManaColor(title, ability, offered, count);
+        }
+        return super.chooseManaColorAllowColorless(title, ability, colors);
+    }
+
+    @Override public Map<Byte, Integer> specifyManaCombo(SpellAbility ability, ColorSet offered, int amount, boolean different) {
+        if (!ability.getRootAbility().isManaAbility()) return super.specifyManaCombo(ability, offered, amount, different);
+        var colors = offered.getOrderedColors().stream().filter(color -> color != MagicColor.Color.COLORLESS).toList();
+        var entries = NativeManaChoices.combinations(colors, amount, different);
+        var chosen = selectedOutput(ability, entries);
+        if (chosen == null) {
+            var remembered = macros().consumeRememberedManaCombo(colors, amount, different);
+            if (remembered != null) return remembered;
+            chosen = entries.isEmpty()
+                    ? NativeManaChoices.allocate(session, getPlayer(), ability.getHostCard(), colors, amount, different)
+                    : NativeManaChoices.choose(session, getPlayer(), ability.getHostCard(), "Choose mana", entries, false);
+        }
+        macros().addRememberedAction(new ManaComboAction(chosen));
+        return chosen;
     }
     @Override public boolean confirmPayment(CostPart cost, String question, SpellAbility ability) {
         // A shock land's self-tap replacement offers exactly one alternative payment.

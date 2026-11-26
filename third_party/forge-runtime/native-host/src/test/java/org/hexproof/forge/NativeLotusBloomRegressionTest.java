@@ -129,9 +129,15 @@ public final class NativeLotusBloomRegressionTest {
             JsonArray options = input.getAsJsonArray("options");
             require(options.size() == 5 && input.get("minTotal").getAsInt() == 1 && input.get("maxTotal").getAsInt() == 1,
                     "Lotus Bloom did not offer all five colors");
-            for (int i = 0; i < 5; i++)
-                require(options.get(i).getAsJsonObject().get("label").getAsString().equals(
-                        List.of("WHITE", "BLUE", "BLACK", "RED", "GREEN").get(i)), "Native color option changed");
+            require(input.get("manaSourceId").getAsString().equals(NativeSnapshot.cardId(lotus)), "Sacrificed source lost its menu anchor");
+            for (int i = 0; i < 5; i++) {
+                var option = options.get(i).getAsJsonObject();
+                require(option.get("label").getAsString().equals(List.of("WHITE", "BLUE", "BLACK", "RED", "GREEN").get(i)), "Native color option changed");
+                var symbols = option.getAsJsonArray("manaSymbols");
+                require(symbols.size() == 3 && symbols.asList().stream().allMatch(
+                        symbol -> symbol.getAsString().equals(MagicColor.Color.valueOf(option.get("label").getAsString()).getShortName())),
+                        "Lotus Bloom must offer three of each color");
+            }
             JsonObject output = NativeSession.object("type", "selectionDecision");
             JsonArray indices = new JsonArray(); indices.add(colorIndex); output.add("chosenIndices", indices);
             return output;

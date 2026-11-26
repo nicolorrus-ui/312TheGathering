@@ -261,6 +261,17 @@ try {
   const dock = actor.page.getByRole("group", { name: "Priority controls" });
   const paymentControl = dock.getByRole("button", { name: "Auto Pay", exact: true });
   await paymentControl.waitFor();
+  const pendingStack = actor.page.locator(".stack [data-pending]");
+  await pendingStack.waitFor();
+  assert.equal(await pendingStack.getAttribute("aria-label"), "Exploration");
+  const pendingSource = actor.game.pendingCast.from.objectId;
+  assert.equal(actor.game.stack.length, 0);
+  for (const other of [opponent, viewer]) {
+    await other.page.locator(".stack [data-pending][aria-label=Exploration]").waitFor();
+    assert.equal(other.game.pendingCast.id, actor.game.pendingCast.id);
+    assert.equal(other.game.pendingCast.from.objectId, undefined);
+    assert.equal(other.game.pendingCast.sourceId, undefined);
+  }
   assert.equal(await actor.page.locator(".decision, .inspection").count(), 0, "payment keeps the board clear");
   assert.equal(await button(actor, "Auto Pay").count(), 1);
   assert.ok(forests(actor).every(({ tapped }) => !tapped), "dropping a spell waits for payment");
@@ -269,12 +280,36 @@ try {
   assert.equal(actor.prompt.kind, "chooseAction");
   assert.equal(actor.game.stack.length, 0);
   assert.ok(forests(actor).every(({ tapped }) => !tapped), "cancelling preserves mana sources");
+  await pendingStack.waitFor({ state: "detached" });
+  await hand(actor).locator(`[data-card-id="${pendingSource}"]`).waitFor();
+  const remembered = opponent.page.locator(`.opponent-hand [data-card-id="${pendingSource}"][aria-label=Exploration]`);
+  await remembered.waitFor();
+  assert.equal(await opponent.page.locator(".opponent-hand [aria-label=Exploration]").count(), 1);
   await playFromHand(actor, "Exploration");
   await requireNextFor(actor);
+  await pendingStack.waitFor();
+  await pendingStack.evaluate((el) => el.dataset.testContinuity = "unpaid");
+  const castId = actor.game.pendingCast.id;
+  const otherThumbnails = [opponent, viewer].map((other) => other.page.locator(`[data-stack-id="${castId}"]`));
+  for (const thumbnail of otherThumbnails) {
+    await thumbnail.waitFor();
+    await thumbnail.evaluate((el) => el.dataset.testContinuity = "unpaid");
+  }
   await answer(actor, () => paymentControl.click());
   const responder = await nextDecision();
   assert.notEqual(responder.name, actor.name, "the caster yields the first response unless holding priority");
-  assert.ok(responder.game.stack.some(({ identity }) => identity.name === "Exploration"));
+  const real = responder.game.stack.find((spell) => spell.castId === castId);
+  assert.equal(real?.identity.name, "Exploration");
+  for (const peer of [actor, opponent, viewer]) {
+    const paid = peer.page.locator(`[data-stack-id="${real.id}"]`);
+    await paid.waitFor({ state: "attached" });
+    assert.equal(await paid.getAttribute("data-test-continuity"), "unpaid");
+    const inbound = peer.game.cardMoves.find((move) => move.castId === castId);
+    assert.equal(inbound?.to.objectId, real.id);
+    assert.equal(Boolean(inbound.from.objectId), peer === actor);
+  }
+  assert.equal(await actor.page.locator(".stack button").count(), 1);
+  assert.equal(await pendingStack.count(), 0);
   const nextTurn = actor.game.turn + 2;
   let sawStack = false;
   await progressUntil((player) => player === actor && normalMain(player) && player.game.turn >= nextTurn, "next main with Exploration",

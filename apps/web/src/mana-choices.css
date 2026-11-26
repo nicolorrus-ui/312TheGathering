@@ -1,0 +1,36 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2026 Hexproof contributors
+ */
+.mana-choice-menu {
+  position: fixed;
+  z-index: 42;
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  gap: .2rem;
+  padding: .25rem;
+  max-width: calc(100vw - 12px);
+  overflow-x: auto;
+  border: 1px solid #79869a;
+  border-radius: 1.25rem;
+  background: #172436;
+  box-shadow: 0 .25rem .8rem #0009;
+}
+.mana-choice-menu button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: .09rem;
+  min-width: 2.15rem;
+  min-height: 2.15rem;
+  padding: .2rem .38rem;
+  border-radius: 1rem;
+  font-size: .84rem;
+}
+.mana-choice-menu .deck-pip { font-size: 1.12rem; }
+.mana-choice-menu .mana-ability-label { max-width: min(16rem, 70vw); white-space: normal; }
+.mana-choice-menu .mana-choice-cancel { color: #c8cfdb; background: transparent; font-size: 1.1rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .mana-choice-menu { animation: detail-appear 130ms ease-out; }
+}

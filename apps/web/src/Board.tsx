@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
+import { dismissOpenDetails, dismissPanel, prepareHandReturn } from "./boardMotion";
 import { cardArtURL, CardImage, useCardHover, type CardHover } from "./CardImages";
 import { CardMovements } from "./CardMovements";
 import { SpellStack } from "./SpellStack";
+import { isManaChoice, ManaChoiceMenu, type ManaAnchor } from "./ManaChoiceMenu";
 import { ConfirmationActions, Decision, DecisionPanel, Options, simpleConfirmation } from "./Decisions";
 import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
 import { PhaseControls, usePriorityStops } from "./PhaseControls";
@@ -31,7 +33,7 @@ const visibleFace = (card: Card) => card.visible && !card.faceDown && card.ident
 function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style, attack }: {
   card: Card; actionable?: boolean; selected?: boolean; activate?: () => void;
   drag?: (event: DragEvent) => void; touch?: TouchDragHandlers; inspect?: () => void; hover: CardHover; style?: CSSProperties;
-  dragEnd?: () => void; dragging?: boolean; attack?: AttackControl;
+  dragEnd?: (event: DragEvent) => void; dragging?: boolean; attack?: AttackControl;
 }) {
   const face = visibleFace(card);
   const name = face?.name ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
@@ -68,7 +70,7 @@ function PlayerChip({ player, zone, zones, active, target, selected, selectTarge
       aria-pressed={target ? selected : undefined}>
       <span className="monogram" aria-hidden="true">{player.name.slice(0, 1).toUpperCase()}</span>
       <span className="player-name" title={player.name}>{player.name}</span>
-      <strong className="life-total">{player.life}</strong>
+      <strong className="life-total" key={player.life}>{player.life}</strong>
     </button>
     <div className="zones">{zones.map((name) => {
       const entry = zone(name);
@@ -82,7 +84,7 @@ type Props = { game: Snapshot; seat: number; prompt?: Prompt; locked: boolean; m
   answer: (prompt: Prompt, response: Response) => void; back: () => void; tournamentTable?: boolean;
   online: boolean; sendPriority: (preference: RulesPriority) => void; spectating?: boolean };
 type AutoPass = { until: "step" | "turn"; turn: number; step: string };
-type CardDrag = { card: Card; zone: string; promptId: number; x: number; y: number; origin: Element | null; leftHand: boolean };
+type CardDrag = { cardId: string; zone: string; promptId: number; x: number; y: number; origin: Element | null; leftHand: boolean };
 type TouchDrag = { pointerId: number; drag: CardDrag; active: boolean };
 
 export function Board({ game, seat, prompt, locked, metadata, answer, back, tournamentTable, online, sendPriority, spectating = false }: Props) {
@@ -93,11 +95,16 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const [targetSelection, setTargetSelection] = useState<{ promptId: number; ids: string[] }>();
   const [autoPass, setAutoPass] = useState<AutoPass>();
   const [dragging, setDragging] = useState<CardDrag>();
+  const floatingCard = useRef<HTMLDivElement>(null);
+  const returnHandCard = useRef<() => void>(undefined);
   const touchDrag = useRef<TouchDrag>(undefined);
+  const manaAnchor = useRef<ManaAnchor>(undefined);
   const targetIds = targetSelection && targetSelection.promptId === prompt?.promptId ? targetSelection.ids : [];
   const isCurrent = prompt?.gameId === game.gameId;
   const decision = !spectating && isCurrent && prompt?.pending ? prompt : undefined;
-  const activeDrag = !locked && dragging?.promptId === decision?.promptId ? dragging : undefined;
+  const dragView = dragging && game.zones.filter((zone) => zone.zone === dragging.zone)
+    .flatMap((zone) => zone.cards).find((card) => card.id === dragging.cardId);
+  const activeDrag = online && !locked && dragView && dragging?.promptId === decision?.promptId ? dragging : undefined;
   const cardInMotion = Boolean(activeDrag);
   const priority = decision?.kind === "chooseAction";
   const myTurn = game.activeSeat === seat;
@@ -116,13 +123,20 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   useEffect(() => {
     if (dragging && !activeDrag) setDragging(undefined);
   }, [activeDrag, dragging]);
+  useLayoutEffect(() => {
+    if (!dragging) {
+      returnHandCard.current?.();
+      returnHandCard.current = undefined;
+    }
+  }, [dragging]);
   useEffect(() => {
     if (openedZone && !game.zones.some((zone) => zone.ownerSeat === openedZone.ownerSeat &&
       zone.zone === openedZone.zone && zone.cards.some(visibleFace))) setOpenedZone(undefined);
   }, [game.zones, openedZone]);
   const pass = decision?.options.find((option) => option.responseId === "$pass");
   const payment = decision?.supported && decision.kind === "payManaCost" ? decision : undefined;
-  const confirmation = !game.gameOver && simpleConfirmation(decision);
+  const manaPrompt = !game.gameOver && isManaChoice(decision) ? decision : undefined;
+  const confirmation = !game.gameOver && !manaPrompt && simpleConfirmation(decision);
   const autoPay = !game.gameOver && payment?.options.find((option) => option.responseId === "$auto-pay");
 
   useEffect(() => {
@@ -139,7 +153,13 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const zoneFor = (who: number, zone: string) => game.zones.find((entry) => entry.ownerSeat === who && entry.zone === zone);
   const visibleZone = openedZone ? zoneFor(openedZone.ownerSeat, openedZone.zone) : undefined;
   const libraryTop = visibleZone?.zone === "library" ? visibleZone.cards.find(visibleFace) : undefined;
-  const reviewedStackObject = reviewId ? game.stack.find((object) => object.id === reviewId) : undefined;
+  const pendingCast = game.gameOver ? undefined : game.pendingCast;
+  // A real stack instance inherits the announcement's render key. Abilities of
+  // the same card keep their distinct stack IDs.
+  const visibleStack = game.stack.map((object) => ({ ...object, renderKey: object.castId }));
+  const stack = pendingCast ? [{ ...pendingCast, pending: true, renderKey: pendingCast.id,
+    text: pendingCast.identity.name || "Face-down spell" }, ...visibleStack] : visibleStack;
+  const reviewedStackObject = reviewId ? stack.find((object) => object.id === reviewId || object.renderKey === reviewId) : undefined;
   const review: Card | undefined = libraryTop ?? (reviewedStackObject ? { id: reviewedStackObject.id, identity: reviewedStackObject.identity,
     visible: true, oracle: reviewedStackObject.text, ownerSeat: -1, controllerSeat: -1 }
     : reviewId ? game.zones.flatMap((zone) => zone.cards ?? []).find((card) => card.id === reviewId && visibleFace(card)) : undefined);
@@ -165,6 +185,11 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
 
   function chooseAction(options: Option[]) {
     if (!decision || locked) return;
+    const cardId = options[0]?.cardId;
+    if (cardId) {
+      const source = document.querySelector(`.duel .table-card[data-card-id="${CSS.escape(cardId)}"]`);
+      if (source) manaAnchor.current = { gameId: game.gameId, cardId, rect: source.getBoundingClientRect() };
+    }
     if (options.length === 1) return respond({ responseId: options[0].responseId });
     if (options.length > 1) return setActionMenu({ promptId: decision.promptId, options });
   }
@@ -187,15 +212,26 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     event.dataTransfer.setDragImage(transparent, 0, 0);
     requestAnimationFrame(() => transparent.remove());
     showHover();
-    setDragging({ card, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
+    setDragging({ cardId: card.id, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
       origin: event.currentTarget.closest(".hand"), leftHand: false });
   }
 
   function trackCard(drag: CardDrag, target: Node | null, x: number, y: number) {
     const inOrigin = drag.origin?.contains(target);
-    const next = inOrigin && drag.leftHand ? undefined : { ...drag, x, y, leftHand: !inOrigin };
+    if (inOrigin && drag.leftHand) {
+      cancelDrag(drag);
+      return;
+    }
+    const next = { ...drag, x, y, leftHand: !inOrigin };
     setDragging(next);
     return next;
+  }
+
+  function cancelDrag(drag?: CardDrag) {
+    if (drag?.origin && floatingCard.current) {
+      returnHandCard.current = prepareHandReturn(floatingCard.current, drag.origin, drag.cardId);
+    }
+    setDragging(undefined);
   }
 
   function touchHandlers(card: Card, zone: string): TouchDragHandlers {
@@ -205,7 +241,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
         touchDrag.current = { pointerId: event.pointerId, active: false,
-          drag: { card, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
+          drag: { cardId: card.id, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
             origin: event.currentTarget.closest(".hand"), leftHand: false } };
       },
       onPointerMove(event) {
@@ -221,14 +257,16 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         const touch = touchDrag.current;
         if (!touch || touch.pointerId !== event.pointerId) return;
         touchDrag.current = undefined;
-        setDragging(undefined);
         const target = document.elementFromPoint(event.clientX, event.clientY);
-        if (touch.active && target?.closest(".battlefield.home")) playDraggedCard(touch.drag);
+        if (touch.active && target?.closest(".battlefield.home")) {
+          setDragging(undefined);
+          playDraggedCard(touch.drag);
+        } else cancelDrag(touch.drag);
       },
       onLostPointerCapture(event) {
         if (touchDrag.current?.pointerId !== event.pointerId) return;
+        cancelDrag(touchDrag.current.drag);
         touchDrag.current = undefined;
-        setDragging(undefined);
       },
     };
   }
@@ -252,8 +290,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       selected={combat?.state === "choosing" || combat?.state === "attacking" || targets.some((target) => targetIds.includes(target.responseId))}
       activate={activate} inspect={inspect} hover={hoverCard}
       style={fan ? fanPosition(fan.index, fan.count) : undefined}
-      dragging={activeDrag?.card.id === card.id}
-      dragEnd={() => setDragging(undefined)}
+      dragging={activeDrag?.cardId === card.id}
+      dragEnd={(event) => event.dataTransfer.dropEffect === "none" ? cancelDrag(activeDrag) : setDragging(undefined)}
       drag={canDrag ? (event) => dragCard(event, card, zone) : undefined} touch={canDrag ? touchHandlers(card, zone) : undefined} />;
   }
 
@@ -286,13 +324,13 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     event.preventDefault();
     setDragging(undefined);
     const id = event.dataTransfer.getData(cardDragType);
-    if (activeDrag?.card.id === id) playDraggedCard(activeDrag);
+    if (activeDrag?.cardId === id) playDraggedCard(activeDrag);
   }
 
   function playDraggedCard(drag: CardDrag) {
     if (locked || !decision || decision.promptId !== drag.promptId) return;
     chooseAction(decision.options.filter((option) =>
-      option.cardId === drag.card.id && !undoAction(option) && playsCard(option, drag.zone)));
+      option.cardId === drag.cardId && !undoAction(option) && playsCard(option, drag.zone)));
   }
 
   const showPlayer = (player: Player, own: boolean) => {
@@ -326,7 +364,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       </section>
       <aside className="duel-tools">
         {metadata && <p className="score">Game {metadata.gameNumber} · {metadata.score[seat] ?? 0}–{metadata.score[opponent.seat] ?? 0}</p>}
-        {!spectating && <details className="log"><summary>Game log</summary><ol aria-label="Game log">
+        {!spectating && <details className="log"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Game log</summary><ol aria-label="Game log">
           {metadata?.log.map((entry) => <li key={`server-${entry.id}`}>{entry.text}</li>)}
         </ol></details>}
       </aside>
@@ -357,15 +395,18 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       <section className="hand own-hand" data-motion-zone="hand" data-seat={seat} aria-label={spectating ? `${owner.name}'s hand` : "Your hand"}>
         {showHand(hand, false)}
       </section>
-      <SpellStack objects={game.stack} targets={locked ? undefined : decision?.targets} targetIds={targetIds}
+      <SpellStack objects={stack} targets={locked ? undefined : decision?.targets} targetIds={targetIds}
         hoverCard={hoverCard} toggleTarget={toggleTarget} inspect={(id) => { setOpenedZone(undefined); setReviewId(id); }} />
-      <CardMovements key={`${game.roomId}:${game.gameId}:${seat}:${spectating}`} game={game} online={online} />
+      <CardMovements key={`${game.roomId}:${game.gameId}:${seat}:${spectating}`} game={game} online={online} pending={pendingCast} />
       {!spectating && <div className="action-dock">
-        {decision && !priority && !payment && !attackPrompt && !confirmation && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
+        {decision && !priority && !payment && !attackPrompt && !confirmation && !manaPrompt && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
           toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} hoverCard={hoverCard} />}
         {currentMenu?.length && <DecisionPanel key={decision?.promptId} title="Choose an action">
           <Options options={currentMenu} submit={respond} />
-          <footer><button type="button" className="quiet" onClick={() => setActionMenu(undefined)}>Close</button></footer>
+          <footer><button type="button" className="quiet" onClick={(event) => {
+            dismissPanel(event.currentTarget.closest(".decision"));
+            setActionMenu(undefined);
+          }}>Close</button></footer>
         </DecisionPanel>}
         <fieldset className="priority-actions" aria-label="Priority controls" disabled={locked}>
           {confirmation ? <ConfirmationActions confirmation={confirmation} submit={respond} /> : attackPrompt ? <>
@@ -386,7 +427,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
             </section>}
             {priorityOptions.length > 0 && <Options options={priorityOptions} submit={respond} />}
             {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : priority && !game.gameOver && !priorityStops.hold &&
-              <details className="auto-pass"><summary>Auto-pass</summary><div className="choices">
+              <details className="auto-pass"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Auto-pass</summary><div className="choices">
                 <button type="button" onClick={() => setAutoPass({ until: "step", step: game.step, turn: game.turn })}>This step</button>
                 <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
               </div></details>}
@@ -401,23 +442,32 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         </fieldset>
       </div>}
     </section>
+    {manaPrompt && <ManaChoiceMenu key={`${manaPrompt.gameId}:${manaPrompt.promptId}`} prompt={manaPrompt}
+      anchor={manaAnchor.current} locked={locked} submit={respond} />}
     <PhaseControls game={game} turnLabel={turnLabel} myTurn={myTurn} {...priorityStops}
       spectatorNames={spectating ? [owner.name, opponent.name] : undefined} />
-    {activeDrag && <div className="floating-hand-card" aria-hidden="true" style={{ left: activeDrag.x, top: activeDrag.y }}>
-      {activeDrag.card.visible && !activeDrag.card.faceDown ? <>
-        <strong>{activeDrag.card.identity?.name}</strong>
-        <CardImage identity={activeDrag.card.identity} className="table-card-image" decorative eager compact />
+    {activeDrag && dragView && <div ref={floatingCard} className="floating-hand-card" aria-hidden="true" style={{ left: activeDrag.x, top: activeDrag.y }}>
+      {visibleFace(dragView) ? <>
+        <strong>{dragView.identity?.name}</strong>
+        <CardImage identity={dragView.identity} className="table-card-image" decorative eager compact />
       </> : <div className="floating-card-back card-back" />}
     </div>}
     {review && <section className="inspection" aria-label={libraryTop ? "Library top" : "Card preview"}><header><h2>{review.identity?.name || "Face-down card"}</h2>
-      <button type="button" className="quiet" onClick={() => { setReviewId(undefined); if (libraryTop) setOpenedZone(undefined); }}>Close</button></header>
+      <button type="button" className="quiet" onClick={(event) => {
+        dismissPanel(event.currentTarget.closest(".inspection"));
+        setReviewId(undefined);
+        if (libraryTop) setOpenedZone(undefined);
+      }}>Close</button></header>
       {!review.faceDown && <CardImage identity={review.identity} className="preview-card-image" eager />}
       <small>{review.typeLine} {review.identity?.setCode && `· ${review.identity.setCode} ${review.identity.collectorNumber}`}</small>
       <p>{review.oracle}</p>
       {review.counters?.map((counter) => <p key={counter.name}>{counter.name} × {counter.value}</p>)}
     </section>}
     {visibleZone && visibleZone.zone !== "library" && !review && visibleZone.cards.some(visibleFace) && <section className="inspection" aria-label="Zone contents"><header><h2>{visibleZone.zone}</h2>
-      <button type="button" className="quiet" onClick={() => setOpenedZone(undefined)}>Close</button></header>
+      <button type="button" className="quiet" onClick={(event) => {
+        dismissPanel(event.currentTarget.closest(".inspection"));
+        setOpenedZone(undefined);
+      }}>Close</button></header>
       <div className="choice-grid">{visibleZone.cards.filter(visibleFace).map((card) => showCard(card, visibleZone.zone))}</div>
     </section>}
   </main>;

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { ManaPip } from "./ManaSymbols";
 import { useId, useState, type ReactNode } from "react";
 import { CardImage, type CardHover } from "./CardImages";
-import type { Option, Prompt, Response } from "./protocol";
+import { dismissPanel } from "./boardMotion";
+import type { Choice, Option, Prompt, PromptCard, Response, Target } from "./protocol";
 
 export function DecisionPanel({ title, children, compactActions }: {
   title: string; children: ReactNode; compactActions?: ReactNode;
@@ -10,7 +12,10 @@ export function DecisionPanel({ title, children, compactActions }: {
   const [expanded, setExpanded] = useState(true);
   const bodyId = useId();
   return <section className={`decision ${expanded ? "floating" : "collapsed"}`} aria-label={title}>
-    <header><h2>{title}</h2><button className="quiet" type="button" onClick={() => setExpanded(!expanded)}
+    <header><h2>{title}</h2><button className="quiet" type="button" onClick={(event) => {
+      dismissPanel(event.currentTarget.closest(".decision"));
+      setExpanded(!expanded);
+    }}
       aria-expanded={expanded} aria-controls={bodyId}>{expanded ? "Minimize" : "Expand"}</button></header>
     <div className="decision-body" id={bodyId} hidden={!expanded}>{children}</div>
     {!expanded && compactActions}
@@ -19,10 +24,19 @@ export function DecisionPanel({ title, children, compactActions }: {
 
 export function Options({ options, submit }: { options: Option[]; submit: (response: Response) => void }) {
   return <div className="choices">{options.map((option) => <button type="button" key={option.responseId}
-    onClick={() => submit({ responseId: option.responseId })}>{option.label}</button>)}</div>;
+    aria-label={option.kind === "spendFloatingMana" ? `Spend floating ${option.label} mana` : undefined}
+    onClick={() => submit({ responseId: option.responseId })}>
+    {option.kind === "spendFloatingMana" ? <ManaPip symbol={option.label} /> : option.label}
+  </button>)}</div>;
 }
 
 const within = (value: number, min: number, max: number) => value >= min && value <= max;
+
+function selectableFirst<T>(items: T[], isSelectable: (item: T) => boolean) {
+  const selectable: T[] = [], unavailable: T[] = [];
+  for (const item of items) (isSelectable(item) ? selectable : unavailable).push(item);
+  return [...selectable, ...unavailable];
+}
 
 export function simpleConfirmation(prompt?: Prompt) {
   if (!prompt?.supported || prompt.kind !== "chooseBoolean" || prompt.cancellable || prompt.options.length ||
@@ -88,19 +102,25 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
   const [content, enabled, response] = (() => {
     if (!prompt.supported) return [<p role="alert">This Forge decision is unavailable in the browser. {prompt.kind}</p>, false, {}] as const;
     switch (prompt.kind) {
-      case "chooseBoardTargets":
-        return [<div className="choices">{prompt.targets.map((target) => <button key={target.responseId} type="button"
-          aria-pressed={target.selected || targetIds.includes(target.responseId)} disabled={target.selected}
+      case "chooseBoardTargets": {
+        const selectable = (target: Target) => !target.selected &&
+          (targetIds.includes(target.responseId) || targetIds.length < prompt.maxSelections);
+        return [<div className="choices">{selectableFirst(prompt.targets, selectable).map((target) => <button key={target.responseId} type="button"
+          aria-pressed={target.selected || targetIds.includes(target.responseId)} disabled={!selectable(target)}
           onClick={() => toggleTarget(target.responseId)}>{target.label}</button>)}</div>,
           within(targetIds.length, prompt.minSelections, prompt.maxSelections), { targetIds }] as const;
+      }
       case "chooseCards":
       case "mulliganPutBack":
       case "revealCards": {
         const reveal = prompt.kind === "revealCards";
+        const selectable = (card: PromptCard) => !reveal && !card.readOnly &&
+          (cards.includes(card.id) || cards.length < prompt.maxCardSelections);
+        const matching = prompt.cards.filter((card) => card.name.toLowerCase().includes(filter.toLowerCase()));
         return [<><div className="prompt-filter">{prompt.cards.length > 10 && <input aria-label="Filter cards" placeholder="Filter cards"
           value={filter} onChange={(event) => setFilter(event.target.value)} />}{!reveal && <span>{cards.length} selected</span>}</div>
-        <div className="choice-grid">{prompt.cards.filter((card) => card.name.toLowerCase().includes(filter.toLowerCase())).map((card) =>
-          <button className="choice-card" type="button" key={card.id} disabled={reveal || card.readOnly}
+        <div className="choice-grid">{selectableFirst(matching, selectable).map((card) =>
+          <button className="choice-card" type="button" key={card.id} disabled={!selectable(card)}
             onMouseEnter={(event) => hoverCard(card, event.currentTarget)} onMouseLeave={() => hoverCard()}
             aria-pressed={card.selected || cards.includes(card.id)} onClick={() => toggleCard(card.id)}>
             <CardImage identity={card} className="choice-card-image" decorative />
@@ -111,12 +131,14 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled, ho
       case "chooseColor":
       case "chooseFromSelection": {
         const total = choices.reduce((sum, id) => sum + (prompt.choices.find((choice) => choice.responseId === id)?.weight ?? 0), 0);
-        return [<div className="choices">{prompt.choices.map((choice) => {
+        const canAdd = (choice: Choice) => total + choice.weight <= prompt.maxChoiceTotal;
+        const selectable = (choice: Choice) => choices.includes(choice.responseId) || canAdd(choice);
+        return [<div className="choices">{selectableFirst(prompt.choices, selectable).map((choice) => {
           const count = choices.filter((id) => id === choice.responseId).length;
           return <div key={choice.responseId} className="choice-group">
-            <button type="button" aria-pressed={count > 0} onClick={() => {
+            <button type="button" aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
               if (!choice.canRepeat && count) setChoices(choices.filter((id) => id !== choice.responseId));
-              else if (total + choice.weight <= prompt.maxChoiceTotal) setChoices([...choices, choice.responseId]);
+              else if (canAdd(choice)) setChoices([...choices, choice.responseId]);
             }}>{choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
             {choice.canRepeat && count > 0 && <button type="button" aria-label={`Remove ${choice.label}`} onClick={() => {
               const index = choices.lastIndexOf(choice.responseId);

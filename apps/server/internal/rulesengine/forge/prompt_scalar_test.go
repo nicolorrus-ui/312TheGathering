@@ -5,6 +5,8 @@ package forge
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -187,6 +189,39 @@ func TestNormalizeScalarPromptsRejectInvalidBounds(t *testing.T) {
 		raw := json.RawMessage(`{"promptId":24,"decidingPlayerId":"player-0","input":` + input + `}`)
 		if _, err := NormalizePrompt(raw); err == nil {
 			t.Fatalf("invalid scalar prompt unexpectedly succeeded: %s", raw)
+		}
+	}
+}
+
+func TestManaSelectionUsesThePublishedChoiceIDs(t *testing.T) {
+	raw := json.RawMessage(`{"promptId":41,"decidingPlayerId":"player-0","input":{
+		"type":"chooseFromSelection","manaSourceId":"card-12","minTotal":1,"maxTotal":1,
+		"options":[{"label":"Blue and red","weight":1,"manaSymbols":["U","R"]},
+			{"label":"Two blue","weight":1,"manaSymbols":["U","U"]},
+			{"label":"Activate another ability","weight":1}]}}`)
+	view, err := NormalizePrompt(raw)
+	if err != nil || view.ManaSourceID != "card-12" || len(view.Choices) != 3 ||
+		!slices.Equal(view.Choices[0].ManaSymbols, []string{"U", "R"}) ||
+		!slices.Equal(view.Choices[1].ManaSymbols, []string{"U", "U"}) || len(view.Choices[2].ManaSymbols) != 0 {
+		t.Fatalf("mana picker = %+v, %v", view, err)
+	}
+	response, err := BuildPromptResponse(raw, 0, 41, PromptResponse{ResponseID: "$submit", ChoiceIDs: []string{view.Choices[1].ResponseID}})
+	if err != nil || string(response) != `{"output":{"chosenIndices":[1],"type":"selectionDecision"},"type":"chooseFromSelection"}` {
+		t.Fatalf("mana selection = %s, %v", response, err)
+	}
+	optional := json.RawMessage(strings.Replace(string(raw), `"minTotal":1`, `"minTotal":0`, 1))
+	cancelable, err := NormalizePrompt(optional)
+	if err != nil || cancelable.ManaSourceID != "card-12" || cancelable.ChoiceMinimum != 0 {
+		t.Fatalf("optional mana picker = %+v, %v", cancelable, err)
+	}
+	cancel, err := BuildPromptResponse(optional, 0, 41, PromptResponse{ResponseID: "$submit", ChoiceIDs: []string{}})
+	if err != nil || string(cancel) != `{"output":{"chosenIndices":[],"type":"selectionDecision"},"type":"chooseFromSelection"}` {
+		t.Fatalf("cancel mana ability = %s, %v", cancel, err)
+	}
+	for _, source := range []string{"", "card--12", "private text"} {
+		ordinary, err := NormalizePrompt(json.RawMessage(strings.Replace(string(raw), "card-12", source, 1)))
+		if err != nil || ordinary.ManaSourceID != "" || len(ordinary.Choices[0].ManaSymbols) != 0 {
+			t.Fatalf("invalid hint should leave ordinary choices intact: %+v, %v", ordinary, err)
 		}
 	}
 }

@@ -3,8 +3,10 @@
 package server
 
 import (
-	"hexproof/server/internal/rulesengine/forge"
 	"testing"
+
+	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/rulesengine/forge"
 )
 
 func TestProjectedCardMovesPreserveStackInstancesAndRedactPrivateEndpoints(t *testing.T) {
@@ -36,6 +38,39 @@ func TestProjectedCardMovesPreserveStackInstancesAndRedactPrivateEndpoints(t *te
 		}
 		if (viewer == 0) != (m[0].From.ObjectID == "card-4") || m[0].From.Seat != 0 || m[0].To.ObjectID != "stack-19" || m[0].To.Seat != 2 || m[1].To.ObjectID != "" || m[2].To.ObjectID != "card-30" {
 			t.Fatalf("seat %d movement: %+v", viewer, m)
+		}
+	}
+}
+
+func TestAnnouncedCastDoesNotIdentifyAnOpponentsHiddenHandCard(t *testing.T) {
+	game := forgeRoomGame{gameID: "g", playerToSeat: map[int]int{0: 2, 1: 0}}
+	view := forge.GameView{GameID: "g", ActivePlayerID: "player-1", PriorityPlayerID: "player-0",
+		PendingCast: &forge.PendingCastView{ControllerID: "player-0", ID: "casting-7",
+			From:     forge.MoveEndView{Zone: "hand", PlayerID: "player-0", ObjectID: "card-42"},
+			Identity: forge.CardIdentityView{Name: "Exploration", SetCode: "USG", CardNumber: "250"}}}
+	owner, err := normalizeForgeSnapshotForSeat("ROOM", game, view, 2)
+	if err != nil || owner.PendingCast == nil || owner.PendingCast.From.ObjectID != "card-42" {
+		t.Fatalf("owner lost their source: %+v, %v", owner.PendingCast, err)
+	}
+	for _, seat := range []int{-1, 0, 2} {
+		snap, err := normalizeForgeSnapshotForSeat("ROOM", game, view, seat)
+		cast := snap.PendingCast
+		if err != nil || cast == nil || cast.ID != "casting-7" || cast.ControllerSeat != 2 || cast.From.Seat != 2 ||
+			cast.Identity.Name != "Exploration" || (cast.From.ObjectID != "") != (seat == 2) || len(snap.Stack) != 0 {
+			t.Fatalf("seat %d projected announced cast: %+v, %v", seat, cast, err)
+		}
+		if seat == -1 {
+			result := rulesSpectatorSnapshot(snap, map[int]protocol.RulesGameSnapshot{2: owner}, true)
+			if result.PendingCast.From.ObjectID != "" {
+				t.Fatal("watching both hands identified the source in a private hand")
+			}
+		}
+	}
+	view.PendingCast.FaceDown = true
+	for _, seat := range []int{-1, 0, 2} {
+		snap, err := normalizeForgeSnapshotForSeat("ROOM", game, view, seat)
+		if err != nil || snap.PendingCast == nil || snap.PendingCast.Identity != (protocol.RulesCardIdentity{}) {
+			t.Fatalf("seat %d received face-down identity: %+v, %v", seat, snap.PendingCast, err)
 		}
 	}
 }

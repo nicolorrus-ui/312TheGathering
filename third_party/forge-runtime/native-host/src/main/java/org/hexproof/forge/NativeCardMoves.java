@@ -7,6 +7,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import forge.game.Game;
 import forge.game.GameAction;
+import forge.game.GameActionUtil;
 import forge.game.card.Card;
 import forge.game.event.GameEventCardChangeZone;
 import forge.game.event.GameEventSpellAbilityCast;
@@ -21,7 +22,8 @@ final class NativeCardMoves {
     private static final Set<ZoneType> ZONES = EnumSet.of(ZoneType.Hand, ZoneType.Library, ZoneType.Battlefield,
             ZoneType.Graveyard, ZoneType.Exile, ZoneType.Command);
     private record Location(String zone, int player, String object) { }
-    private record End(Location location, Set<Integer> viewers) {
+    private record End(Location location, Set<Integer> viewers, String castId) {
+        End(Location location, Set<Integer> viewers) { this(location, viewers, null); }
         boolean visible(int viewer) { return location.zone().equals("stack") || viewers.contains(viewer); }
         JsonObject project(int viewer) {
             JsonObject end = new JsonObject();
@@ -33,8 +35,11 @@ final class NativeCardMoves {
     }
     private record Move(long id, End from, End to) { }
     private final Game game;
+    private final NativeHandKnowledge knowledge;
     // A physical move to the stack can precede cost payment and can be rolled back.
-    private final Map<Integer, End> entering = new HashMap<>();
+    private record Announcement(String id, End from, Set<Integer> shownTo) { }
+    private final Map<Integer, Announcement> entering = new HashMap<>();
+    private long nextCast;
     private final Map<Integer, End> spells = new HashMap<>();
     private final Map<Integer, Set<Location>> lastVisible = new HashMap<>();
     // Private moves must not leave gaps in another viewer's sequence or evict their public history.
@@ -48,14 +53,27 @@ final class NativeCardMoves {
     }
     private final Map<Integer, History> histories = new HashMap<>();
 
-    NativeCardMoves(Game game) { this.game = game; game.subscribeToEvents(this); }
+    NativeCardMoves(Game game, NativeHandKnowledge knowledge) {
+        this.game = game;
+        this.knowledge = knowledge;
+        game.subscribeToEvents(this);
+    }
+
+    @Subscribe public synchronized void withdrawn(GameActionUtil.WithdrawnSpell event) {
+        Card restored = event.card();
+        Announcement cast = entering.remove(restored.getId());
+        if (cast == null || !restored.isInZone(ZoneType.Hand) || !cast.from().location().zone().equals("hand")) return;
+        for (int viewer : cast.shownTo()) {
+            knowledge.sawVisibleHand(restored, viewer < 0 ? null : game.getRegisteredPlayers().get(viewer));
+        }
+    }
 
     @Subscribe public synchronized void zoneChanged(GameEventCardChangeZone event) {
         if (event.from() == null || event.to() == null || event.from().equals(event.to())) return;
         int cardId = event.card().getId();
         if (event.to().zoneType() == ZoneType.Stack) {
             End source = sourceEnd(event.from(), cardId);
-            if (source != null) entering.put(cardId, source);
+            if (source != null) entering.put(cardId, new Announcement("casting-" + ++nextCast, source, new HashSet<>()));
         } else if (event.from().zoneType() == ZoneType.Stack) {
             entering.remove(cardId); // Includes cancelled casting before a stack instance exists.
             End stack = spells.remove(cardId);
@@ -99,9 +117,12 @@ final class NativeCardMoves {
             if (!ability.isSpell() || ability.isCopied() || card.isCopiedSpell() || card.isToken()) return;
             End stack = stackEnd(instance.getId(), ability.getActivatingPlayer());
             if (stack == null) return;
-            End source = entering.remove(card.getId());
+            Announcement castEntry = entering.remove(card.getId());
+            if (castEntry != null) {
+                stack = new End(stack.location(), stack.viewers(), castEntry.id());
+                add(castEntry.from(), stack, false);
+            }
             spells.put(card.getId(), stack);
-            if (source != null) add(source, stack, false);
             return;
         }
     }
@@ -171,6 +192,42 @@ final class NativeCardMoves {
             }
         }
         lastVisible.put(viewer, visible);
+        // The physical card enters the public stack zone before targets and costs are
+        // finalized. Neither the announcement ID nor its public face identifies a slot
+        // in a private hand. A cancelled attempt gets a new ID if it is announced again.
+        if (!entering.isEmpty() && !game.isGameOver()) {
+            Player observer = viewer < 0 ? null : game.getRegisteredPlayers().get(viewer);
+            for (Card card : game.getStackZone().getCards()) {
+                Announcement announcement = entering.get(card.getId());
+                var ability = card.getCastSA();
+                if (announcement == null || ability == null || !ability.isSpell() || ability.getActivatingPlayer() == null) continue;
+                JsonObject pending = new JsonObject();
+                pending.addProperty("id", announcement.id());
+                pending.addProperty("controllerId", NativeSnapshot.playerId(game, ability.getActivatingPlayer()));
+                pending.add("from", announcement.from().project(viewer));
+                boolean faceDown = card.isFaceDown() || ability.isCastFaceDown();
+                pending.addProperty("faceDown", faceDown);
+                JsonObject face = new JsonObject();
+                if (!faceDown && NativeSnapshot.canSeeIdentity(card, observer)) {
+                    face = NativeSnapshot.identity(card);
+                    if (face.has("name") && !face.get("name").getAsString().isBlank()) announcement.shownTo().add(viewer);
+                }
+                pending.add("identity", face);
+                snapshot.add("pendingCast", pending);
+                break;
+            }
+        }
+        if (!spells.isEmpty()) {
+            Map<String, String> casts = new HashMap<>();
+            for (End spell : spells.values()) {
+                if (spell.castId() != null) casts.put(spell.location().object(), spell.castId());
+            }
+            for (var value : snapshot.getAsJsonArray("stack")) {
+                var object = value.getAsJsonObject();
+                String castId = casts.get(object.get("id").getAsString());
+                if (castId != null) object.addProperty("castId", castId);
+            }
+        }
         History history = histories.get(viewer);
         if (history == null) return;
         JsonArray moves = new JsonArray();
@@ -178,6 +235,7 @@ final class NativeCardMoves {
             JsonObject move = new JsonObject();
             move.addProperty("id", event.id());
             move.add("from", event.from().project(viewer)); move.add("to", event.to().project(viewer));
+            if (event.to().castId() != null) move.addProperty("castId", event.to().castId());
             moves.add(move);
         }
         snapshot.add("cardMoves", moves);

@@ -26,9 +26,13 @@ async function verifyStackPile(page, update, send, events) {
   const newest = { ...spell, id: "stack-6", identity: { name: "Counterspell" }, text: "Counter target spell." };
   const push = (stack) => update({ ...empty(), stack });
   const inspect = page.getByRole("region", { name: "Card preview" });
+  const settle = () => pile.evaluate(async (stack) => {
+    await new Promise(requestAnimationFrame);
+    await Promise.allSettled(stack.parentElement.getAnimations({ subtree: true }).map((animation) => animation.finished));
+  });
   const edge = async (id) => {
     const rect = await object(id).boundingBox();
-    const [x, y] = [rect.x + rect.width / 2, rect.y + rect.height - 7];
+    const [x, y] = [rect.x + 7, rect.y + rect.height / 2];
     assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[data-stack-id]")?.dataset.stackId,
       [x, y]), id, "the lower card must have a pointer-accessible edge");
     return [x, y];
@@ -47,11 +51,13 @@ async function verifyStackPile(page, update, send, events) {
     // Forge sends top first. Verify the actual pointer hit where all three card images overlap.
     push([newest, middle, spell]);
     await object(newest.id).waitFor();
+    await settle();
     const [front, back] = await Promise.all([object(newest.id).boundingBox(), object(spell.id).boundingBox()]);
-    const overlap = Math.min(front.y + front.height, back.y + back.height) - Math.max(front.y, back.y);
-    assert.ok(overlap > front.height / 4, "three stack cards should visibly overlap");
+    assert.ok(front.x > back.x && Math.abs(front.y - back.y) < 2, "the newest card must be to the right");
+    const overlap = Math.min(front.x + front.width, back.x + back.width) - Math.max(front.x, back.x);
+    assert.ok(overlap > 2, "three stack cards should visibly overlap");
     const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[data-stack-id]")?.dataset.stackId,
-      [front.x + front.width / 2, Math.max(front.y, back.y) + overlap / 2]);
+      [Math.max(front.x, back.x) + overlap / 2, front.y + front.height / 2]);
     assert.equal(hit, newest.id, "the newest object must cover older spells and abilities");
     await page.mouse.move(...await edge(middle.id));
     await page.locator(".card-hover-preview").getByText(middle.identity.name, { exact: true }).waitFor();
@@ -74,6 +80,7 @@ async function verifyStackPile(page, update, send, events) {
     await choice.waitFor({ state: "detached" });
     push([middle, spell]);
     await object(newest.id).waitFor({ state: "detached" });
+    await settle();
     const center = point(await object(middle.id).boundingBox());
     await page.mouse.click(...center);
     await inspect.getByText(middle.text, { exact: true }).waitFor();
@@ -83,24 +90,37 @@ async function verifyStackPile(page, update, send, events) {
   push(many);
   const last = many.at(-1).id;
   await object(last).waitFor({ state: "attached" });
+  await settle();
   await pile.hover();
   await page.mouse.wheel(0, 2000);
   await page.waitForFunction(() => {
     const stack = document.querySelector("[data-motion-zone=stack] aside");
-    return stack.scrollTop > 0 && stack.scrollTop + stack.clientHeight >= stack.scrollHeight - 2;
+    return stack.scrollLeft < 0 && Math.abs(stack.scrollLeft) + stack.clientWidth >= stack.scrollWidth - 2;
   });
   await page.mouse.click(...await edge(last));
   await inspect.getByText(middle.text, { exact: true }).waitFor();
   await inspect.getByRole("button", { name: "Close" }).click();
-  assert.ok(await pile.evaluate((stack) => stack.scrollTop > 0));
+  assert.ok(await pile.evaluate((stack) => stack.scrollLeft < 0));
+  await object(last).focus();
+  await page.keyboard.press("Home");
+  await page.waitForFunction(() => Math.abs(document.querySelector("[data-motion-zone=stack] aside").scrollLeft) < 1);
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.stackId), many[0].id);
+  await page.keyboard.press("End");
+  await page.waitForFunction(() => {
+    const stack = document.querySelector("[data-motion-zone=stack] aside");
+    return Math.abs(stack.scrollLeft) + stack.clientWidth >= stack.scrollWidth - 2;
+  });
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.stackId), last);
   push([newest, ...many]);
   await object(newest.id).waitFor({ state: "attached" });
-  await page.waitForFunction(() => document.querySelector("[data-motion-zone=stack] aside").scrollTop === 0);
+  await settle();
+  await page.waitForFunction(() => Math.abs(document.querySelector("[data-motion-zone=stack] aside").scrollLeft) < 1);
   const topCenter = point(await object(newest.id).boundingBox());
   assert.equal(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("[data-stack-id]")?.dataset.stackId,
     topCenter), newest.id, "a new spell should be in front and visible after scrolling deep into the stack");
   push([spell]);
   await object(spell.id).waitFor();
+  await settle();
 }
 
 try {
@@ -113,7 +133,7 @@ try {
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (...args) {
       const run = animate.apply(this, args);
-      if (this.matches(".moving-card")) run.pause();
+      if (this.matches(".moving-card, [data-returning]")) run.pause();
       return run;
     };
   });
@@ -125,7 +145,7 @@ try {
   const moves = [];
   const send = (type, payload) => socket.send(JSON.stringify({ type, payload }));
   const update = (game, ...next) => {
-    moves.push(...next.map(([from, to]) => ({ id: ++count, from, to })));
+    moves.push(...next.map(([from, to, castId]) => ({ id: ++count, from, to, castId })));
     send("rules.snapshot", { ...game, cardMoves: [...moves] });
   };
   const stack = () => ({ ...empty(), stack: [spell] });
@@ -168,6 +188,69 @@ try {
     await ghost.waitFor({ state: "detached" });
     assert.equal(await page.locator("[data-arriving]").count(), 0);
   };
+  // Receiving the real stack entry preserves
+  // its thumbnail and must not replay the inbound flight, even when the first flight is unfinished.
+  const owned = card("card-81");
+  const ownedHand = empty();
+  Object.assign(ownedHand.zones.find((zone) => zone.zone === "hand" && zone.ownerSeat === 0), { count: 1, cards: [owned] });
+  const origin = at("hand", 0, owned.id);
+  const pending = { ...empty(), pendingCast: { id: "casting-81", controllerSeat: 0, identity, from: origin } };
+  const pendingCard = tray.locator("[data-pending]");
+  const paid = { ...spell, id: "stack-81", castId: "casting-81" };
+  update(ownedHand);
+  await page.locator('[data-card-id="card-81"]').waitFor();
+  update(pending);
+  await pendingCard.waitFor({ state: "attached" });
+  assert.equal(await pendingCard.getAttribute("data-actionable"), "false");
+  await ghost.waitFor();
+  assert.equal(await ghost.getAttribute("data-to"), "stack");
+  await finish();
+  update(ownedHand);
+  await ghost.waitFor();
+  assert.equal(await ghost.getAttribute("data-from"), "stack");
+  assert.equal(await ghost.getAttribute("data-to"), "hand");
+  await finish();
+  update(pending);
+  await pendingCard.waitFor({ state: "attached" });
+  await ghost.waitFor();
+  await pendingCard.evaluate((el) => el.dataset.testContinuity = "before-payment");
+  await ghost.evaluate((el) => el.dataset.testContinuity = "original-flight");
+  update({ ...empty(), stack: [paid] }, [origin, at("stack", 0, paid.id), paid.castId]);
+  await tray.locator('[data-stack-id="stack-81"]').waitFor({ state: "attached" });
+  assert.equal(await tray.getByRole("button").count(), 1);
+  assert.equal(await pendingCard.count(), 0);
+  assert.equal(await tray.locator("[data-stack-id]").getAttribute("data-test-continuity"), "before-payment");
+  assert.equal(await ghost.getAttribute("data-test-continuity"), "original-flight");
+  await finish();
+
+  // An observer learns the ordinary spell's public face when it enters the stack.
+  // Its cancellation returns a back to the hand, without an identifiable hand slot.
+  const unknownOrigin = at("hand", 1);
+  update({ ...empty(), pendingCast: { id: "casting-82", controllerSeat: 1, from: unknownOrigin, identity } });
+  await pendingCard.waitFor({ state: "attached" });
+  await ghost.waitFor();
+  await finish();
+  update(empty());
+  await ghost.waitFor();
+  assert.equal(await ghost.getAttribute("data-to"), "hand");
+  assert.ok(await ghost.evaluate((el) => el.classList.contains("card-back") && !el.textContent && !el.querySelector("img")));
+  await finish();
+  // A cast and its resolution can arrive together. The public announcement supplies
+  // the exact stack source even though the hand source was anonymous all along.
+  update({ ...empty(), pendingCast: { id: "casting-83", controllerSeat: 1, from: unknownOrigin, identity } });
+  await pendingCard.waitFor({ state: "attached" });
+  await ghost.waitFor();
+  await finish();
+  const resolved = empty();
+  Object.assign(resolved.zones.find((zone) => zone.zone === "battlefield" && zone.ownerSeat === 1),
+    { count: 1, cards: [card("card-83", 1)] });
+  update(resolved, [unknownOrigin, at("stack", 1, "stack-83"), "casting-83"],
+    [at("stack", 1, "stack-83"), at("battlefield", 1, "card-83")]);
+  await ghost.waitFor();
+  assert.equal(await ghost.getAttribute("data-from"), "stack");
+  assert.equal(await ghost.getAttribute("data-to"), "battlefield");
+  assert.equal(await ghost.count(), 1);
+  await finish();
   // Public destinations use the exact visible card; hidden destinations expose only the pile.
   for (const [zone, seat, known] of [["hand", 0, true], ["hand", 1, false], ["library", 0, false],
     ["battlefield", 0, true], ["graveyard", 0, true], ["exile", 0, true]]) {
@@ -260,6 +343,23 @@ try {
   assert.equal(await ghost.count(), 0);
   assert.equal(await page.locator("[data-arriving]").count(), 0);
   await page.emulateMedia({ reducedMotion: "no-preference" });
+  update(hand, [onStack, held]);
+  await ghost.waitFor();
+  await page.locator(".table").evaluate((el) => { el.style.minHeight = "1650px"; window.scrollTo(0, 300); });
+  await ghost.waitFor({ state: "detached" });
+  assert.equal(await page.locator("[data-arriving]").count(), 0, "scrolling releases the card at its new screen position");
+  await page.locator(".table").evaluate((el) => { el.style.minHeight = ""; window.scrollTo(0, 0); });
+  send("rules.prompt", { roomId, gameId: hand.gameId, promptId: 9011, pending: true, supported: true, kind: "chooseAction",
+    options: [{ kind: "cast", cardId: held.objectId, responseId: "cast", label: "Cast" }], targets: [], choices: [], cards: [] });
+  const inHand = page.locator('.own-hand [draggable="true"]');
+  await inHand.dragTo(page.locator(".battlefield.away"));
+  const returning = page.locator(".own-hand [data-returning]");
+  await returning.waitFor();
+  await returning.evaluate((card) => { card.getAnimations()[0].currentTime = 90; });
+  update(single(at("hand", 0)));
+  await returning.waitFor({ state: "detached" });
+  assert.equal(await page.locator(".floating-hand-card, .own-hand img").count(), 0,
+    "a cancelled drag must lose its face as soon as the viewer loses the hand card");
   await Promise.all([once(events, "resumed", { signal: AbortSignal.timeout(6000) }),
     socket.close({ code: 1001, reason: "exercise resumption" })]);
   await thumbnail.waitFor();

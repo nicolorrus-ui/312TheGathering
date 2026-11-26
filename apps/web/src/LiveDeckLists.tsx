@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { ManaPip } from "./ManaSymbols";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useCardHover } from "./CardImages";
 import { printingKey } from "./decks";
@@ -14,21 +15,6 @@ function manaValue(cost: string) {
     if (!symbol || symbol === "//" || symbol === "X") return total;
     return total + (Number.parseInt(symbol, 10) || (symbol === "0" ? 0 : 1));
   }, 0);
-}
-
-const manaGlyphs: Record<string, number> = {
-  W: 0xe600, U: 0xe601, B: 0xe602, R: 0xe603, G: 0xe604, X: 0xe615, S: 0xe619, C: 0xe904,
-};
-
-function ManaPip({ symbol }: { symbol: string }) {
-  if (symbol === "//") return <span>//</span>;
-  let code = manaGlyphs[symbol];
-  if (/^(?:[0-9]|1[0-5])$/.test(symbol)) code = 0xe605 + Number(symbol);
-  else if (/^(?:1[6-9]|20)$/.test(symbol)) code = 0xe62a + Number(symbol) - 16;
-  const text = /^[2WUBRGCP]{2,3}$/.test(symbol) && !/^\d+$/.test(symbol) ? [...symbol].join("/") : symbol;
-  return <span className="deck-pip" data-color={symbol} data-glyph={Boolean(code)}>
-    {code ? String.fromCodePoint(code) : text}
-  </span>;
 }
 
 function DeckSection({ name, cards, index }: { name: string; cards: DeckCard[]; index: CardIndex }) {

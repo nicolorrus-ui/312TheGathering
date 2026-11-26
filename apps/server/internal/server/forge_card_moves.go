@@ -10,6 +10,22 @@ import (
 	"hexproof/server/internal/rulesengine/forge"
 )
 
+func projectedPendingCast(raw *forge.PendingCastView, viewerSeat int, seatForID func(string) (int, error)) *protocol.RulesPendingCast {
+	if raw == nil || validatedCastID(raw.ID) == "" {
+		return nil
+	}
+	controller, err := seatForID(raw.ControllerID)
+	from, ok := projectedMoveEnd(raw.From, viewerSeat, seatForID)
+	if err != nil || !ok || from.Zone == "stack" {
+		return nil
+	}
+	cast := &protocol.RulesPendingCast{ID: raw.ID, ControllerSeat: controller, From: from}
+	if !raw.FaceDown && raw.Identity.Name != "" {
+		cast.Identity = rulesIdentity(raw.Identity)
+	}
+	return cast
+}
+
 // Movement history includes objects that have already left the current view. The
 // native viewer projection records visibility at movement time. Constrain each
 // endpoint again at the transport boundary, including private hand seat ownership.
@@ -32,7 +48,11 @@ func projectedCardMoves(moves []forge.CardMoveView, viewerSeat int, seatForID fu
 			continue
 		}
 		previous = move.ID
-		result = append(result, protocol.RulesCardMove{ID: move.ID, From: from, To: to})
+		projected := protocol.RulesCardMove{ID: move.ID, From: from, To: to}
+		if to.Zone == "stack" {
+			projected.CastID = validatedCastID(move.CastID)
+		}
+		result = append(result, projected)
 	}
 	return result
 }
@@ -58,9 +78,21 @@ func projectedMoveEnd(raw forge.MoveEndView, viewerSeat int, seatForID func(stri
 	if end.Zone == "stack" {
 		prefix = "stack-"
 	}
-	suffix, ok := strings.CutPrefix(raw.ObjectID, prefix)
-	if n, err := strconv.ParseUint(suffix, 10, 31); ok && err == nil && strconv.FormatUint(n, 10) == suffix {
+	if validMoveObject(raw.ObjectID, prefix) {
 		end.ObjectID = raw.ObjectID
 	}
 	return end, end.Zone != "stack" || end.ObjectID != ""
+}
+
+func validMoveObject(id, prefix string) bool {
+	suffix, ok := strings.CutPrefix(id, prefix)
+	n, err := strconv.ParseUint(suffix, 10, 31)
+	return ok && err == nil && strconv.FormatUint(n, 10) == suffix
+}
+
+func validatedCastID(id string) string {
+	if validMoveObject(id, "casting-") {
+		return id
+	}
+	return ""
 }

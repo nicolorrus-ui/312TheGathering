@@ -83,9 +83,10 @@ type RulesZoneState struct {
 }
 
 type RulesCardMove struct {
-	ID   int64        `json:"id"`
-	From RulesMoveEnd `json:"from"`
-	To   RulesMoveEnd `json:"to"`
+	CastID string       `json:"castId,omitempty"`
+	ID     int64        `json:"id"`
+	From   RulesMoveEnd `json:"from"`
+	To     RulesMoveEnd `json:"to"`
 }
 
 type RulesMoveEnd struct {
@@ -94,7 +95,16 @@ type RulesMoveEnd struct {
 	ObjectID string `json:"objectId,omitempty"`
 }
 
+// RulesPendingCast projects an announced physical spell before its stack instance is targetable.
+type RulesPendingCast struct {
+	ID             string            `json:"id"`
+	ControllerSeat int               `json:"controllerSeat"`
+	From           RulesMoveEnd      `json:"from"`
+	Identity       RulesCardIdentity `json:"identity"`
+}
+
 type RulesStackObject struct {
+	CastID         string             `json:"castId,omitempty"`
 	ID             string             `json:"id"`
 	SourceID       string             `json:"sourceId"`
 	ControllerSeat int                `json:"controllerSeat"`
@@ -125,10 +135,11 @@ type RulesPromptOption struct {
 // RulesPromptChoice is a countable scalar choice with a prompt-local opaque
 // response id. Weight contributes to the prompt's required total.
 type RulesPromptChoice struct {
-	ResponseID string `json:"responseId"`
-	Label      string `json:"label"`
-	Weight     int    `json:"weight"`
-	CanRepeat  bool   `json:"canRepeat"`
+	ResponseID  string   `json:"responseId"`
+	Label       string   `json:"label"`
+	Weight      int      `json:"weight"`
+	CanRepeat   bool     `json:"canRepeat"`
+	ManaSymbols []string `json:"manaSymbols,omitempty"`
 }
 
 // RulesPromptCard is a private card identity projected only to the authenticated
@@ -264,6 +275,7 @@ type RulesPrompt struct {
 	Supported            bool                      `json:"supported"`
 	AutoPassEligible     bool                      `json:"autoPassEligible,omitempty"`
 	PaymentID            string                    `json:"paymentId,omitempty"`
+	ManaSourceID         string                    `json:"manaSourceId,omitempty"`
 	Title                string                    `json:"title"`
 	Detail               string                    `json:"detail"`
 	Options              []RulesPromptOption       `json:"options"`
@@ -336,6 +348,7 @@ type RulesGameSnapshot struct {
 	Players       []RulesPlayerState `json:"players"`
 	Zones         []RulesZoneState   `json:"zones"`
 	Stack         []RulesStackObject `json:"stack"`
+	PendingCast   *RulesPendingCast  `json:"pendingCast,omitempty"`
 	CardMoves     []RulesCardMove    `json:"cardMoves,omitempty"`
 	GameOver      bool               `json:"gameOver"`
 	WinnerSeat    *int               `json:"winnerSeat,omitempty"`

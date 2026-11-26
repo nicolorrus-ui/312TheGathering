@@ -25,6 +25,7 @@ type GameView struct {
 	Players          []PlayerView      `json:"players"`
 	Zones            []ZoneView        `json:"zones"`
 	Stack            []StackObjectView `json:"stack"`
+	PendingCast      *PendingCastView  `json:"pendingCast,omitempty"`
 	CardMoves        []CardMoveView    `json:"cardMoves,omitempty"`
 	GameOver         bool              `json:"gameOver"`
 	WinnerID         string            `json:"winnerId,omitempty"`
@@ -98,10 +99,19 @@ type CardAnnotationView struct {
 	Value string `json:"value"`
 }
 
+type PendingCastView struct {
+	ID           string           `json:"id"`
+	ControllerID string           `json:"controllerId"`
+	From         MoveEndView      `json:"from"`
+	FaceDown     bool             `json:"faceDown,omitempty"`
+	Identity     CardIdentityView `json:"identity"`
+}
+
 type CardMoveView struct {
-	ID   int64       `json:"id"`
-	From MoveEndView `json:"from"`
-	To   MoveEndView `json:"to"`
+	CastID string      `json:"castId,omitempty"`
+	ID     int64       `json:"id"`
+	From   MoveEndView `json:"from"`
+	To     MoveEndView `json:"to"`
 }
 
 type MoveEndView struct {
@@ -111,6 +121,7 @@ type MoveEndView struct {
 }
 
 type StackObjectView struct {
+	CastID       string            `json:"castId,omitempty"`
 	ID           string            `json:"id"`
 	SourceID     string            `json:"sourceId"`
 	ControllerID string            `json:"controllerId"`

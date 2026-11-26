@@ -3,12 +3,16 @@
 package org.hexproof.forge;
 
 import com.google.gson.*;
+import forge.game.GameActionUtil;
 import forge.game.GameStage;
+import forge.game.cost.CostPayment;
 import forge.game.ability.AbilityFactory;
 import forge.game.card.Card;
 import forge.game.card.CardFactory;
 import forge.game.phase.PhaseType;
 import forge.game.player.Player;
+import forge.game.player.PlaySpellAbility;
+import forge.player.PlayerControllerHuman;
 import forge.game.spellability.SpellAbility;
 import forge.game.zone.ZoneType;
 import forge.gui.GuiBase;
@@ -26,6 +30,18 @@ public final class NativeCardMovesRegressionTest {
             FModel.initialize(null, prefs -> {prefs.setPref(FPref.DECKGEN_CARDBASED, false); return null;});
             try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("ordinary",42),base);
                  var scope = session.context.enter()) { base.setTestSession(session); ordinary(session); }
+            for (String mode : List.of("cancel", "confirm", "morph")) {
+                try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("pay", 42), base);
+                     var scope = session.context.enter()) {
+                    base.setTestSession(session);
+                    pendingCast(session, mode);
+                }
+            }
+            try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("disclosure", 42), base);
+                 var scope = session.context.enter()) {
+                base.setTestSession(session);
+                selectiveRollback(session);
+            }
             for (String copy : List.of("permanent", "instant", "countered")) {
                 try (NativeSession session = new NativeSession(NativeIsolationRegressionTest.setup("copy", 42), base);
                      var scope = session.context.enter()) {
@@ -47,6 +63,103 @@ public final class NativeCardMovesRegressionTest {
         }
         System.out.println("PASS native card movements: private searches, draws, lands, discards, bounce, five spell destinations, replacements and token copies");
     }
+    private static void pendingCast(NativeSession session, String mode) throws Exception {
+        var game = session.game;
+        var caster = game.getPlayers().get(0);
+        game.setAge(GameStage.Play);
+        game.setStartingPlayer(caster);
+        game.getPhaseHandler().devModeSet(PhaseType.MAIN1, caster, false, 1);
+        boolean morph = mode.equals("morph");
+        boolean cancel = mode.equals("cancel");
+        for (int i = 0; i < (morph ? 3 : 1); i++) card(game, caster, "Forest", ZoneType.Battlefield);
+        String name = morph ? "Willbender" : "Exploration";
+        Card spell = card(game, caster, name, ZoneType.Hand);
+        Card duplicate = card(game, caster, name, ZoneType.Hand);
+        for (int viewer = -1; viewer < 2; viewer++) moves(session, viewer);
+        String id = NativeSession.cardId(spell);
+        var seen = new ArrayList<String>();
+        drive(session, caster, () -> {
+            var chosen = morph ? spell.getAllPossibleAbilities(caster, true).stream().filter(SpellAbility::isCastFaceDown)
+                    .findFirst().orElseThrow() : spell.getFirstSpellAbility();
+            if (!cancel) {
+                require(!PlaySpellAbility.playSpellAbility((PlayerControllerHuman) caster.getController(),
+                        caster, chosen), "First cast was not cancelled");
+                checkKnownHand(session, -1, morph ? null : id);
+                checkKnownHand(session, 1, morph ? null : id);
+                // A real priority input after cancellation shows the card back in its owner's hand.
+                for (int viewer = -1; viewer < 2; viewer++) moves(session, viewer);
+            }
+            boolean cast = PlaySpellAbility.playSpellAbility((PlayerControllerHuman) caster.getController(), caster, chosen);
+            require(cast != cancel, "Unexpected casting outcome");
+        }, input -> {
+            require("payManaCost".equals(input.get("type").getAsString()), "Unexpected " + input);
+            for (int viewer = -1; viewer < 2; viewer++) {
+                JsonObject snap = JsonParser.parseString(session.snapshot(viewer)).getAsJsonObject();
+                require(snap.getAsJsonArray("stack").isEmpty(), "Unpaid spell was targetable");
+                JsonObject pending = snap.getAsJsonObject("pendingCast");
+                String attempt = pending.get("id").getAsString();
+                if (viewer == -1) {
+                    require(!seen.contains(attempt), "Recasting exposed a stable private hand ID");
+                    seen.add(attempt);
+                }
+                JsonObject face = pending.getAsJsonObject("identity");
+                JsonObject from = pending.getAsJsonObject("from");
+                require(!pending.has("sourceId") && attempt.equals(seen.getLast()) && attempt.matches("casting-[0-9]+")
+                        && (viewer == 0 ? from.has("objectId") && id.equals(from.get("objectId").getAsString()) : !from.has("objectId"))
+                        && (morph ? face.isEmpty() : name.equals(face.get("name").getAsString())),
+                        "Incorrect announced face or hidden source for viewer " + viewer + ": " + pending);
+            }
+            return NativeSession.object("type", cancel || seen.size() == 1 ? "cancel" : "pay");
+        });
+        for (int viewer = -1; viewer < 2; viewer++) {
+            JsonObject snap = JsonParser.parseString(session.snapshot(viewer)).getAsJsonObject();
+            require(!snap.has("pendingCast"), "Finished or cancelled cast remained pending");
+            JsonArray stack = snap.getAsJsonArray("stack");
+            require(cancel ? stack.isEmpty() && caster.getCardsIn(ZoneType.Hand).contains(spell)
+                    : stack.size() == 1 && id.equals(stack.get(0).getAsJsonObject().get("sourceId").getAsString())
+                            && seen.getLast().equals(stack.get(0).getAsJsonObject().get("castId").getAsString()),
+                    "Cast rollback or stack handoff lost the exact physical card");
+        }
+        if (cancel) {
+            checkKnownHand(session, -1, id);
+            checkKnownHand(session, 1, id);
+            game.getAction().moveToLibrary(duplicate, null);
+            checkKnownHand(session, -1, null);
+            checkKnownHand(session, 1, null);
+        }
+    }
+
+    private static void selectiveRollback(NativeSession session) {
+        var game = session.game;
+        Player caster = game.getPlayers().get(0);
+        for (boolean discloseToOpponent : List.of(false, true)) {
+            Card physical = card(game, caster, "Grizzly Bears", ZoneType.Hand);
+            var hand = caster.getZone(ZoneType.Hand);
+            var ability = physical.getFirstSpellAbility();
+            ability.setActivatingPlayer(caster);
+            ability.setHostCard(game.getAction().moveToStack(physical, ability));
+            // Reproduce a cancellation with no published announcement, or just one authorized view.
+            if (discloseToOpponent) moves(session, 1);
+            GameActionUtil.rollbackAbility(ability, hand, 0, new CostPayment(ability.getPayCosts(), ability), physical);
+            checkKnownHand(session, -1, null);
+            checkKnownHand(session, 1, discloseToOpponent ? NativeSession.cardId(physical) : null);
+        }
+    }
+
+    private static void checkKnownHand(NativeSession session, int viewer, String expected) {
+        var snapshot = NativeSnapshot.capture(session.game, session.id, viewer, null, session.knowledge);
+        for (var zoned : snapshot.getAsJsonArray("zones")) {
+            var zone = zoned.getAsJsonObject();
+            if (!"player-0".equals(zone.get("ownerId").getAsString()) || !"hand".equals(zone.get("zone").getAsString())) continue;
+            var cards = zone.getAsJsonArray("cards");
+            require(expected == null ? cards.isEmpty() : cards.size() == 1
+                    && expected.equals(cards.get(0).getAsJsonObject().get("id").getAsString()),
+                    "Incorrect remembered hand for viewer " + viewer + ": " + cards);
+            return;
+        }
+        throw new AssertionError("Missing hand");
+    }
+
     private static void spellCopy(NativeSession s, String mode) {
         var g = s.game;
         Player a = g.getPlayers().get(0), b = g.getPlayers().get(1);
@@ -65,7 +178,7 @@ public final class NativeCardMovesRegressionTest {
         for (int i = 0; i < history.size(); i++) {
             JsonObject from = end(history, i, "from"), to = end(history, i, "to");
             require(!to.has("objectId") || !id.equals(to.get("objectId").getAsString()), "Copy invented a physical origin");
-            if (from.has("objectId") && id.equals(from.get("objectId").getAsString())) destination = to;
+            if (from.has("objectId") && from.has("objectId") && id.equals(from.get("objectId").getAsString())) destination = to;
         }
         if (mode.equals("permanent")) {
             require(destination != null && destination.get("zone").getAsString().equals("battlefield")

@@ -189,7 +189,15 @@ func TestLiveForgeLotusBloom(t *testing.T) {
 				t.Fatalf("unexpected Lotus menu: %+v", prompt)
 			}
 			for _, choice := range prompt.Choices {
-				if choice.Label == "BLUE" {
+				blue := choice.Label == "BLUE"
+				if prompt.ManaSourceID != "" {
+					if len(choice.ManaSymbols) != 3 || choice.ManaSymbols[0] != choice.ManaSymbols[1] ||
+						choice.ManaSymbols[1] != choice.ManaSymbols[2] {
+						t.Fatalf("Lotus color must represent three mana of one color: %+v", choice)
+					}
+					blue = choice.ManaSymbols[0] == "U"
+				}
+				if blue {
 					answer.ChoiceIDs = []string{choice.ResponseID}
 					colorChosen = manualActivated
 					paymentColorChosen = paymentColorChosen || manualPaid

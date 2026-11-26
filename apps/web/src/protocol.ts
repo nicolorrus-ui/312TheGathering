@@ -18,19 +18,21 @@ export type Counter = { name: string; value: number };
 export type Player = { seat: number; name: string; life: number; manaPool: Counter[]; status: string };
 export type Zone = { zone: string; ownerSeat: number; count: number; cards: Card[] };
 export type MoveEndpoint = { zone: string; seat: number; objectId?: string };
-export type CardMove = { id: number; from: MoveEndpoint; to: MoveEndpoint };
-export type StackObject = { id: string; identity: Identity; text: string; controllerSeat: number };
+export type CardMove = { id: number; castId?: string; from: MoveEndpoint; to: MoveEndpoint };
+export type PendingCast = { id: string; controllerSeat: number; from: MoveEndpoint; identity: Identity };
+export type StackObject = { id: string; castId?: string; identity: Identity; text: string; controllerSeat: number };
 export type Snapshot = {
   roomId: string; gameId: string; turn: number; step: string; activeSeat: number; prioritySeat: number;
   players: Player[]; zones: Zone[]; stack: StackObject[]; gameOver: boolean; winnerSeat?: number;
-  promptFollows?: boolean; cardMoves?: CardMove[];
+  promptFollows?: boolean; cardMoves?: CardMove[]; pendingCast?: PendingCast;
 };
 export type Option = { responseId: string; kind: string; label: string; cardId?: string };
 export type Target = Option & { objectId?: string; seat?: number; selected?: boolean };
-export type Choice = { responseId: string; label: string; weight: number; canRepeat: boolean };
+export type Choice = { responseId: string; label: string; weight: number; canRepeat: boolean; manaSymbols?: string[] };
 export type PromptCard = Identity & { id: string; selected?: boolean; readOnly?: boolean };
 export type Prompt = {
   roomId: string; gameId: string; pending: boolean; promptId: number; kind: string; supported: boolean;
+  manaSourceId?: string;
   title: string; detail: string; options: Option[]; contextText: string; contextCards: PromptCard[];
   targets: Target[]; choices: Choice[]; cards: PromptCard[]; cancellable: boolean;
   minSelections: number; maxSelections: number; minCardSelections: number; maxCardSelections: number;
