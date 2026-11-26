@@ -169,6 +169,12 @@ The server requests matching cards from Scryfall, caches each results page for
 ten minutes, and shares its request limit with card-art lookups. Each result
 identifies the set and collector number used to display and save that printing.
 
+If the host cannot reach Scryfall reliably, set `CLUB_LOCAL_CATALOG=1` when
+starting the club bundle (or pass `-e CLUB_LOCAL_CATALOG=1` to `docker run`).
+Search and printing selection then use the card catalog bundled from Forge.
+Printings are limited to the bundled data. Artwork still uses the configured
+local image pack and the existing Scryfall lookup where available.
+
 The club server serves the image pack from its deployed `web/assets/cards/`
 directory. To build or extend a pack, save MTGA or MTGO deck exports as UTF-8
 text files, then run the importer on your Linux host or in WSL.

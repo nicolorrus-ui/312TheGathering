@@ -32,7 +32,7 @@ func TestClubOfflineCatalogRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	if err := registerClubCardRoutes(mux, fstest.MapFS{offlineCatalogPath: {Data: data}}, true, nil); err != nil {
+	if err := registerClubCardRoutes(mux, fstest.MapFS{offlineCatalogPath: {Data: data}}, true, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	image := httptest.NewRecorder()
@@ -82,11 +82,32 @@ func TestClubOfflineRequiresCatalogAndOnlineDoesNot(t *testing.T) {
 		if data != "" {
 			files[offlineCatalogPath] = &fstest.MapFile{Data: []byte(data)}
 		}
-		if err := registerClubCardRoutes(http.NewServeMux(), files, true, nil); err == nil {
+		if err := registerClubCardRoutes(http.NewServeMux(), files, true, false, nil); err == nil {
 			t.Fatalf("accepted broken offline catalog %q", data)
 		}
-		if err := registerClubCardRoutes(http.NewServeMux(), files, false, nil); err != nil {
+		if err := registerClubCardRoutes(http.NewServeMux(), files, false, true, nil); err == nil {
+			t.Fatalf("accepted broken local search catalog %q", data)
+		}
+		if err := registerClubCardRoutes(http.NewServeMux(), files, false, false, nil); err != nil {
 			t.Fatalf("online mode requires offline catalog: %v", err)
+		}
+	}
+}
+
+func TestClubOnlineModeCanSearchLocalCatalog(t *testing.T) {
+	files := fstest.MapFS{offlineCatalogPath: {Data: []byte(`{"version":1,"sets":{"TST":"Fixture Set"},"cards":[{"name":"Local fixture","printings":[{"setCode":"TST","collectorNumber":"17"}]}]}`)}}
+	mux := http.NewServeMux()
+	if err := registerClubCardRoutes(mux, files, false, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"q=fixture", "name=Local+fixture"} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/card-search?"+query, nil))
+		var page cardSearchPage
+		want := cardSearchPrinting{"Local fixture", "TST", "17", "Fixture Set"}
+		if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil || response.Code != http.StatusOK ||
+			len(page.Cards) != 1 || page.Cards[0] != want {
+			t.Fatalf("unexpected result for %s: %d %s", query, response.Code, response.Body)
 		}
 	}
 }

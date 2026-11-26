@@ -87,6 +87,7 @@ func main() {
 		"maximum concurrent bcrypt password checks")
 	clubWebRoot := flag.String("club-web-root", os.Getenv("HEXPROOF_CLUB_WEB_ROOT"), "serve the built web client and enable private Forge-only club mode")
 	clubOffline := flag.Bool("club-offline", false, "run Club on loopback with the bundled offline card catalog and artwork")
+	clubLocalCatalog := flag.Bool("club-local-catalog", os.Getenv("CLUB_LOCAL_CATALOG") == "1", "use the bundled Forge card catalog for search and printing selection")
 	openBrowser := flag.Bool("club-open-browser", false, "open the offline Club in the system browser once ready")
 	forgeOverlay := flag.String("forge-overlay", os.Getenv("HEXPROOF_FORGE_OVERLAY"), "path to a verified matching Forge overlay jar")
 	forgeHeap := flag.Int("forge-heap-mib", 1536, "maximum Forge heap in MiB for club mode")
@@ -176,7 +177,7 @@ func main() {
 			}
 			artwork = newClubImageCache(filepath.Join(state, "card-art"))
 		}
-		if err := registerClubCardRoutes(mux, os.DirFS(*clubWebRoot), *clubOffline, artwork); err != nil {
+		if err := registerClubCardRoutes(mux, os.DirFS(*clubWebRoot), *clubOffline, *clubLocalCatalog, artwork); err != nil {
 			log.Fatalf("hexproof-server: club card catalog: %v", err)
 		}
 		if *forgeOverlay == "" || *forgeHeap < 256 || *forgeGamesPerJVM != 1 {

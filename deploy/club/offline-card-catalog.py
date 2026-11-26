@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Hexproof contributors
 
-"""Build the optional offline Club search catalog using the bundled Forge data."""
+"""Build the local Club search catalog using the bundled Forge data."""
 
 import argparse
 import json
