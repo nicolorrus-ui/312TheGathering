@@ -6,6 +6,7 @@
     "pending": true,
     "promptId": 91,
     "kind": "chooseCardName",
+    "legalNames": ["Black Lotus", "Lightning Bolt"],
     "supported": true,
     "title": "Name a card",
     "detail": "Choose a nonland card name",

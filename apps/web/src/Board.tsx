@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { dismissOpenDetails, dismissPanel, prepareHandReturn } from "./boardMotion";
 import { cardArtURL, CardImage, useCardHover, type CardHover } from "./CardImages";
 import { CardMovements } from "./CardMovements";
+import { battlefieldChoice, BattlefieldActions } from "./BattlefieldChoice";
 import { SpellStack } from "./SpellStack";
 import { DecisionCard } from "./DecisionCard";
 import { isManaChoice, ManaChoiceMenu, type ManaAnchor } from "./ManaChoiceMenu";
@@ -37,11 +38,14 @@ function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd,
   dragEnd?: (event: DragEvent) => void; dragging?: boolean; attack?: AttackControl; inZoneViewer?: boolean;
 }) {
   const face = visibleFace(card);
+  const declaration = face && !inZoneViewer ? card.annotations?.filter((item) =>
+    item.kind === "namedCard" || item.kind === "chosenType").map((item) =>
+    (item.kind === "namedCard" ? "Named: " : "Type: ") + item.value).join(" · ") : undefined;
   const name = face?.name ?? (card.faceDown ? "Face-down permanent" : "Hidden card");
   return <div className={`card-slot ${card.tapped ? "tapped" : ""}`} data-dragging={dragging || undefined} style={style}>
     <button key={face ? cardArtURL(face) : "back"} type="button" className={`table-card ${face && card.land ? "land" : ""} ${face ? "" : "card-back"}`}
       data-card-id={card.id} data-attack-state={attack?.state} data-actionable={Boolean(actionable)} data-tapped={Boolean(card.tapped)}
-      aria-label={name} aria-description={attack?.label ? `Attacking ${attack.label}` : attack?.state === "target" ? "Attack target" : undefined}
+      aria-label={name} aria-description={[declaration, card.copy && "Copy", card.summoningSick && "Summoning sickness", attack?.label ? `Attacking ${attack.label}` : attack?.state === "target" && "Attack target"].filter(Boolean).join(". ") || undefined}
       aria-pressed={selected || undefined}
       aria-disabled={!activate && !drag || undefined} tabIndex={!activate && !drag ? -1 : undefined}
       draggable={Boolean(drag)} onDragStart={drag} onDragEnd={dragEnd} onClick={activate} {...touch}
@@ -49,11 +53,14 @@ function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd,
       onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) hover(face, event.currentTarget); }}
       onBlur={() => hover()} onContextMenu={inspect && ((event) => { event.preventDefault(); inspect(); })}>
       {face && <CardImage identity={face} className="table-card-image" decorative eager compact fallbackName />}
+      {card.copy && <span className="permanent-status copy-tag" title="Copy">Copy</span>}
+      {card.summoningSick && <span className="permanent-status sickness-tag" title="Summoning sickness">zzZ</span>}
       {!inZoneViewer && card.power !== undefined && <b className="pt">{card.power}/{card.toughness}</b>}
       {attack?.state === "attacking" ? <span className="combat-tag">→ {attack.label}</span>
         : card.attacking && <span className="combat-tag">Attacking</span>}
       {Boolean(card.blocking?.length) && <span className="combat-tag">Blocking</span>}
     </button>
+    {declaration && <span className="permanent-declaration">{declaration}</span>}
   </div>;
 }
 
@@ -89,14 +96,14 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const showHover = useCardHover();
   const [openedZone, setOpenedZone] = useState<{ zone: string; ownerSeat: number }>();
   const [actionMenu, setActionMenu] = useState<{ promptId: number; options: Option[] }>();
-  const [targetSelection, setTargetSelection] = useState<{ promptId: number; ids: string[] }>();
+  const [targetSelection, setTargetSelection] = useState<{ gameId: string; promptId: number; ids: string[] }>();
   const [autoPass, setAutoPass] = useState<AutoPass>();
   const [dragging, setDragging] = useState<CardDrag>();
   const floatingCard = useRef<HTMLDivElement>(null);
   const returnHandCard = useRef<() => void>(undefined);
   const touchDrag = useRef<TouchDrag>(undefined);
   const manaAnchor = useRef<ManaAnchor>(undefined);
-  const targetIds = targetSelection && targetSelection.promptId === prompt?.promptId ? targetSelection.ids : [];
+  const targetIds = targetSelection?.gameId === game.gameId && targetSelection.promptId === prompt?.promptId ? targetSelection.ids : [];
   const isCurrent = prompt?.gameId === game.gameId;
   const decision = !spectating && isCurrent && prompt?.pending ? prompt : undefined;
   const dragView = dragging && game.zones.filter((zone) => zone.zone === dragging.zone)
@@ -147,6 +154,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
 
   if (!owner || !opponent) return <main className="shell"><p>Waiting for both seats.</p></main>;
   const allPermanents = game.zones.filter((zone) => zone.zone === "battlefield").flatMap((zone) => zone.cards ?? []);
+  const boardChoice = !game.gameOver ? battlefieldChoice(decision, allPermanents) : undefined;
   const zoneFor = (who: number, zone: string) => game.zones.find((entry) => entry.ownerSeat === who && entry.zone === zone);
   const visibleZone = openedZone ? zoneFor(openedZone.ownerSeat, openedZone.zone) : undefined;
   const libraryTop = visibleZone?.zone === "library" ? visibleZone.cards.find(visibleFace) : undefined;
@@ -179,8 +187,9 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
 
   function toggleTarget(id: string) {
     if (!decision || locked) return;
-    if (targetIds.includes(id)) setTargetSelection({ promptId: decision.promptId, ids: targetIds.filter((value) => value !== id) });
-    else if (targetIds.length < decision.maxSelections) setTargetSelection({ promptId: decision.promptId, ids: [...targetIds, id] });
+    if (boardChoice?.max === 1) return respond(boardChoice.response([id]));
+    if (targetIds.includes(id)) setTargetSelection({ gameId: decision.gameId, promptId: decision.promptId, ids: targetIds.filter((value) => value !== id) });
+    else if (targetIds.length < (boardChoice?.max ?? decision.maxSelections)) setTargetSelection({ gameId: decision.gameId, promptId: decision.promptId, ids: [...targetIds, id] });
   }
 
   function chooseAction(options: Option[]) {
@@ -273,21 +282,26 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
 
   function showCard(card: Card, zone: string, fan?: { index: number; count: number }, inZoneViewer = false) {
     const targets = decision?.targets.filter((target) => target.objectId === card.id && !target.selected) ?? [];
+    const boardId = zone === "battlefield" ? boardChoice?.candidates.get(card.id) : undefined;
+    const chosenOnTable = Boolean(boardId && (targetIds.includes(boardId) || boardChoice?.selected.has(boardId)));
+    const chooseOnTable = !locked && boardChoice && boardId && !boardChoice.selected.has(boardId) &&
+      (chosenOnTable || targetIds.length < boardChoice.max) ? () => toggleTarget(boardId) : undefined;
     const options = decision?.options.filter((option) => option.cardId === card.id && !undoAction(option)) ?? [];
     const dragOptions = options.filter((option) => playsCard(option, zone));
     const clickOptions = options.filter((option) => !playsCard(option, zone));
     const canDrag = !locked && dragOptions.length > 0;
     const inspect = spectating || !visibleFace(card) ? undefined : () => setReviewId(card.id);
     const combat = !locked && attackPrompt && zone === "battlefield" ? attacks.cardControl(card.id) : undefined;
-    const activate = attackPrompt && zone === "battlefield" ? combat?.activate
+    const activate = boardChoice && zone === "battlefield" ? chooseOnTable
+      : attackPrompt && zone === "battlefield" ? combat?.activate
       : spectating || canDrag && !targets.length && !clickOptions.length ? undefined : () => {
       if (!locked && targets.length === 1) toggleTarget(targets[0].responseId);
       else if (!locked && !targets.length && clickOptions.length) chooseAction(clickOptions);
       else if (!targets.length) inspect?.();
     };
-    const actionable = !locked && Boolean(combat?.activate || options.length || targets.length);
+    const actionable = !locked && Boolean(boardChoice ? chooseOnTable : combat?.activate || options.length || targets.length);
     return <TableCard key={card.id} card={card} actionable={actionable} attack={combat} inZoneViewer={inZoneViewer}
-      selected={combat?.state === "choosing" || combat?.state === "attacking" || targets.some((target) => targetIds.includes(target.responseId))}
+      selected={combat?.state === "choosing" || combat?.state === "attacking" || chosenOnTable || targets.some((target) => targetIds.includes(target.responseId))}
       activate={activate} inspect={inspect} hover={hoverCard}
       style={fan ? fanPosition(fan.index, fan.count) : undefined}
       dragging={activeDrag?.cardId === card.id}
@@ -364,7 +378,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       </section>
       <aside className="duel-tools">
         {metadata && <p className="score">Game {metadata.gameNumber} · {metadata.score[seat] ?? 0}–{metadata.score[opponent.seat] ?? 0}</p>}
-        {!spectating && <details className="log"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Game log</summary><ol aria-label="Game log">
+        {metadata && <details className="log"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Game log</summary><ol aria-label="Game log">
           {metadata?.log.map((entry) => <li key={`server-${entry.id}`}>{entry.text}</li>)}
         </ol></details>}
       </aside>
@@ -399,7 +413,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         hoverCard={hoverCard} toggleTarget={toggleTarget} inspect={(id) => { setOpenedZone(undefined); setReviewId(id); }} />
       <CardMovements key={`${game.roomId}:${game.gameId}:${seat}:${spectating}`} game={game} online={online} pending={pendingCast} />
       {!spectating && <div className="action-dock">
-        {decision && !priority && !payment && !attackPrompt && !confirmation && !manaPrompt && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
+        {decision && !priority && !payment && !attackPrompt && !confirmation && !manaPrompt && !boardChoice && <Decision key={`${decision.gameId}:${decision.promptId}`} prompt={decision}
           toggleTarget={toggleTarget} targetIds={targetIds} submit={respond} disabled={locked} />}
         {currentMenu?.length && <DecisionPanel key={decision?.promptId} title="Choose an action">
           <div data-art-focus>
@@ -412,7 +426,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
           }}>Close</button></footer>
         </DecisionPanel>}
         <fieldset className="priority-actions" aria-label="Priority controls" disabled={locked}>
-          {confirmation ? <ConfirmationActions confirmation={confirmation} submit={respond} /> : attackPrompt ? <>
+          {boardChoice ? <BattlefieldActions choice={boardChoice} ids={targetIds} submit={respond} /> : confirmation ? <ConfirmationActions confirmation={confirmation} submit={respond} /> : attackPrompt ? <>
             <div className="attack-shortcuts">
               <button type="button" disabled={!attacks.canStrikeAll} onClick={attacks.strikeAll}>All Strike</button>
               <button type="button" onClick={() => respond({ responseId: "$submit", assignments: [] })}>No Attack</button>

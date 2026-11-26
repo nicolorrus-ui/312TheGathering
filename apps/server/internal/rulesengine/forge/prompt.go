@@ -144,6 +144,8 @@ type PromptDamageAssignment struct {
 
 // PromptView is the normalized, privacy-safe subset of one Forge prompt.
 type PromptView struct {
+	LegalNames           []string
+	SearchKind           string
 	PromptID             int64
 	PlayerIndex          int
 	Kind                 string
@@ -158,6 +160,8 @@ type PromptView struct {
 	Choices              []PromptChoice
 	Cards                []PromptCard
 	ScryDestinations     []string
+	IncludesOtherZones   bool
+	ReplacementOrder     bool
 	OrderItems           []PromptOrderItem
 	ContextCards         []PromptCard
 	ContextTargets       []PromptTarget
@@ -190,6 +194,7 @@ type PromptResponse struct {
 	TargetIDs         []string
 	Assignments       []PromptAssignment
 	ChoiceIDs         []string
+	Memorize          bool
 	OrderedIDs        []string
 	ScryPiles         []PromptScryPile
 	DamageOrderIDs    []string
@@ -206,6 +211,8 @@ type promptEnvelope struct {
 }
 
 type promptInput struct {
+	LegalNames              []string                       `json:"legalNames"`
+	SearchKind              string                         `json:"searchKind"`
 	Type                    string                         `json:"type"`
 	Actions                 []promptAction                 `json:"actions"`
 	AutoPassEligible        *bool                          `json:"autoPassEligible"`
@@ -220,6 +227,8 @@ type promptInput struct {
 	HandCardIDs             []string                       `json:"handCardIds"`
 	Cards                   []promptCard                   `json:"cards"`
 	Zones                   []string                       `json:"zones"`
+	IncludesOtherZones      bool                           `json:"includesOtherZones"`
+	ReplacementOrder        bool                           `json:"replacementOrder"`
 	Items                   []promptOrderItem              `json:"items"`
 	Count                   int                            `json:"count"`
 	Candidates              []promptTargetRef              `json:"candidates"`
@@ -275,6 +284,7 @@ type promptSelectionOption struct {
 }
 
 type promptPresentation struct {
+	ShownCards  []promptCard      `json:"shownCards"`
 	Title       string            `json:"title"`
 	Description string            `json:"description"`
 	Text        string            `json:"text"`
@@ -414,6 +424,7 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 			input.Count)
 		view.Cards, err = normalizePromptCards(input.HandCardIDs, input.Cards, input.Count)
 	case "chooseCards":
+		view.IncludesOtherZones = input.IncludesOtherZones
 		view.Supported = true
 		view.Cancellable = input.Cancellable
 		view.Title = firstPromptText(view.Title, "Choose cards")
@@ -430,6 +441,7 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 		}
 	case "reorder":
 		view.Supported = true
+		view.ReplacementOrder = input.ReplacementOrder
 		view.Title = firstPromptText(view.Title, "Choose an order")
 		view.OrderItems, err = normalizeReorderItems(input.Items)
 		if view.Detail == "" {
@@ -440,6 +452,7 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 		view.Title = firstPromptText(view.Title, "Sort cards into zones")
 		view.Cards, view.ScryDestinations, err = normalizeScry(input)
 	case "chooseBoardTargets":
+		view.IncludesOtherZones = input.IncludesOtherZones
 		view.Supported = true
 		if view.Title == "" {
 			view.Title = "Choose targets"
@@ -489,6 +502,15 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 	case "chooseCardName":
 		view.Supported = true
 		view.Title = firstPromptText(view.Title, "Name a card")
+		if len(input.LegalNames) > 100000 {
+			return PromptView{}, errors.New("card name domain exceeds limit")
+		}
+		for _, name := range input.LegalNames {
+			if !validCardName(name) {
+				return PromptView{}, errors.New("invalid card name in domain")
+			}
+		}
+		view.LegalNames = input.LegalNames
 		view.Detail = firstPromptText(view.Detail, input.Message)
 		view.Cancellable = input.CanCancel != nil && *input.CanCancel
 	case "chooseColor":
@@ -498,6 +520,9 @@ func NormalizePrompt(raw json.RawMessage) (PromptView, error) {
 	case "chooseFromSelection":
 		view.Supported = true
 		view.Title = firstPromptText(view.Title, "Choose options")
+		if input.SearchKind == "type" || input.SearchKind == "name" {
+			view.SearchKind = input.SearchKind
+		}
 		view.Choices, view.ChoiceMinimum, view.ChoiceMaximum, err = normalizeSelection(input)
 		if err == nil {
 			view.ManaSourceID = applyManaChoiceHints(input, view.Choices)
@@ -554,6 +579,9 @@ func BuildPromptResponse(raw json.RawMessage, expectedPlayerIndex int,
 	if view.PlayerIndex != expectedPlayerIndex || view.PromptID != promptID ||
 		promptID <= 0 || strings.TrimSpace(answer.ResponseID) == "" || !view.Supported {
 		return nil, errors.New("prompt response does not match the current decision")
+	}
+	if answer.Memorize && !view.ReplacementOrder {
+		return nil, errors.New("only a replacement-effect order can be memorized")
 	}
 	if view.Kind != "reorder" && len(answer.OrderedIDs) != 0 {
 		return nil, errors.New("prompt response contains an unexpected order")
@@ -629,7 +657,7 @@ func BuildPromptResponse(raw json.RawMessage, expectedPlayerIndex int,
 		if answer.hasNonOrderSelections() {
 			err = errors.New("reorder response contains unexpected selections")
 		} else {
-			output, err = reorderOutput(raw, answer.ResponseID, answer.OrderedIDs)
+			output, err = reorderOutput(raw, answer)
 		}
 	case "scry":
 		if answer.hasNonScrySelections() {

@@ -315,12 +315,12 @@ func TestChooseCardsCancellationPreservesNativePermission(t *testing.T) {
 
 func TestNormalizeAndBuildBoardTargets(t *testing.T) {
 	raw := json.RawMessage(`{"promptId":6,"decidingPlayerId":"player-0","input":{
-      "type":"chooseBoardTargets","presentation":{"title":"Choose targets"},
+      "type":"chooseBoardTargets","includesOtherZones":true,"presentation":{"title":"Choose targets"},
       "candidates":[{"kind":"player","id":"player-1"},{"kind":"card","id":"card-a"},
       {"kind":"spell","id":"stack-2"}],"minTargets":1,"maxTargets":2,
       "chosenTargets":0,"cancellable":true}}`)
 	view, err := NormalizePrompt(raw)
-	if err != nil || !view.Supported || view.MinSelected != 1 || view.MaxSelected != 2 ||
+	if err != nil || !view.Supported || !view.IncludesOtherZones || view.MinSelected != 1 || view.MaxSelected != 2 ||
 		!view.Cancellable || len(view.Targets) != 3 || view.Targets[1].ResponseID != "target:1" {
 		t.Fatalf("board-target prompt = %+v, %v", view, err)
 	}

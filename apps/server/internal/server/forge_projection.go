@@ -72,7 +72,19 @@ func (h *Handler) rulesProjections(r *room.Room) (map[string]protocol.Envelope, 
 	if err != nil {
 		return nil, err
 	}
-	h.hub.UpdateRulesPublicLog(r, publicSnapshot)
+	var declarations []room.RulesDeclaration
+	for _, choice := range publicView.PublicChoices {
+		player, err := forge.PlayerIndexFromID(choice.PlayerID)
+		if err != nil {
+			continue
+		}
+		seat, exists := game.playerToSeat[player]
+		if exists {
+			declarations = append(declarations, room.RulesDeclaration{ID: choice.ID, Seat: seat,
+				Kind: choice.Kind, Source: choice.Source, Value: choice.Value})
+		}
+	}
+	h.hub.UpdateRulesPublicLog(r, publicSnapshot, declarations...)
 	game.diagnostics.observe(publicSnapshot, seq)
 	h.collectForgeReplay(r, game)
 	h.hub.RecordRulesStartingSeat(r, game, publicView)
@@ -330,6 +342,7 @@ func normalizeForgeSnapshotForSeat(roomID string, game forgeRoomGame, view forge
 					projectedCard.TypeLine = card.TypeLine
 					projectedCard.Oracle = card.Oracle
 					projectedCard.Land = card.Land
+					projectedCard.Copy = zone.Zone == "battlefield" && card.Copy
 					if zone.Zone == "battlefield" {
 						seen := make(map[string]bool)
 						for _, id := range card.ChosenCardIDs {
@@ -401,6 +414,7 @@ func normalizeForgeSnapshotForSeat(roomID string, game forgeRoomGame, view forge
 			ID: stackObject.ID, SourceID: stackObject.SourceID, CastID: validatedCastID(stackObject.CastID),
 			ControllerSeat: controllerSeat, OwnerSeat: ownerSeat,
 			Identity: rulesIdentity(stackObject.Identity), Text: stackObject.Text,
+			Copy:    stackObject.Copy && stackObject.Identity.Name != "",
 			Targets: projectedRulesStackTargets(stackObject.Targets, view, seatForID),
 		})
 	}

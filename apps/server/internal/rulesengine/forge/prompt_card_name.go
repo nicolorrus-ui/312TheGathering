@@ -5,16 +5,18 @@ package forge
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
-// Card-name membership is checked by the native controller against the complete
-// public candidate set supplied by Forge for this effect. Sending that set as
-// ordinary menu options would exceed the bounded prompt protocol. The server
-// validates the authenticated decision and text shape, never infers names from
-// a player's deck or private zones.
+func validCardName(name string) bool {
+	return name != "" && utf8.ValidString(name) && utf8.RuneCountInString(name) <= 256 && !strings.ContainsFunc(name, unicode.IsControl)
+}
+
+// Older controllers supply only free text. Current controllers also expose their
+// legal face names to the deciding player; Forge rechecks membership on submission.
 func cardNameOutput(view PromptView, answer PromptResponse) (any, error) {
 	otherSelections := answer
 	otherSelections.Name = ""
@@ -25,9 +27,11 @@ func cardNameOutput(view PromptView, answer PromptResponse) (any, error) {
 		return map[string]any{"type": "cancel"}, nil
 	}
 	name := strings.TrimSpace(answer.Name)
-	if answer.ResponseID != "$submit" || name == "" || !utf8.ValidString(name) ||
-		utf8.RuneCountInString(name) > 256 || strings.ContainsFunc(name, unicode.IsControl) {
+	if answer.ResponseID != "$submit" || !validCardName(name) {
 		return nil, errors.New("invalid card-name response")
+	}
+	if len(view.LegalNames) > 0 && !slices.ContainsFunc(view.LegalNames, func(candidate string) bool { return strings.EqualFold(name, candidate) }) {
+		return nil, errors.New("name is outside the current Forge candidate set")
 	}
 	return map[string]any{"type": "cardName", "name": name}, nil
 }

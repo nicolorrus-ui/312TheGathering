@@ -446,12 +446,13 @@ index 0a7ca0f7c17e642821d2a32d8197daff2371de15..0868aea12e0ba5d457c1b6b115984b54
              zoneFrom.remove(c);
  
              // cleanup Encoding
-@@ -2209,6 +2230,15 @@ public class GameAction {
+@@ -2209,6 +2230,16 @@ public class GameAction {
          }
      }
  
 +    // Presentation events do not change rules or interrupt resolution.
 +    public interface VisibilityEvent extends Event {}
++    public record PublicChoice(SpellAbility ability, Player player, String kind, String value) implements VisibilityEvent {}
 +    public record PublicHandReveal(CardCollectionView cards) implements VisibilityEvent {}
 +    public record RevealedLibraryTop(Card card, Player recipient) implements VisibilityEvent {}
 +    public record PlacementBelowTop(Card card, Zone library) implements VisibilityEvent {}
@@ -527,13 +528,13 @@ index 187fe82e43a9cb9d2431a179316bf7621189f4ec..90ba2f2ae79fe9e5dc90d5f2efbbdeba
  
          if (abCost == null) {
 diff --git a/forge-game/src/main/java/forge/game/ability/AbilityUtils.java b/forge-game/src/main/java/forge/game/ability/AbilityUtils.java
-index 9d90c5c341dd79efff1d80f9afd8a53c518f4be3..4d325d3d361483a41fb7d533204474501a9bd678 100644
 --- a/forge-game/src/main/java/forge/game/ability/AbilityUtils.java
 +++ b/forge-game/src/main/java/forge/game/ability/AbilityUtils.java
-@@ -1300,7 +1300,17 @@ public class AbilityUtils {
+@@ -1300,7 +1300,17 @@
          if (sa == null) {
              return;
          }
+-
 +        try {
 +            resolveAvailableAbility(sa);
 +        } catch (forge.game.player.PlayerController.PlayerDecisionCancelled cancelled) {
@@ -543,12 +544,12 @@ index 9d90c5c341dd79efff1d80f9afd8a53c518f4be3..4d325d3d361483a41fb7d53320447450
 +            }
 +        }
 +    }
- 
++
 +    private static void resolveAvailableAbility(final SpellAbility sa) {
          Player pl = sa.getActivatingPlayer();
          final Game game = pl.getGame();
  
-@@ -1321,7 +1331,7 @@ public class AbilityUtils {
+@@ -1321,7 +1331,7 @@
  
          final ApiType api = sa.getApi();
          if (api == null) {
@@ -557,7 +558,7 @@ index 9d90c5c341dd79efff1d80f9afd8a53c518f4be3..4d325d3d361483a41fb7d53320447450
              if (sa.getSubAbility() != null) {
                  resolve(sa.getSubAbility());
              }
-@@ -1374,7 +1384,17 @@ public class AbilityUtils {
+@@ -1374,7 +1384,17 @@
          resolveApiAbility(abSub, game);
      }
  
@@ -575,6 +576,18 @@ index 9d90c5c341dd79efff1d80f9afd8a53c518f4be3..4d325d3d361483a41fb7d53320447450
          final Card card = sa.getHostCard();
  
          String msg = "AbilityUtils:resolveApiAbility: try to resolve API ability";
+@@ -1396,6 +1416,11 @@
+                 handleUnlessCost(sa, game);
+                 return;
+             }
++        }
++        if (sa.getParent() != null && sa.getParent().getApi() == ApiType.RevealHand) {
++            // A prevented choice may not open a picker. Complete the original
++            // disclosure before any subsequent instructions start.
++            sa.getActivatingPlayer().getController().finishRevealForChoice(sa);
+         }
+         resolveSubAbilities(sa, game);
+     }
 diff --git a/forge-game/src/main/java/forge/game/ability/effects/ChooseCardEffect.java b/forge-game/src/main/java/forge/game/ability/effects/ChooseCardEffect.java
 index 2123ce26be797a4be4b4e4f657189290c0df5db7..c068f0e879bb24fd1172977f243c7aa60c3a1ea0 100644
 --- a/forge-game/src/main/java/forge/game/ability/effects/ChooseCardEffect.java
@@ -593,6 +606,34 @@ index 2123ce26be797a4be4b4e4f657189290c0df5db7..c068f0e879bb24fd1172977f243c7aa6
              }
              if (sa.hasParam("ChosenMap")) {
                  host.addToChosenMap(p, chosen);
+diff --git a/forge-game/src/main/java/forge/game/ability/effects/ChooseCardNameEffect.java b/forge-game/src/main/java/forge/game/ability/effects/ChooseCardNameEffect.java
+--- a/forge-game/src/main/java/forge/game/ability/effects/ChooseCardNameEffect.java
++++ b/forge-game/src/main/java/forge/game/ability/effects/ChooseCardNameEffect.java
+@@ -129,6 +129,9 @@
+ 
+             if (!chosen.isEmpty()) {
+                 host.addNamedCard(chosen);
++                if (!sa.hasParam("Secretly")) {
++                    p.getGame().fireEvent(new forge.game.GameAction.PublicChoice(sa, p, "namedCard", chosen));
++                }
+             }
+             if (!randomChoice) {
+                 p.setNamedCard(chosen);
+diff --git a/forge-game/src/main/java/forge/game/ability/effects/ChooseTypeEffect.java b/forge-game/src/main/java/forge/game/ability/effects/ChooseTypeEffect.java
+--- a/forge-game/src/main/java/forge/game/ability/effects/ChooseTypeEffect.java
++++ b/forge-game/src/main/java/forge/game/ability/effects/ChooseTypeEffect.java
+@@ -133,7 +133,10 @@
+                     choice = p.getController().chooseSomeType(type, sa, validTypes);
+                 }
+ 
+-                if (!secret) p.getGame().getAction().notifyOfValue(sa, p, choice, noNotify);
++                if (!secret) {
++                    p.getGame().fireEvent(new forge.game.GameAction.PublicChoice(sa, p, "chosenType", choice));
++                    p.getGame().getAction().notifyOfValue(sa, p, choice, noNotify);
++                }
+ 
+                 if (sa.hasParam("Note")) {
+                     card.addNotedType(choice);
 diff --git a/forge-game/src/main/java/forge/game/ability/effects/ClashEffect.java b/forge-game/src/main/java/forge/game/ability/effects/ClashEffect.java
 index 299e97abed4e3d1eb5f18272f2d34104fea61784..924283ce2c386e7c25fb685e12e6bf166140a128 100644
 --- a/forge-game/src/main/java/forge/game/ability/effects/ClashEffect.java
@@ -616,10 +657,9 @@ index 299e97abed4e3d1eb5f18272f2d34104fea61784..924283ce2c386e7c25fb685e12e6bf16
              action.moveToBottomOfLibrary(c, sa);
          }
 diff --git a/forge-game/src/main/java/forge/game/ability/effects/DigEffect.java b/forge-game/src/main/java/forge/game/ability/effects/DigEffect.java
-index 5067c41d58f9d480998ed5821c0e79136ec2e5dc..bf570f476668ecc1937e9f8255cb920942983e8c 100644
 --- a/forge-game/src/main/java/forge/game/ability/effects/DigEffect.java
 +++ b/forge-game/src/main/java/forge/game/ability/effects/DigEffect.java
-@@ -190,14 +190,21 @@ public class DigEffect extends SpellAbilityEffect {
+@@ -190,14 +190,21 @@
              }
  
              if (!top.isEmpty()) {
@@ -641,7 +681,7 @@ index 5067c41d58f9d480998ed5821c0e79136ec2e5dc..bf570f476668ecc1937e9f8255cb9209
                          game.getAction().reveal(top, p);
                      }
                  }
-@@ -237,12 +244,14 @@ public class DigEffect extends SpellAbilityEffect {
+@@ -237,12 +244,19 @@
                      delayedReveal = null;
                  }
  
@@ -651,12 +691,18 @@ index 5067c41d58f9d480998ed5821c0e79136ec2e5dc..bf570f476668ecc1937e9f8255cb9209
                      // ability (e.g. Explorer's Scope)
                      Player revealTo = sa.hasParam("ForceReveal") ?
                              getDefinedPlayersOrTargeted(sa, "ForceReveal").get(0) : activator;
-                     game.getAction().revealTo(top, revealTo);
+-                    game.getAction().revealTo(top, revealTo);
++                    // Only postpone a look when this very recipient will see the same pile
++                    // in the ordinary card picker, with no intervening optional prompt.
++                    boolean inPicker = revealTo == chooser && !valid.isEmpty() && (anyNumber || destZone1ChangeNum > 0)
++                            && !(optional && mayBeSkipped) && !changeAll && !sa.hasParam("RandomChange") && !totalCMC
++                            && !sa.hasParam("ForEachColorPair") && !sa.hasParam("WithDifferentPowers");
++                    if (!inPicker) game.getAction().revealTo(top, revealTo);
 +                    forcedLookRecipient = revealTo;
                      delayedReveal = null; // top is already seen by the player, do not reveal twice
                  }
  
-@@ -348,6 +357,11 @@ public class DigEffect extends SpellAbilityEffect {
+@@ -348,6 +362,11 @@
                          int max = anyNumber ? valid.size() : Math.min(valid.size(), destZone1ChangeNum);
                          int min = (anyNumber || optional) ? 0 : max;
                          if (max > 0) { // if max is 0 don't make a choice
@@ -668,7 +714,7 @@ index 5067c41d58f9d480998ed5821c0e79136ec2e5dc..bf570f476668ecc1937e9f8255cb9209
                              movedCards.addAll(chooser.getController().chooseEntitiesForEffect(valid, min, max, delayedReveal, sa, prompt, p, null));
                          }
  
-@@ -405,6 +419,9 @@ public class DigEffect extends SpellAbilityEffect {
+@@ -405,6 +424,9 @@
                              }
                          }
                          c = game.getAction().moveTo(c.getController().getZone(destZone1), c, sa, moveParams);
@@ -678,7 +724,7 @@ index 5067c41d58f9d480998ed5821c0e79136ec2e5dc..bf570f476668ecc1937e9f8255cb9209
                          if (destZone1.equals(ZoneType.Battlefield)) {
                              if (addToCombat(c, sa, "Attacking", "Blocking")) {
                                  combatChanged = true;
-@@ -453,6 +470,10 @@ public class DigEffect extends SpellAbilityEffect {
+@@ -453,6 +475,10 @@
                              AbilityKey.addCardZoneTableParams(moveParams, zoneMovements);
  
                              Card m = game.getAction().moveTo(destZone2, c, libraryPosition2, sa, moveParams);
@@ -1200,13 +1246,23 @@ index 9ea2491a2af69543d58763847aa4fb2977792b60..ef3a52f28262680dce40320ce866d232
          PlayerZone commandZone = getZone(ZoneType.Command);
          companion = game.getAction().moveTo(ZoneType.Command, companion, null, AbilityKey.newMap());
 diff --git a/forge-game/src/main/java/forge/game/player/PlayerController.java b/forge-game/src/main/java/forge/game/player/PlayerController.java
-index 192ef8737ecd645b75d50782693d5eab948d43a7..0ffbe9c6d7b4d2c841459cde8770c04630a32837 100644
 --- a/forge-game/src/main/java/forge/game/player/PlayerController.java
 +++ b/forge-game/src/main/java/forge/game/player/PlayerController.java
-@@ -49,6 +49,61 @@ import java.util.stream.Collectors;
+@@ -49,6 +49,72 @@
   */
  public abstract class PlayerController {
  
++    /** Native clients may combine this disclosure with the indicated choice for this player. */
++    public void revealForChoice(SpellAbility choice, Runnable disclose) {
++        disclose.run();
++    }
++
++    public void finishRevealForChoice(SpellAbility choice) {}
++
++    public void revealChoiceResult(SpellAbility choice, Runnable disclose) {
++        disclose.run();
++    }
++
 +    /** A following discard choice supplies these same visible cards to the chooser. */
 +    public void revealForDiscard(CardCollectionView cards, Player owner) {
 +        reveal(cards, ZoneType.Hand, owner);
@@ -1265,7 +1321,7 @@ index 192ef8737ecd645b75d50782693d5eab948d43a7..0ffbe9c6d7b4d2c841459cde8770c046
      public enum BinaryChoiceType {
          HeadsOrTails, // coin
          TapOrUntap,
-@@ -273,6 +328,10 @@ public abstract class PlayerController {
+@@ -273,6 +339,10 @@
      public abstract Object vote(SpellAbility sa, String prompt, List<Object> options, ListMultimap<Object, Player> votes, Player forPlayer, boolean optional);
  
      public abstract boolean mulliganKeepHand(Player player, int cardsToReturn);
@@ -1276,7 +1332,7 @@ index 192ef8737ecd645b75d50782693d5eab948d43a7..0ffbe9c6d7b4d2c841459cde8770c046
      public abstract CardCollectionView tuckCardsViaMulligan(CardCollectionView hand, int cardsToReturn);
  
      public abstract List<SpellAbility> chooseSpellAbilityToPlay();
-@@ -300,6 +359,12 @@ public abstract class PlayerController {
+@@ -300,6 +370,12 @@
  
      public abstract byte chooseColor(String message, SpellAbility sa, ColorSet colors);
      public abstract byte chooseColorAllowColorless(String message, Card c, ColorSet colors);
@@ -2044,12 +2100,17 @@ diff --git a/forge-gui/src/main/java/forge/gamemodes/match/input/InputSelectTarg
 index ca152203513a86cc725dbdc9ce002ada74d1f595..63a632180a364cb0025dc28895eb22e778d6fae9 100644
 --- a/forge-gui/src/main/java/forge/gamemodes/match/input/InputSelectTargets.java
 +++ b/forge-gui/src/main/java/forge/gamemodes/match/input/InputSelectTargets.java
-@@ -44,6 +44,22 @@ public final class InputSelectTargets extends InputSyncronizedBase {
+@@ -44,6 +44,27 @@ public final class InputSelectTargets extends InputSyncronizedBase {
      private boolean mustTargetFiltered;
      private static final long serialVersionUID = -1091595663541356356L;
  
 +    /** Card candidates already supplied by the native target setup. */
 +    public List<Card> getSelectableCards() { return java.util.Collections.unmodifiableList(choices); }
++
++    /** Includes all legal card zones even if no card in another zone currently matches. */
++    public boolean includesOtherZones() {
++        return tgt.getZone().stream().anyMatch(zone -> zone != forge.game.zone.ZoneType.Battlefield);
++    }
 +
 +    /** Uses the same native player-target predicates as the input action. */
 +    public List<Player> getSelectablePlayers() {
@@ -2067,7 +2128,7 @@ index ca152203513a86cc725dbdc9ce002ada74d1f595..63a632180a364cb0025dc28895eb22e7
      public boolean hasCancelled() { return bCancel; }
      public boolean hasPressedOk() { return bOk; }
  
-@@ -337,21 +353,7 @@ public final class InputSelectTargets extends InputSyncronizedBase {
+@@ -337,21 +358,7 @@ public final class InputSelectTargets extends InputSyncronizedBase {
              return;
          }
  
@@ -2524,3 +2585,197 @@ diff --git a/forge-game/src/main/java/forge/game/mana/ManaPool.java b/forge-game
          }
  
          removeMana(removeFloating);
+diff --git a/forge-core/src/main/java/forge/card/CardRules.java b/forge-core/src/main/java/forge/card/CardRules.java
+--- a/forge-core/src/main/java/forge/card/CardRules.java
++++ b/forge-core/src/main/java/forge/card/CardRules.java
+@@ -667,13 +667,25 @@
+             return result;
+         }
+ 
++        // Reviewed script corrections travel with the native overlay; the pinned
++        // resource directory may be shared, read-only, or backed by a ZIP.
++        private static final Properties mandatoryHandChoices = new Properties();
++        static {
++            try (var in = CardRules.class.getResourceAsStream("/forge/card/mandatory-hand-choices.properties")) {
++                if (in != null) mandatoryHandChoices.load(in);
++            } catch (java.io.IOException e) {
++                throw new java.io.UncheckedIOException(e);
++            }
++        }
++
+         public final CardRules readCard(final Iterable<String> script, String filename) {
+             this.reset();
++            String missingMandatory = filename == null ? null : mandatoryHandChoices.getProperty(filename);
+             for (String line : script) {
+                 if (line.isEmpty() || line.charAt(0) == '#') {
+                     continue;
+                 }
+-                this.parseLine(line, this.faces[curFace]);
++                this.parseLine(line.equals(missingMandatory) ? line + " | Mandatory$ True" : line, this.faces[curFace]);
+             }
+             this.normalizedName = filename;
+             return this.getCard();
+diff --git a/forge-game/src/main/java/forge/game/ability/effects/RevealHandEffect.java b/forge-game/src/main/java/forge/game/ability/effects/RevealHandEffect.java
+--- a/forge-game/src/main/java/forge/game/ability/effects/RevealHandEffect.java
++++ b/forge-game/src/main/java/forge/game/ability/effects/RevealHandEffect.java
+@@ -48,10 +48,26 @@
+             if (sa.hasParam("RevealType")) {
+                 hand = CardLists.getType(hand, sa.getParam("RevealType"));
+             }
+-            if (sa.hasParam("Look")) {
+-                sa.getActivatingPlayer().getController().reveal(hand, ZoneType.Hand, p);
++            final CardCollectionView shown = hand;
++            Runnable disclose = () -> {
++                if (sa.hasParam("Look")) {
++                    sa.getActivatingPlayer().getController().reveal(shown, ZoneType.Hand, p);
++                } else {
++                    host.getGame().getAction().reveal(shown, p);
++                }
++            };
++            SpellAbility choice = sa.getSubAbility();
++            boolean combines = choice != null && switch (choice.getApi()) {
++                case ChangeZone -> "Hand".equals(choice.getParam("Origin")) && "You".equals(choice.getParam("Chooser"))
++                        && "Targeted".equals(choice.getParam("DefinedPlayer")) && getTargetPlayers(sa).size() == 1;
++                case ChooseCard -> "Hand".equals(choice.getParam("ChoiceZone"));
++                case NameCard -> choice.hasParam("ChooseFromDefinedCards");
++                default -> false;
++            };
++            if (combines && p.isOpponentOf(sa.getActivatingPlayer()) && !choice.hasParam("UnlessCost")) {
++                sa.getActivatingPlayer().getController().revealForChoice(choice, disclose);
+             } else {
+-                host.getGame().getAction().reveal(hand, p);
++                disclose.run();
+             }
+             if (sa.hasParam("RememberRevealed")) {
+                 host.addRemembered(hand);
+diff --git a/forge-game/src/main/java/forge/game/replacement/ReplacementHandler.java b/forge-game/src/main/java/forge/game/replacement/ReplacementHandler.java
+--- a/forge-game/src/main/java/forge/game/replacement/ReplacementHandler.java
++++ b/forge-game/src/main/java/forge/game/replacement/ReplacementHandler.java
+@@ -51,6 +51,15 @@
+ import forge.util.Visitor;
+ 
+ public class ReplacementHandler {
++    /** Optional human interface. The event token is shared only while Forge
++     * re-evaluates that event. It carries no authority to apply an effect. */
++    public interface OrderChooser {
++        ReplacementEffect chooseReplacement(List<ReplacementEffect> choices, Object event,
++                Map<AbilityKey, Object> parameters, Map<ReplacementEffect, List<Map<AbilityKey, Object>>> damage);
++    }
++
++    private record OrderedEntry(ReplacementEffect effect, int cardId, Object event) { }
++    private OrderedEntry orderedEntry;
+     private final Game game;
+ 
+     private Set<ReplacementEffect> hasRun = Sets.newHashSet();
+@@ -185,6 +194,17 @@
+      * @return ReplacementResult, an enum that represents what happened to the replacement effect.
+      */
+     public ReplacementResult run(ReplacementType event, final Map<AbilityKey, Object> runParams) {
++        // ChangeZone can re-enter this handler for the same move instead of returning Updated.
++        // Forge identifies that continuation with the active replacement and the entering card.
++        Object token = orderedEntry != null && event == ReplacementType.Moved
++                && runParams.get(AbilityKey.Destination) == ZoneType.Battlefield
++                && runParams.get(AbilityKey.ReplacementEffect) == orderedEntry.effect()
++                && runParams.get(AbilityKey.Affected) instanceof Card card && card.getId() == orderedEntry.cardId()
++                ? orderedEntry.event() : new Object();
++        return runEvent(event, runParams, token);
++    }
++
++    private ReplacementResult runEvent(ReplacementType event, Map<AbilityKey, Object> runParams, Object orderEvent) {
+         final Object affected = runParams.get(AbilityKey.Affected);
+         Player decider = null;
+ 
+@@ -198,7 +218,7 @@
+ 
+         // try out all layer
+         for (ReplacementLayer layer : ReplacementLayer.values()) {
+-            ReplacementResult res = run(event, runParams, layer, decider);
++            ReplacementResult res = run(event, runParams, layer, decider, orderEvent);
+             if (res != ReplacementResult.NotReplaced) {
+                 return res;
+             }
+@@ -207,7 +227,7 @@
+         return ReplacementResult.NotReplaced;
+     }
+ 
+-    private ReplacementResult run(final ReplacementType event, final Map<AbilityKey, Object> runParams, final ReplacementLayer layer, final Player decider) {
++    private ReplacementResult run(final ReplacementType event, final Map<AbilityKey, Object> runParams, final ReplacementLayer layer, final Player decider, Object orderEvent) {
+         final List<ReplacementEffect> possibleReplacers = getReplacementList(event, runParams, layer);
+ 
+         if (possibleReplacers.isEmpty()) {
+@@ -219,7 +239,9 @@
+         if (layer == ReplacementLayer.CantHappen) {
+             chosenRE = possibleReplacers.get(0);
+         } else {
+-            chosenRE = decider.getController().chooseSingleReplacementEffect(possibleReplacers);
++            chosenRE = decider.getController() instanceof OrderChooser chooser
++                    ? chooser.chooseReplacement(possibleReplacers, orderEvent, runParams, null)
++                    : decider.getController().chooseSingleReplacementEffect(possibleReplacers);
+         }
+ 
+         possibleReplacers.remove(chosenRE);
+@@ -227,10 +249,20 @@
+         chosenRE.setHasRun(true);
+         hasRun.add(chosenRE);
+         chosenRE.setOtherChoices(possibleReplacers);
+-        ReplacementResult res = executeReplacement(runParams, chosenRE, decider);
++        OrderedEntry previousEntry = orderedEntry;
++        if (event == ReplacementType.Moved && runParams.get(AbilityKey.Destination) == ZoneType.Battlefield
++                && runParams.get(AbilityKey.Affected) instanceof Card card) {
++            orderedEntry = new OrderedEntry(chosenRE, card.getId(), orderEvent);
++        }
++        ReplacementResult res;
++        try {
++            res = executeReplacement(runParams, chosenRE, decider);
++        } finally {
++            orderedEntry = previousEntry;
++        }
+         if (res == ReplacementResult.NotReplaced) {
+             if (!possibleReplacers.isEmpty()) {
+-                res = run(event, runParams);
++                res = runEvent(event, runParams, orderEvent);
+             }
+             chosenRE.setHasRun(false);
+             hasRun.remove(chosenRE);
+@@ -253,7 +285,7 @@
+             if (params.containsKey(AbilityKey.EffectOnly)) {
+                 params.put(AbilityKey.EffectOnly, true);
+             }
+-            ReplacementResult result = run(event, params);
++            ReplacementResult result = runEvent(event, params, orderEvent);
+             switch (result) {
+             case NotReplaced:
+             case Updated: {
+@@ -636,6 +668,7 @@
+         // First, gather all possible replacement effects
+         getPossibleReplaceDamageList(players, isCombat, damageMap, cause);
+ 
++        final Object damageOrderEvent = new Object();
+         // Next, handle replacement effects in APNAP order
+         // Handle "Prevented this way" and abilities like "Phantom Nomad", by buffer the replaced SA
+         // and only run them after all prevention and redirection effects are processed.
+@@ -654,7 +687,9 @@
+ 
+             List<ReplacementEffect> possibleReplacers = new ArrayList<>(replaceCandidateMap.keySet());
+             // TODO should be able to choose different order for each entity
+-            ReplacementEffect chosenRE = decider.getController().chooseSingleReplacementEffect(possibleReplacers);
++            ReplacementEffect chosenRE = decider.getController() instanceof OrderChooser chooser
++                    ? chooser.chooseReplacement(possibleReplacers, damageOrderEvent, null, replaceCandidateMap)
++                    : decider.getController().chooseSingleReplacementEffect(possibleReplacers);
+             List<Map<AbilityKey, Object>> runParamList = replaceCandidateMap.get(chosenRE);
+ 
+             if (!executedDamageMap.containsKey(chosenRE)) {
+diff --git a/forge-game/src/main/java/forge/game/ability/effects/ChangeZoneEffect.java b/forge-game/src/main/java/forge/game/ability/effects/ChangeZoneEffect.java
+--- a/forge-game/src/main/java/forge/game/ability/effects/ChangeZoneEffect.java
++++ b/forge-game/src/main/java/forge/game/ability/effects/ChangeZoneEffect.java
+@@ -1516,7 +1516,9 @@
+ 
+             if (((!ZoneType.Battlefield.equals(destination) && !changeType.isEmpty() && !defined && !changeType.equals("Card"))
+                     || (sa.hasParam("Reveal") && !movedCards.isEmpty())) && !sa.hasParam("NoReveal")) {
+-                game.getAction().reveal(movedCards, player);
++                // Other seats still receive the reveal. An explicit choosing player
++                // can omit a second acknowledgement of exactly their own result.
++                sa.getActivatingPlayer().getController().revealChoiceResult(sa, () -> game.getAction().reveal(movedCards, player));
+             }
+ 
+             if ((origin.contains(ZoneType.Library) && !ZoneType.Library.equals(destination) && !defined && shuffleMandatory)

@@ -204,16 +204,17 @@ try {
   const room = await host.page.locator(".room-code strong").innerText();
   await button(host, "Copy watch link").waitFor();
   const watchURL = new URL(baseURL);
-  watchURL.searchParams.set("watch", room);
+  watchURL.searchParams.set("watch", "");
   // Reuse the player's storage origin to confirm that the watch page does not resume their seat.
   const viewer = observe(await host.page.context().newPage(), "Spectator");
   await viewer.page.goto(watchURL.href);
+  await viewer.page.getByRole("list", { name: "Live rooms" }).locator(`a[href="?watch=${room}"]`).click();
   await viewer.page.getByText("Waiting for the players to start…").waitFor();
   await button(guest, "Join room").click();
   await guest.page.getByLabel("Room code").fill(room);
   await guest.page.getByLabel("Room password").fill(password);
   await button(guest, "Join duel").click();
-  await guest.page.getByText("Viewers with the room code can see both hands and registered decklists.").waitFor();
+  await guest.page.getByText("This room appears in Watch live. Viewers can see both hands and registered decklists.").waitFor();
   await Promise.all(peers.map(selectDeck));
   await button(guest, "Ready").click({ timeout: 60000 });
   await button(guest, "Cancel ready").waitFor();

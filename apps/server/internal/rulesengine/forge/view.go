@@ -15,20 +15,30 @@ import (
 // that Hexproof currently projects. Unknown upstream fields are deliberately
 // ignored so harness additions do not change the public wire contract.
 type GameView struct {
-	GameID           string            `json:"gameId"`
-	IntegrityHash    string            `json:"integrityHash,omitempty"`
-	Turn             int               `json:"turn"`
-	Step             string            `json:"step"`
-	ActivePlayerID   string            `json:"activePlayerId"`
-	PriorityPlayerID string            `json:"priorityPlayerId"`
-	StartingPlayerID string            `json:"startingPlayerId,omitempty"`
-	Players          []PlayerView      `json:"players"`
-	Zones            []ZoneView        `json:"zones"`
-	Stack            []StackObjectView `json:"stack"`
-	PendingCast      *PendingCastView  `json:"pendingCast,omitempty"`
-	CardMoves        []CardMoveView    `json:"cardMoves,omitempty"`
-	GameOver         bool              `json:"gameOver"`
-	WinnerID         string            `json:"winnerId,omitempty"`
+	PublicChoices    []PublicChoiceView `json:"publicChoices,omitempty"`
+	GameID           string             `json:"gameId"`
+	IntegrityHash    string             `json:"integrityHash,omitempty"`
+	Turn             int                `json:"turn"`
+	Step             string             `json:"step"`
+	ActivePlayerID   string             `json:"activePlayerId"`
+	PriorityPlayerID string             `json:"priorityPlayerId"`
+	StartingPlayerID string             `json:"startingPlayerId,omitempty"`
+	Players          []PlayerView       `json:"players"`
+	Zones            []ZoneView         `json:"zones"`
+	Stack            []StackObjectView  `json:"stack"`
+	PendingCast      *PendingCastView   `json:"pendingCast,omitempty"`
+	CardMoves        []CardMoveView     `json:"cardMoves,omitempty"`
+	GameOver         bool               `json:"gameOver"`
+	WinnerID         string             `json:"winnerId,omitempty"`
+}
+
+// Published only in the engine's spectator view, for the public game log.
+type PublicChoiceView struct {
+	ID       int64  `json:"id"`
+	PlayerID string `json:"playerId"`
+	Kind     string `json:"kind"`
+	Source   string `json:"source"`
+	Value    string `json:"value"`
 }
 
 type PlayerView struct {
@@ -66,6 +76,7 @@ type CardIdentityView struct {
 }
 
 type CardView struct {
+	Copy            bool                 `json:"copy,omitempty"`
 	Visibility      string               `json:"visibility"`
 	ID              string               `json:"id"`
 	Identity        *CardIdentityView    `json:"identity,omitempty"`
@@ -121,6 +132,7 @@ type MoveEndView struct {
 }
 
 type StackObjectView struct {
+	Copy         bool              `json:"copy,omitempty"`
 	CastID       string            `json:"castId,omitempty"`
 	ID           string            `json:"id"`
 	SourceID     string            `json:"sourceId"`

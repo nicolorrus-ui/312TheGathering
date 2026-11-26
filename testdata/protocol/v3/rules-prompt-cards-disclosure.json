@@ -6,6 +6,7 @@
     "pending": true,
     "promptId": 72,
     "kind": "chooseCards",
+    "includesOtherZones": true,
     "supported": true,
     "title": "Choose a nonland card to discard",
     "detail": "Choose exactly one card.",

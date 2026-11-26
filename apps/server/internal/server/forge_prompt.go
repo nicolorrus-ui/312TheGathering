@@ -137,6 +137,8 @@ func projectedRulesPrompt(roomID, gameID string,
 		prompt.PaymentID = view.PaymentID
 	}
 	prompt.ManaSourceID = view.ManaSourceID
+	prompt.LegalNames = view.LegalNames
+	prompt.SearchKind = view.SearchKind
 	prompt.Title = view.Title
 	prompt.Detail = view.Detail
 	prompt.Options = make([]protocol.RulesPromptOption, 0, len(view.Options))
@@ -170,6 +172,8 @@ func projectedRulesPrompt(roomID, gameID string,
 	// Empty collections remain JSON arrays: the Qt model rejects null here
 	// for every non-scry decision, including the opening dice/mulligan prompt.
 	prompt.ScryDestinations = append([]string{}, view.ScryDestinations...)
+	prompt.IncludesOtherZones = view.IncludesOtherZones
+	prompt.ReplacementOrder = view.ReplacementOrder
 	prompt.OrderItems = make([]protocol.RulesPromptOrderItem, 0, len(view.OrderItems))
 	for _, item := range view.OrderItems {
 		prompt.OrderItems = append(prompt.OrderItems, protocol.RulesPromptOrderItem{
@@ -181,7 +185,7 @@ func projectedRulesPrompt(roomID, gameID string,
 	for _, card := range view.ContextCards {
 		prompt.ContextCards = append(prompt.ContextCards, protocol.RulesPromptCard{
 			ID: card.ID, Name: card.Name, SetCode: card.SetCode,
-			CollectorNumber: card.CollectorNumber, Token: card.Token,
+			CollectorNumber: card.CollectorNumber, Token: card.Token, ReadOnly: card.ReadOnly,
 		})
 	}
 	prompt.ContextText = view.ContextText

@@ -68,14 +68,14 @@ func TestRulesCombatSourceWithNoTargetsKeepsWireArray(t *testing.T) {
 
 func TestProjectedRulesPromptPreservesReadOnlyCards(t *testing.T) {
 	view, err := forge.NormalizePrompt(json.RawMessage(`{"promptId":1,"decidingPlayerId":"player-0","input":{
-        "type":"chooseCards","min":0,"max":1,"cards":[
+        "type":"chooseCards","min":0,"max":1,"includesOtherZones":true,"cards":[
         {"id":"hidden-library-land","identity":{"name":"Forest"},"readOnly":true},
         {"id":"candidate","identity":{"name":"Island"}}]}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	prompt, err := projectedRulesPrompt("ROOM", "game-1", view, forgeRoomGame{}, nil)
-	if err != nil || len(prompt.Cards) != 2 || !prompt.Cards[0].ReadOnly || prompt.Cards[1].ReadOnly {
+	if err != nil || !prompt.IncludesOtherZones || len(prompt.Cards) != 2 || !prompt.Cards[0].ReadOnly || prompt.Cards[1].ReadOnly {
 		t.Fatalf("combined prompt = %+v, %v", prompt, err)
 	}
 	data, err := json.Marshal(prompt)
@@ -593,5 +593,51 @@ func TestValidRulesPromptScryPiles(t *testing.T) {
 		if rulesinput.ValidScryPiles(piles) {
 			t.Fatalf("invalid scry piles accepted: %+v", piles)
 		}
+	}
+}
+
+func TestReplacementOrderMemorizeRoundTrip(t *testing.T) {
+	raw := json.RawMessage(`{"promptId":61,"decidingPlayerId":"player-1","input":{
+		"type":"reorder","replacementOrder":true,"items":[
+			{"id":"effect-a","oracle":"Enters tapped"},
+			{"id":"effect-b","oracle":"Enters untapped"}
+		]}}`)
+	view, err := forge.NormalizePrompt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := projectedRulesPrompt("ROOM", "game-1", view, forgeRoomGame{}, nil)
+	if err != nil || !prompt.ReplacementOrder || len(prompt.OrderItems) != 2 {
+		t.Fatalf("replacement order = %+v, %v", prompt, err)
+	}
+	cleared, err := json.Marshal(emptyRulesPrompt("ROOM", "game-1"))
+	if err != nil || strings.Contains(string(cleared), "replacementOrder") {
+		t.Fatalf("empty peer prompt exposed a replacement order: %s, %v", cleared, err)
+	}
+	request := protocol.RulesRespond{PromptID: 61, ResponseID: "$submit", OrderedIDs: []string{"order:1", "order:0"}}
+	result, err := rulesinput.Build(request, raw, 1)
+	if err != nil || string(result) != `{"output":{"orderedIds":["effect-b","effect-a"],"type":"reorderDecision"},"type":"reorder"}` {
+		t.Fatalf("one-time reorder = %s, %v", result, err)
+	}
+	request.Memorize = true
+	result, err = rulesinput.Build(request, raw, 1)
+	if err != nil || string(result) != `{"output":{"memorize":true,"orderedIds":["effect-b","effect-a"],"type":"reorderDecision"},"type":"reorder"}` {
+		t.Fatalf("remembered reorder = %s, %v", result, err)
+	}
+	if _, err := rulesinput.Build(request, raw, 0); err == nil {
+		t.Fatal("another player set a memorized order")
+	}
+	triggers := json.RawMessage(strings.Replace(string(raw), `"replacementOrder":true,`, "", 1))
+	if _, err := rulesinput.Build(request, triggers, 1); err == nil {
+		t.Fatal("ordinary reorder accepted replacement memory")
+	}
+	request.OrderedIDs = []string{"order:0", "order:0"}
+	if _, err := rulesinput.Build(request, raw, 1); err == nil {
+		t.Fatal("remembered order accepted a duplicate effect")
+	}
+	request.ResponseID, request.OrderedIDs = "$ack", nil
+	notice := json.RawMessage(`{"promptId":61,"decidingPlayerId":"player-1","input":{"type":"acknowledge","replacementOrder":true}}`)
+	if _, err := rulesinput.Build(request, notice, 1); err == nil {
+		t.Fatal("memorize was accepted for an unrelated prompt family")
 	}
 }

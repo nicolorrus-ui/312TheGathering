@@ -7,22 +7,31 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"hexproof/server/internal/protocol"
 )
 
 // This journal retains only public observations, never engine prompts or a
 // player's snapshot. It is not an authoritative copy of the rules game.
+// RulesDeclaration is a confirmed public choice supplied by the Forge spectator view.
+type RulesDeclaration struct {
+	ID                  int64
+	Seat                int
+	Kind, Source, Value string
+}
+
 type rulesPublicLogState struct {
-	gameID  string
-	turn    int
-	step    string
-	active  int
-	players map[int]protocol.RulesPlayerState
-	cards   map[string]rulesPublicLogCard
-	stack   map[string]int
-	counts  map[string]int
-	over    bool
+	lastDeclaration int64
+	gameID          string
+	turn            int
+	step            string
+	active          int
+	players         map[int]protocol.RulesPlayerState
+	cards           map[string]rulesPublicLogCard
+	stack           map[string]int
+	counts          map[string]int
+	over            bool
 }
 
 type rulesPublicLogCard struct {
@@ -79,7 +88,7 @@ func (r *Room) RulesLogProjection() ([]protocol.GameLogEntry, int64, bool) {
 // ObserveRulesPublicState accepts only the explicit spectator projection.
 // Hidden-zone identities, face-down names, stack text and private decisions
 // are excluded even if a malformed input accidentally includes them.
-func (r *Room) ObserveRulesPublicState(snapshot protocol.RulesGameSnapshot) {
+func (r *Room) ObserveRulesPublicState(snapshot protocol.RulesGameSnapshot, declarations ...RulesDeclaration) {
 	if r.RulesMode != protocol.RulesModeForge || r.Phase != protocol.RoomPhaseStarted ||
 		snapshot.RoomID != r.ID || snapshot.GameID == "" {
 		return
@@ -128,6 +137,24 @@ func (r *Room) ObserveRulesPublicState(snapshot protocol.RulesGameSnapshot) {
 		r.AppendRulesLog("rules_start", -1,
 			fmt.Sprintf("Game %d started (Forge rules).", r.rulesGameNumber()))
 		previous = &rulesPublicLogState{}
+	}
+	next.lastDeclaration = previous.lastDeclaration
+	for _, choice := range declarations {
+		if choice.ID <= next.lastDeclaration || choice.Seat < 0 || choice.Seat >= len(r.Seats) ||
+			!validDeclarationText(choice.Value) || !validDeclarationText(choice.Source) {
+			continue
+		}
+		var verb string
+		switch choice.Kind {
+		case "namedCard":
+			verb = "named"
+		case "chosenType":
+			verb = "chose"
+		default:
+			continue
+		}
+		r.AppendRulesLog("rules_choice", choice.Seat, fmt.Sprintf("%s %s %s for %s.", r.rulesLogSeatName(choice.Seat), verb, choice.Value, choice.Source))
+		next.lastDeclaration = choice.ID
 	}
 	if previous.turn != next.turn || previous.step != next.step || previous.active != next.active {
 		r.AppendRulesLog("rules_phase", next.active,
@@ -199,6 +226,10 @@ func (r *Room) ObserveRulesPublicState(snapshot protocol.RulesGameSnapshot) {
 		}
 		r.AppendRulesLog("rules_result", seat, text)
 	}
+}
+
+func validDeclarationText(text string) bool {
+	return strings.TrimSpace(text) != "" && len([]rune(text)) <= 256 && strings.IndexFunc(text, unicode.IsControl) < 0
 }
 
 func sortedRulesLogKeys[T any](values map[string]T) []string {

@@ -2,7 +2,9 @@
 
 import { ManaPip } from "./ManaSymbols";
 import { useId, useState, type ReactNode } from "react";
+import { CardNameSearch } from "./DeclarationSearch";
 import { DecisionCard } from "./DecisionCard";
+import { OrderStrip } from "./OrderStrip";
 import { CardChoiceGrid } from "./CardChoiceGrid";
 import { dismissPanel } from "./boardMotion";
 import type { Choice, Option, Prompt, PromptCard, Response, Target } from "./protocol";
@@ -149,46 +151,57 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
       case "chooseColor":
       case "chooseFromSelection": {
         const total = choices.reduce((sum, id) => sum + (prompt.choices.find((choice) => choice.responseId === id)?.weight ?? 0), 0);
-        const canAdd = (choice: Choice) => total + choice.weight <= prompt.maxChoiceTotal;
+        const replaceChoice = Boolean(prompt.searchKind) && prompt.maxChoiceTotal === 1;
+        const canAdd = (choice: Choice) => (replaceChoice ? 0 : total) + choice.weight <= prompt.maxChoiceTotal;
         const selectable = (choice: Choice) => choices.includes(choice.responseId) || canAdd(choice);
-        return [<div className="choices">{selectableFirst(prompt.choices, selectable).map((choice) => {
+        const needle = filter.trim().toLowerCase();
+        const listed = prompt.searchKind ? prompt.choices.filter((choice) =>
+          (choice.card?.name || choice.label).toLowerCase().includes(needle)) : prompt.choices;
+        return [<>{prompt.searchKind && <label>{prompt.searchKind === "type" ? "Search types" : "Search card names"}
+          <input type="search" autoComplete="off" value={filter} onChange={(event) => setFilter(event.target.value)} /></label>}
+        {prompt.searchKind && !listed.length && <p role="status">No matching options.</p>}
+        <div className="choices">{selectableFirst(listed, selectable).map((choice) => {
           const count = choices.filter((id) => id === choice.responseId).length;
+          const face = choice.card ?? (prompt.searchKind === "name" ? { name: choice.label } : undefined);
           return <div key={choice.responseId} className="choice-group">
-            <button type="button" className={choice.card ? "choice-card" : undefined} aria-label={choice.card ? choice.label : undefined} aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
+            <button type="button" className={face ? "choice-card" : undefined} aria-label={face ? choice.label : undefined} aria-pressed={count > 0} disabled={(!count || choice.canRepeat) && !canAdd(choice)} onClick={() => {
               if (!choice.canRepeat && count) setChoices(choices.filter((id) => id !== choice.responseId));
-              else if (canAdd(choice)) setChoices([...choices, choice.responseId]);
-            }}>{choice.card ? <><DecisionCard card={choice.card} />{choice.actionLabel && <span>{choice.actionLabel}</span>}</> : choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
+              else if (canAdd(choice)) setChoices(replaceChoice ? [choice.responseId] : [...choices, choice.responseId]);
+            }}>{face ? <><DecisionCard card={face} />{choice.actionLabel && <span>{choice.actionLabel}</span>}</> : choice.label}{choice.canRepeat && count > 0 ? ` ×${count}` : ""}</button>
             {choice.canRepeat && count > 0 && <button type="button" aria-label={`Remove ${choice.label}`} onClick={() => {
               const index = choices.lastIndexOf(choice.responseId);
               setChoices(choices.filter((_, i) => i !== index));
             }}>−</button>}
           </div>;
-        })}</div>, within(total, prompt.minChoiceTotal, prompt.maxChoiceTotal), { choiceIds: choices }] as const;
+        })}</div></>, within(total, prompt.minChoiceTotal, prompt.maxChoiceTotal), { choiceIds: choices }] as const;
       }
       case "chooseNumber":
         return [<label>Number<input type="number" min={prompt.minNumber} max={prompt.maxNumber} value={number}
           onChange={(event) => setNumber(event.target.value)} /></label>, number !== "" && Number.isInteger(Number(number)) &&
           within(Number(number), prompt.minNumber, prompt.maxNumber), { chosenNumber: Number(number) }] as const;
       case "chooseCardName":
-        return [<label>Card name<input value={name} onChange={(event) => setName(event.target.value)} /></label>,
-          Boolean(name.trim()), { name: name.trim() }] as const;
+        return [<CardNameSearch names={prompt.legalNames} value={name} change={setName} />,
+          Boolean(name.trim()) && (!prompt.legalNames || prompt.legalNames.some((option) =>
+            option.toLowerCase() === name.trim().toLowerCase())), { name: name.trim() }] as const;
       case "reorder":
       case "chooseDamageAssignmentOrder":
-        return [<ol className="order-list">{order.map((id) => {
-          const item = prompt.orderItems.find((entry) => entry.responseId === id);
-          const target = prompt.damageTargets.find((entry) => entry.responseId === id);
-          const label = item?.name || item?.oracle || target?.label || id;
-          const instruction = item?.abilityText || (item?.oracle !== item?.name ? item?.oracle : undefined);
-          // Keep distinct cards image-only. If two abilities share the same
-          // face, the actual ability text identifies the choice, even offline.
-          const distinguish = item?.name && instruction && prompt.orderItems.some((other) =>
-            other.name === item.name && (other.setCode || "") === (item.setCode || "") &&
-            (other.collectorNumber || "") === (item.collectorNumber || "") && Boolean(other.token) === Boolean(item.token) &&
-            (other.abilityText || other.oracle) !== (item.abilityText || item.oracle));
-          return <li key={id} data-art-focus aria-description={instruction}><div>{item?.name ? <><DecisionCard card={item} />{distinguish && <span>{instruction}</span>}</>
-            : target ? <TargetFace target={target} /> : label}</div>
-            {orderControls(order, id, setOrder, distinguish ? `${label} — ${instruction}` : label)}</li>;
-        })}</ol>, true, prompt.kind === "reorder" ? { orderedIds: order } : { damageOrderIds: order }] as const;
+        return [<OrderStrip label="Effect or card order" change={setOrder}
+          resolution={prompt.orderItems.some((item) => item.abilityText)} replacement={prompt.replacementOrder}
+          items={order.map((id) => {
+            const item = prompt.orderItems.find((entry) => entry.responseId === id);
+            const target = prompt.damageTargets.find((entry) => entry.responseId === id);
+            const label = item?.name || item?.oracle || target?.label || id;
+            const instruction = item?.abilityText || (item?.oracle !== item?.name ? item?.oracle : undefined);
+            // Keep distinct cards image-only. If two abilities share the same
+            // face, the actual ability text identifies the choice, even offline.
+            const distinguish = item?.name && instruction && prompt.orderItems.some((other) =>
+              other.name === item.name && (other.setCode || "") === (item.setCode || "") &&
+              (other.collectorNumber || "") === (item.collectorNumber || "") && Boolean(other.token) === Boolean(item.token) &&
+              (other.abilityText || other.oracle) !== (item.abilityText || item.oracle));
+            const face = item?.name ? <><DecisionCard card={item} />{distinguish && <span>{instruction}</span>}</>
+              : target ? <TargetFace target={target} /> : label;
+            return { id, label: distinguish ? `${label} — ${instruction}` : label, description: instruction, face };
+        })} />, true, prompt.kind === "reorder" ? { orderedIds: order } : { damageOrderIds: order }] as const;
       case "scry":
         return [<div className="pile-grid">{prompt.scryDestinations.map((zone) => <section key={zone}>
           <h3>{zone}</h3><ol className="order-list">{scry[zone].map((id) => {
@@ -238,7 +251,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
     "chooseNumber", "chooseCardName", "reorder", "chooseDamageAssignmentOrder", "scry",
     "chooseBlockers", "chooseCombatDamageAssignment"];
   const confirmButton = prompt.supported && submitKinds.includes(prompt.kind) &&
-    <button className="primary" type="button" disabled={disabled || !enabled} onClick={() => confirm(response)}>Confirm</button>;
+    <button className="primary" type="button" disabled={disabled || !enabled} onClick={() => confirm(response)}>{prompt.replacementOrder ? "OK" : "Confirm"}</button>;
   return <DecisionPanel title={prompt.title || "Forge decision"} hideTitle={Boolean(namesDisplayedCard(prompt, prompt.title))}
     compactActions={prompt.kind === "chooseBoardTargets" && confirmButton ? <footer>{confirmButton}</footer> : undefined}>
     <fieldset disabled={disabled}>
@@ -249,6 +262,8 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
       {prompt.supported && <footer>
         <Options options={prompt.options.filter((option) => !option.cardId || option.kind === "undoMana")} submit={submit} />
         {confirmButton}
+        {prompt.kind === "reorder" && prompt.replacementOrder &&
+          <button type="button" disabled={disabled || !enabled} onClick={() => confirm({ ...response, memorize: true })}>OK &amp; Memorize</button>}
         {prompt.cancellable && !prompt.options.some((option) => option.responseId === "$cancel") &&
           <button className="quiet" type="button" onClick={() => submit({ responseId: "$cancel" })}>Cancel action</button>}
       </footer>}

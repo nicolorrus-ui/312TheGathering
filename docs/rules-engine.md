@@ -1496,6 +1496,17 @@ authority clear local choices.
 The hand strip also exposes a horizontal scrollbar and wheel scrolling when
 cards overflow, without replacing the legal hand-card drag action.
 
+In Club Web, a card or target choice confined to permanents on the table uses
+the actual permanent on either battlefield. A single click submits a one-card
+choice. The priority controls confirm a multi-card choice, finish an optional
+choice, and offer cancellation when the engine permits it. The list stays open
+for choices that include other zones, players, stack objects, or cards the
+client cannot locate on the battlefield. Forge carries the declared source
+zones through a zone-change choice even when only one permanent matches.
+For example, Wasteland selects a nonbasic land on the table. The entry trigger
+of Cloak and Dagger, Entwined selects the opposing creature on the table and
+uses the card list for the later exile choice from hand or battlefield.
+
 Horizontal decision lists for combat, cards, targets, ordering, damage, scalar
 choices, reveals, and scry expose a scrollbar whenever candidates overflow.
 Mouse wheels and touchpads navigate those lists horizontally; the scrollbar has
@@ -1734,7 +1745,17 @@ can still reduce the remaining cost. Selected helpers remain clickable for
 deselection. Conditional discard completes when its actual rule is satisfied;
 selecting one creature or two other cards does not leave a hidden confirmation.
 Small finite card-face choices, including available dungeons, are visible menus.
-Unbounded card-name domains retain the catalog-backed text input.
+In the Club browser, naming prompts search the deciding player's current Forge
+candidate list. This includes face names absent from either deck and respects
+restrictions such as “nonland.” Broad domains use a text search with up to
+twenty visible matches; finite name and type menus retain their native response
+IDs. Older adapters continue to accept exact names as free text.
+
+Completed public card-name and type choices appear once in the game log with
+the choosing player and the source. Both players and spectators can review
+them without a confirmation prompt. A face-up permanent retains its public name
+or type label on the battlefield. Instants and sorceries leave only the log
+entry, and secret choices never enter the public journal.
 
 The sixth R3 slice supports both Forge combat-damage prompt families. Damage
 assignment order exposes the complete current assignee list as prompt-local

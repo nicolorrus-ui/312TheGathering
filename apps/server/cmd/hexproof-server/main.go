@@ -279,6 +279,7 @@ func main() {
 	mux.HandleFunc("/readyz", handler.ServeReadiness)
 	if clubMode {
 		mux.HandleFunc("GET /forge-ready", handler.ServeClubForgeAvailability)
+		mux.HandleFunc("GET /live-rooms", handler.ServeClubLiveRooms)
 	}
 	mux.Handle("/ws", handler)
 	if clubMode {

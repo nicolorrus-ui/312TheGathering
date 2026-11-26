@@ -4,10 +4,31 @@
 package server
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 
 	"hexproof/server/internal/protocol"
 )
+
+// ServeClubLiveRooms exposes only the room details used by the spectator directory.
+func (h *Handler) ServeClubLiveRooms(w http.ResponseWriter, _ *http.Request) {
+	type broadcast struct {
+		RoomID   string `json:"roomId"`
+		Name     string `json:"name"`
+		Phase    string `json:"phase"`
+		Format   string `json:"deckFormat"`
+		Match    string `json:"matchMode"`
+		Joinable bool   `json:"joinable"`
+	}
+	rooms := make([]broadcast, 0)
+	for _, r := range h.hub.listRooms(true) {
+		rooms = append(rooms, broadcast{r.RoomID, r.Name, r.Phase, r.DeckFormat, r.MatchMode, r.SpectatorJoinable})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rooms)
+}
 
 func clubCommandAllowed(kind string) bool {
 	switch kind {

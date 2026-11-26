@@ -42,6 +42,7 @@ type RulesCommanderState struct {
 // RulesCardState never includes Identity when Forge redacted the card for the
 // requested viewer.
 type RulesCardState struct {
+	Copy            bool                  `json:"copy,omitempty"`
 	ID              string                `json:"id"`
 	Visible         bool                  `json:"visible"`
 	Identity        *RulesCardIdentity    `json:"identity,omitempty"`
@@ -104,6 +105,7 @@ type RulesPendingCast struct {
 }
 
 type RulesStackObject struct {
+	Copy           bool               `json:"copy,omitempty"`
 	CastID         string             `json:"castId,omitempty"`
 	ID             string             `json:"id"`
 	SourceID       string             `json:"sourceId"`
@@ -270,6 +272,8 @@ type RulesPromptDamageAssignment struct {
 // families remain visible as a non-interactive soft error instead of exposing
 // raw backend JSON or making the Qt client guess its shape.
 type RulesPrompt struct {
+	LegalNames           []string                  `json:"legalNames,omitempty"`
+	SearchKind           string                    `json:"searchKind,omitempty"`
 	RoomID               string                    `json:"roomId"`
 	GameID               string                    `json:"gameId"`
 	Pending              bool                      `json:"pending"`
@@ -285,6 +289,8 @@ type RulesPrompt struct {
 	Choices              []RulesPromptChoice       `json:"choices"`
 	Cards                []RulesPromptCard         `json:"cards"`
 	ScryDestinations     []string                  `json:"scryDestinations"`
+	IncludesOtherZones   bool                      `json:"includesOtherZones,omitempty"`
+	ReplacementOrder     bool                      `json:"replacementOrder,omitempty"`
 	OrderItems           []RulesPromptOrderItem    `json:"orderItems"`
 	ContextCards         []RulesPromptCard         `json:"contextCards"`
 	ContextTargets       []RulesPromptTarget       `json:"contextTargets"`
@@ -317,6 +323,7 @@ type RulesRespond struct {
 	TargetIDs         []string                      `json:"targetIds,omitempty"`
 	Assignments       []RulesPromptAssignment       `json:"assignments,omitempty"`
 	ChoiceIDs         []string                      `json:"choiceIds,omitempty"`
+	Memorize          bool                          `json:"memorize,omitempty"`
 	OrderedIDs        []string                      `json:"orderedIds,omitempty"`
 	ScryPiles         []RulesPromptScryPile         `json:"scryPiles,omitempty"`
 	DamageOrderIDs    []string                      `json:"damageOrderIds,omitempty"`

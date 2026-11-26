@@ -232,6 +232,8 @@ final class NativeSnapshot {
         }
         else if (battlefield) result.add("identity", new JsonObject());
         if (battlefield) {
+            if (visible && !card.isFaceDown() && (card.isCloned() || card.getCopiedPermanent() != null))
+                result.addProperty("copy", true);
             result.addProperty("tapped", card.isTapped());
             result.addProperty("enteredThisTurn", card.enteredThisTurn());
             result.addProperty("summoningSick", card.isCreature() && card.isSick());
@@ -264,8 +266,11 @@ final class NativeSnapshot {
                 JsonArray annotations = new JsonArray();
                 if (view.getNamedCard() != null)
                     for (String name : view.getNamedCard()) annotation(annotations, "namedCard", name);
-                annotation(annotations, "chosenType", view.getChosenType());
-                annotation(annotations, "chosenType", view.getChosenType2());
+                var types = new java.util.LinkedHashSet<String>();
+                types.add(view.getChosenType());
+                types.add(view.getChosenType2());
+                if (view.getNotedTypes() != null) types.addAll(view.getNotedTypes());
+                for (String type : types) annotation(annotations, "chosenType", type);
                 if (view.getChosenColors() != null)
                     for (String color : view.getChosenColors()) annotation(annotations, "chosenColor", color);
                 annotation(annotations, "chosenNumber", view.getChosenNumber());
@@ -374,6 +379,8 @@ final class NativeSnapshot {
             entry.add("targets", stackTargets(game, instance, visibleObjects));
             if (!source.isFaceDown() && canSeeIdentity(source, viewer)) {
                 entry.add("identity", identity(source));
+                if (ability.isCopied() || (ability.isSpell() && (source.isCopiedSpell() || source.getCopiedPermanent() != null)))
+                    entry.addProperty("copy", true);
                 entry.addProperty("text", instance.getStackDescription());
             } else {
                 String label = source.isFaceDown() ? ability.isSpell() ? "Face-down spell" : "Face-down ability" : "Ability";

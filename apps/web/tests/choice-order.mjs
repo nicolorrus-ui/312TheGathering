@@ -61,9 +61,17 @@ async function checkChoices(viewport, touch) {
     await panel.getByRole("heading", { name: title }).waitFor();
   }
   async function submit(label, response) {
-    const [[received]] = await Promise.all([once(events, "answer", { signal: AbortSignal.timeout(6000) }),
-      button(label).press("Enter")]);
-    assert.deepEqual(received, { promptId, ...response });
+    const action = button(label).and(panel.locator("button:enabled"));
+    try {
+      // Keyboard activation, unlike a Playwright click, does not wait for the
+      // button to become enabled after the preceding React selection update.
+      await action.waitFor();
+      const [[received]] = await Promise.all([once(events, "answer", { signal: AbortSignal.timeout(6000) }),
+        action.press("Enter")]);
+      assert.deepEqual(received, { promptId, ...response });
+    } catch (error) {
+      throw new Error(`Could not submit ${label} at ${viewport.width}px, ${await panel.locator("header h2").innerText()}`, { cause: error });
+    }
   }
   const confirm = (fields) => submit("Confirm", { responseId: "$submit", ...fields });
   async function cardFace(tile, name) {
@@ -107,6 +115,33 @@ async function checkChoices(viewport, touch) {
   assert.deepEqual(await names(), ["Ponder", "Opt", "Island", "Grizzly Bears"]);
   await button("Ponder").press("Enter");
   await confirm({ cardIds: [cards[1].id] });
+
+  // A required singleton among revealed lands must still have a real, explicit
+  // selection. A private optional hand picker can instead confirm zero.
+  const revealedHand = [{ ...cards[0], name: "Mountain" }, { ...cards[1], name: "Lightning Bolt" }];
+  await show("chooseCards", { cards: revealedHand, minCardSelections: 1, maxCardSelections: 1 });
+  assert.deepEqual(await names(), ["Lightning Bolt", "Mountain"]);
+  assert.ok(await button("Mountain").isDisabled());
+  assert.ok(await button("Confirm").isDisabled());
+  await button("Lightning Bolt").press("Space");
+  await confirm({ cardIds: [revealedHand[1].id] });
+  await show("chooseCards", { cards: revealedHand, minCardSelections: 0, maxCardSelections: 1 });
+  assert.ok(await button("Confirm").isEnabled());
+  await confirm({ cardIds: [] });
+
+  await show("chooseFromSelection", { searchKind: "name", minChoiceTotal: 1, maxChoiceTotal: 1,
+    contextCards: revealedHand.map((card, index) => ({ ...card, id: `context-card:${index}`, readOnly: true })),
+    choices: [{ label: "Lightning Bolt", responseId: "choice:0", weight: 1, canRepeat: false, card: { name: "Lightning Bolt" } }] });
+  const context = panel.getByRole("group", { name: "Decision context" });
+  await context.locator("img").last().waitFor();
+  assert.deepEqual(await imageNames(context), ["mountain", "lightning bolt"]);
+  const search = panel.getByRole("searchbox", { name: "Search card names" });
+  await search.fill("Mountain");
+  assert.equal(await button("Mountain").count(), 0);
+  assert.equal(await context.locator("img").count(), 2);
+  await search.fill("bolt");
+  await button("Lightning Bolt").press("Enter");
+  await confirm({ choiceIds: ["choice:0"] });
 
   const reprint = { ...cards[1], id: "other-ponder", setCode: "ALT", collectorNumber: "201" };
   await show("chooseCards", { cards: [cards[1], reprint], minCardSelections: 1, maxCardSelections: 1 });
@@ -193,11 +228,22 @@ async function checkChoices(viewport, touch) {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no horizontal page overflow");
 
   await show("reorder", { orderItems: cards.map(({ id, ...card }) => ({ ...card, responseId: id, oracle: rulesText })) });
-  const ordered = panel.locator(".order-list");
+  const ordered = panel.locator(".order-strip");
   await ordered.locator("img").first().waitFor();
   assert.deepEqual(await imageNames(ordered), cards.map((card) => card.name.toLowerCase()));
   assert.doesNotMatch(await ordered.innerText(), /Island|Grizzly Bears|TST|Draw a card, then discard a card/);
-  await button("Move Ponder earlier").press("Space");
+  // Model moving to Confirm immediately after the cards change position,
+  // before the next paint. Focus restoration must not steal the next keystroke.
+  await ordered.evaluate((track) => {
+    const observe = new MutationObserver(() => {
+      observe.disconnect();
+      track.closest(".decision").querySelector("button.primary").focus();
+    });
+    observe.observe(track, { childList: true });
+  });
+  await ordered.getByRole("button", { name: "Ponder", exact: true }).press("ArrowLeft");
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.ok(await button("Confirm").evaluate((element) => element === document.activeElement));
   await confirm({ orderedIds: [cards[1].id, cards[0].id, cards[2].id, cards[3].id] });
 
   await show("reorder", { orderItems: abilityFixture });
@@ -209,11 +255,52 @@ async function checkChoices(viewport, touch) {
     assert.ok(!(await row.innerText()).includes(item.abilityText));
   }
 
+  const triggers = [
+    { name: "Lotus Field", abilityText: "Sacrifice two lands.", responseId: "order:land-a" },
+    { name: "Crumbling Vestige", abilityText: "Add one mana of any color.", responseId: "order:land-b" },
+  ];
+  await show("reorder", { orderItems: triggers });
+  await panel.getByText("Resolves first", { exact: true }).waitFor();
+  assert.equal(await ordered.getByRole("button").count(), 2);
+  assert.deepEqual(await imageNames(ordered), triggers.map((trigger) => trigger.name.toLowerCase()));
+  // Read both rectangles in the same frame while the decision pane is opening.
+  const [lotus, vestige] = await ordered.getByRole("button").evaluateAll((buttons) =>
+    buttons.map((button) => button.getBoundingClientRect().toJSON()));
+  assert.ok(lotus && vestige && lotus.y === vestige.y);
+  const y = lotus.y + lotus.height / 2, from = vestige.x + vestige.width / 2, to = lotus.x + lotus.width / 3;
+  if (touch) {
+    const cdp = await page.context().newCDPSession(page);
+    const point = (x) => [{ x, y, id: 0 }];
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: point(from) });
+    for (let step = 1; step <= 5; step++)
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: point(from + (to - from) * step / 5) });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await cdp.detach();
+  } else {
+    await page.mouse.move(from, y);
+    await page.mouse.down();
+    await page.mouse.move(to, y, { steps: 5 });
+    await page.mouse.up();
+  }
+  assert.deepEqual(await imageNames(ordered), ["crumbling vestige", "lotus field"]);
+  await confirm({ orderedIds: [triggers[1].responseId, triggers[0].responseId] });
+  assert.equal(await button("OK & Memorize").count(), 0);
+
+  const replacement = JSON.parse(readFileSync(new URL("../../../testdata/protocol/v3/rules-prompt-replacement-order.json",
+    import.meta.url), "utf8")).payload.orderItems;
+  const replacementIds = replacement.map((item) => item.responseId);
+  await show("reorder", { orderItems: replacement, replacementOrder: true });
+  await panel.getByText("Applies first", { exact: true }).waitFor();
+  await submit("OK", { responseId: "$submit", orderedIds: replacementIds });
+  await show("reorder", { orderItems: replacement, replacementOrder: true });
+  await ordered.getByRole("button", { name: "Spelunking", exact: true }).press("ArrowLeft");
+  await submit("OK & Memorize", { responseId: "$submit", orderedIds: [...replacementIds].reverse(), memorize: true });
+
   const instructions = ["Draw two cards.", "Exile a permanent or a card from your hand or graveyard."];
   await show("reorder", { orderItems: instructions.map((abilityText, i) => ({ name: "Lich's Mastery", abilityText, responseId: `trigger:${i}` })) });
   for (const instruction of instructions) await ordered.getByText(instruction, { exact: true }).waitFor();
   const secondTrigger = ordered.getByRole("listitem").filter({ hasText: instructions[1] });
-  await secondTrigger.getByRole("button", { name: /earlier/ }).press("Space");
+  await secondTrigger.getByRole("button").press("ArrowLeft");
   await confirm({ orderedIds: ["trigger:1", "trigger:0"] });
 
   await show("scry", { cards, scryDestinations: ["libraryTop", "libraryBottom"] });

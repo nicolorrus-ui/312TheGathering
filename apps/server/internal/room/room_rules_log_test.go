@@ -134,3 +134,35 @@ func TestRulesChatMembershipValidationAndTerminalShell(t *testing.T) {
 		t.Fatal("accepted game chat after return to waiting")
 	}
 }
+
+func TestPublicDeclarationsOncePerGameAndChoice(t *testing.T) {
+	r := rulesLogTestRoom(t)
+	snapshot := rulesPublicLogFixture()
+	choices := []RulesDeclaration{
+		{ID: 1, Seat: 0, Kind: "chosenType", Source: "Cavern of Souls", Value: "Elf"},
+		{ID: 2, Seat: 1, Kind: "namedCard", Source: "Slaughter Games", Value: "Lightning Bolt"},
+		{ID: 3, Seat: 0, Kind: "secretType", Source: "Conspiracy", Value: "SECRET"}}
+	for i := 0; i < 3; i++ {
+		r.ObserveRulesPublicState(snapshot, choices...)
+	}
+	var lines []string
+	for _, entry := range r.RulesLog {
+		if entry.Kind == "rules_choice" {
+			lines = append(lines, entry.Text)
+		}
+	}
+	if strings.Join(lines, "\n") != "Alice chose Elf for Cavern of Souls.\nBob named Lightning Bolt for Slaughter Games." {
+		t.Fatalf("public declarations: %q", lines)
+	}
+	snapshot.GameID = "game-2"
+	r.ObserveRulesPublicState(snapshot, choices[:1]...)
+	count := 0
+	for _, entry := range r.RulesLog {
+		if entry.Kind == "rules_choice" {
+			count++
+		}
+	}
+	if count != 3 {
+		t.Fatalf("next game's declaration lost: %v", r.RulesLog)
+	}
+}

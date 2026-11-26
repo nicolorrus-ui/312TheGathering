@@ -80,8 +80,103 @@ public final class NativeTargetClickRegressionTest {
                 });
                 require(clicks.get() == 4 && !session.hasFailed(), "Target rejection failed the native session");
             }
+            battlefieldSelection(base, config, false, false);
+            battlefieldSelection(base, config, true, false);
+            battlefieldSelection(base, config, true, true);
+            mixedChooseCard(base, config);
         }
-        System.out.println("PASS native graveyard target rejection and continuation");
+        System.out.println("PASS native graveyard targeting, Wasteland, and both Cloak and Dagger exile scopes");
+    }
+
+    private static void battlefieldSelection(NativeGuiBase base, JsonObject config, boolean cloak, boolean landOnly) throws Exception {
+        try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
+            base.setTestSession(session);
+            var game = session.game;
+            Player owner = game.getPlayers().get(0), opponent = game.getPlayers().get(1);
+            game.setAge(GameStage.Play);
+            game.setStartingPlayer(owner);
+            game.getPhaseHandler().devModeSet(PhaseType.MAIN1, owner, false, 33);
+            PlayerControllerHuman human = (PlayerControllerHuman) owner.getController();
+            Card source = card(game, owner, cloak ? "Cloak and Dagger, Entwined" : "Wasteland", ZoneType.Battlefield);
+            Card permanent = card(game, opponent, cloak ? "Grizzly Bears" : "Temple Garden", ZoneType.Battlefield);
+            Card hand = card(game, opponent, landOnly ? "Forest" : "Lightning Bolt", ZoneType.Hand);
+            card(game, owner, "Silvercoat Lion", ZoneType.Battlefield);
+            SpellAbility ability = cloak ? source.getTriggers().stream().filter(t -> t.hasParam("Execute")).findFirst().orElseThrow().ensureAbility()
+                    : source.getSpellAbilities().stream().filter(SpellAbility::usesTargeting).findFirst().orElseThrow();
+            ability.setActivatingPlayer(owner);
+            AtomicInteger table = new AtomicInteger(), mixed = new AtomicInteger();
+            drive(session, owner, () -> {
+                if (cloak) require(human.chooseTargetsFor(ability) && ability.getTargets().contains(opponent),
+                        "Cloak and Dagger must first target the opponent");
+                SpellAbility target = cloak ? ability.getSubAbility() : ability;
+                target.setActivatingPlayer(owner);
+                require(human.chooseTargetsFor(target), "Cannot choose the opposing permanent");
+                require(target.getTargets().getTargetCards().contains(permanent), "Incorrect opposing permanent");
+                AbilityUtils.resolve(ability);
+                ZoneType destination = cloak ? ZoneType.Exile : ZoneType.Graveyard;
+                Card expected = cloak && !landOnly ? hand : permanent;
+                require(opponent.getCardsIn(destination).stream().anyMatch(c -> c.getId() == expected.getId()),
+                        "The chosen opposing card did not reach " + destination);
+            }, input -> {
+                String type = input.get("type").getAsString();
+                if (type.equals("revealCards")) return NativeSession.object("type", "revealCardsAcknowledged");
+                if (type.equals("chooseBoolean")) {
+                    JsonObject yes = NativeSession.object("type", "decision"); yes.addProperty("value", true); return yes;
+                }
+                boolean otherZones = input.has("includesOtherZones") && input.get("includesOtherZones").getAsBoolean();
+                if (type.equals("chooseBoardTargets")) {
+                    for (JsonElement element : input.getAsJsonArray("candidates")) {
+                        JsonObject candidate = element.getAsJsonObject();
+                        if (candidate.get("kind").getAsString().equals("player") &&
+                                candidate.get("id").getAsString().equals(session.playerId(opponent))) return answer(candidate);
+                    }
+                }
+                if (otherZones) mixed.incrementAndGet(); else table.incrementAndGet();
+                Card chosen = otherZones && !landOnly ? hand : permanent;
+                if (type.equals("chooseBoardTargets")) {
+                    JsonArray candidates = input.getAsJsonArray("candidates");
+                    JsonObject choice = candidates.asList().stream().map(JsonElement::getAsJsonObject)
+                            .filter(item -> item.get("id").getAsString().equals(NativeSession.cardId(chosen)))
+                            .findFirst().orElseThrow();
+                    return answer(choice);
+                }
+                require(type.equals("chooseCards") && cloak && otherZones, "Unexpected selection: " + input);
+                var cards = input.getAsJsonArray("cards").asList().stream().map(JsonElement::getAsJsonObject).toList();
+                require(landOnly || cards.stream().anyMatch(c -> c.get("id").getAsString().equals(NativeSession.cardId(hand))),
+                        "Eligible opposing hand card missing");
+                JsonArray ids = new JsonArray(); ids.add(NativeSession.cardId(chosen));
+                JsonObject out = NativeSession.object("type", "chooseCardsDecision"); out.add("chosenCardIds", ids);
+                return out;
+            });
+            require(table.get() == 1 && mixed.get() == (cloak ? 1 : 0), "Wrong battlefield/mixed-zone choices: " + table + "/" + mixed);
+        }
+    }
+
+    private static void mixedChooseCard(NativeGuiBase base, JsonObject config) throws Exception {
+        try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
+            base.setTestSession(session);
+            var game = session.game;
+            Player owner = game.getPlayers().get(0);
+            game.setAge(GameStage.Play);
+            game.setStartingPlayer(owner);
+            game.getPhaseHandler().devModeSet(PhaseType.MAIN1, owner, false, 33);
+            Card source = card(game, owner, "Scour the Scene", ZoneType.Battlefield);
+            Card bear = card(game, owner, "Grizzly Bears", ZoneType.Battlefield);
+            card(game, owner, "Silvercoat Lion", ZoneType.Battlefield);
+            card(game, owner, "Forest", ZoneType.Hand);
+            SpellAbility ability = source.getTriggers().stream().filter(t -> "TrigChooseCard".equals(t.getParam("Execute")))
+                    .findFirst().orElseThrow().ensureAbility();
+            ability.setActivatingPlayer(owner);
+            AtomicInteger decisions = new AtomicInteger();
+            drive(session, owner, () -> AbilityUtils.resolve(ability), input -> {
+                require(input.get("includesOtherZones").getAsBoolean(), "ChooseCard discarded its Hand,Battlefield scope");
+                require(decisions.incrementAndGet() == 1, "Unexpected additional Scour the Scene choice");
+                JsonObject candidate = input.getAsJsonArray("candidates").asList().stream().map(JsonElement::getAsJsonObject)
+                        .filter(item -> NativeSession.cardId(bear).equals(item.get("id").getAsString())).findFirst().orElseThrow();
+                return answer(candidate);
+            });
+            require(decisions.get() == 1 && bear.getNetPower() == 3, "Scour the Scene did not apply to the chosen creature");
+        }
     }
 
     private static JsonObject answer(JsonObject... candidates) {

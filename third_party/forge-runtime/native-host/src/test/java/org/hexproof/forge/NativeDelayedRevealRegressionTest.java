@@ -30,8 +30,11 @@ public final class NativeDelayedRevealRegressionTest {
                 prefs.setPref(FPref.UI_SELECT_FROM_CARD_DISPLAYS, false);
                 return null;
             });
-            for (String scenario : List.of("company", "single", "narset", "other-recipient", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice", "public-visibility")) {
+            for (String scenario : List.of("company", "single", "narset", "other-recipient", "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search", "discard", "no-discard", "no-choice", "public-visibility",
+                    "seer-empty", "seer-lands", "seer-one", "seer-many", "bat", "prevented", "arbiter", "dreams")) {
                 JsonObject config = JsonParser.parseString("{\"gameId\":\"delayed-reveal-test\",\"seed\":42,\"variant\":\"constructed\",\"startingLife\":20,\"players\":[{\"name\":\"Reveal A\",\"deck\":[{\"name\":\"Forest\"}]},{\"name\":\"Reveal B\",\"deck\":[{\"name\":\"Forest\"}]}]}").getAsJsonObject();
+                if (scenario.startsWith("seer-") || scenario.equals("bat") || scenario.equals("prevented") || scenario.equals("arbiter"))
+                    config.getAsJsonArray("players").add(JsonParser.parseString("{\"name\":\"Reveal C\",\"deck\":[{\"name\":\"Island\"}]}"));
                 try (NativeSession session = new NativeSession(config, base); var scope = session.context.enter()) {
                     base.setTestSession(session);
                     session.game.setAge(GameStage.Play);
@@ -44,13 +47,164 @@ public final class NativeDelayedRevealRegressionTest {
                         case "fetch", "limited-fetch", "public-top-fetch", "continued-fetch", "multi-search" -> fetch(session, owner, scenario);
                         case "discard", "no-discard" -> discard(session, owner, scenario.equals("no-discard"));
                         case "no-choice" -> noChoice(session, owner);
+                        case "seer-empty", "seer-lands", "seer-one", "seer-many", "bat", "prevented" -> handExile(session, owner, scenario);
+                        case "dreams" -> dreams(session, owner);
+                        case "arbiter" -> arbiter(session, owner);
                         case "public-visibility" -> publicVisibility(session, owner);
                         default -> throw new AssertionError(scenario);
                     }
                 }
             }
         }
-        System.out.println("PASS native combined choices: Company, Narset, fetch, Thoughtseize, no legal choice, privacy and invalid responses");
+        System.out.println("PASS native combined choices: Company, Narset, fetch, Thoughtseize, Thought-Knot Seer, Deep-Cavern Bat and audience boundaries");
+    }
+
+    private static void handExile(NativeSession session, Player chooser, String scenario) throws Exception {
+        Player target = session.game.getPlayers().get(1);
+        boolean privateLook = scenario.equals("bat");
+        boolean prevented = scenario.equals("prevented");
+        int eligibleCount = switch (scenario) {
+            case "seer-empty", "seer-lands" -> 0;
+            case "seer-many" -> 2;
+            default -> 1;
+        };
+        Card source = card(session.game, chooser, privateLook || prevented ? "Deep-Cavern Bat" : "Thought-Knot Seer", ZoneType.Battlefield);
+        Card land = scenario.equals("seer-empty") ? null : card(session.game, target, "Mountain", ZoneType.Hand);
+        Card bolt = eligibleCount == 0 ? null : card(session.game, target, "Lightning Bolt", ZoneType.Hand);
+        if (eligibleCount > 1) card(session.game, target, "Ponder", ZoneType.Hand);
+        Card secret = card(session.game, target, "Primeval Titan", ZoneType.Library);
+        Set<String> shown = new HashSet<>(), legal = new HashSet<>();
+        for (Card card : target.getCardsIn(ZoneType.Hand)) {
+            shown.add(card.getName());
+            if (!card.isLand()) legal.add(card.getName());
+        }
+
+        SpellAbility ability = forge.game.ability.AbilityFactory.getAbility(source.getSVar("TrigReveal"), source);
+        ability.setActivatingPlayer(chooser);
+        ability.getTargets().add(target);
+        if (prevented) session.game.getAction().moveTo(ZoneType.Graveyard, source, null, null);
+        List<String> chooserInputs = new ArrayList<>(), thirdSeatInputs = new ArrayList<>();
+        drive(session, chooser, () -> {
+            AbilityUtils.resolve(ability);
+            require(target.getCardsIn(ZoneType.Exile).size() == (eligibleCount > 0 && !privateLook && !prevented ? 1 : 0),
+                    "Unexpected exile result for " + scenario);
+        }, input -> {
+            String kind = input.get("type").getAsString();
+            String seat = JsonParser.parseString(session.prompt(0)).getAsJsonObject().get("decidingPlayerId").getAsString();
+            require(!input.toString().contains(secret.getName()), "Exile choice disclosed the target's library");
+            if (seat.equals("player-2")) {
+                Set<String> disclosed = thirdSeatInputs.isEmpty() ? shown : Set.of(bolt.getName());
+                require(!privateLook && !prevented && kind.equals("revealCards") && new HashSet<>(shownNames(input)).equals(disclosed),
+                        "Another player received a private or incorrect disclosure");
+                thirdSeatInputs.add(kind);
+                return NativeSession.object("type", "revealCardsAcknowledged");
+            }
+            require(seat.equals("player-0"), "Hand choice assigned to the wrong player");
+            chooserInputs.add(kind);
+            if (kind.equals("acknowledge") && shown.isEmpty())
+                return NativeSession.object("type", "acknowledged");
+            if (kind.equals("revealCards")) {
+                require(new HashSet<>(shownNames(input)).equals(shown), "No-choice reveal lost cards " + scenario + " " + input + " expected " + shown);
+                return NativeSession.object("type", "revealCardsAcknowledged");
+            }
+            require(kind.equals("chooseCards") && eligibleCount > 0 && !prevented, "Unexpected hand choice " + scenario + ": " + input);
+            checkCards(input, shown, legal);
+            require(input.get("min").getAsInt() == (privateLook ? 0 : 1) && input.get("max").getAsInt() == 1,
+                    "Mandatory/optional exile bounds changed: " + input);
+            if (land != null) {
+                String publicHand = "\"name\":\"" + land.getName() + "\"";
+                for (int viewer : List.of(-1, 2)) require(session.snapshot(viewer).contains(publicHand) != privateLook,
+                        "Revealed hand crossed its audience boundary: " + scenario);
+                rejectCard(session, land);
+            }
+            if (!privateLook) rejectCard(session, null);
+            return choose(privateLook ? null : bolt);
+        });
+        List<String> expected = shown.isEmpty() ? List.of("acknowledge") : eligibleCount == 0 || prevented
+                ? List.of("revealCards") : List.of("chooseCards");
+        require(chooserInputs.equals(expected), scenario + " had redundant or missing windows: " + chooserInputs);
+        require(thirdSeatInputs.size() == (!shown.isEmpty() && !privateLook && !prevented ? (eligibleCount > 0 ? 2 : 1) : 0),
+                "Bystander lost or gained a reveal in " + scenario);
+    }
+
+    private static void dreams(NativeSession session, Player caster) throws Exception {
+        Player target = session.game.getPlayers().get(1);
+        Card first = card(session.game, target, "Grizzly Bears", ZoneType.Hand);
+        card(session.game, target, "Llanowar Elves", ZoneType.Hand);
+        card(session.game, target, "Forest", ZoneType.Hand);
+        Card second = card(session.game, target, "Birds of Paradise", ZoneType.Graveyard);
+        card(session.game, target, "Raging Goblin", ZoneType.Graveyard);
+        Card privateTop = card(session.game, target, "Divination", ZoneType.Library);
+        Card source = card(session.game, caster, "Dreams of Steel and Oil", ZoneType.Stack);
+        SpellAbility ability = source.getSpellAbilities().getFirst();
+        ability.setActivatingPlayer(caster);
+        ability.getTargets().add(target);
+        List<String> kinds = new ArrayList<>();
+        drive(session, caster, () -> {
+            session.game.getStack().add(ability);
+            session.game.getStack().resolveStack();
+            require(target.getCardsIn(ZoneType.Exile).stream().map(Card::getName).collect(java.util.stream.Collectors.toSet())
+                    .equals(Set.of(first.getName(), second.getName())), "Dreams exiled the wrong cards");
+        }, input -> {
+            String kind = input.get("type").getAsString();
+            kinds.add(kind);
+            require(!input.toString().contains(privateTop.getName()), "Dreams revealed the library");
+            if (kind.equals("revealCards")) return NativeSession.object("type", "revealCardsAcknowledged");
+            require(kind.equals("chooseCards"), "Unexpected Dreams decision " + kind);
+            if (shownNames(input).contains(first.getName())) {
+                checkCards(input, Set.of("Grizzly Bears", "Llanowar Elves", "Forest"), Set.of("Grizzly Bears", "Llanowar Elves"));
+                return choose(first);
+            }
+            checkCards(input, Set.of("Birds of Paradise", "Raging Goblin"), Set.of("Birds of Paradise", "Raging Goblin"));
+            return choose(second);
+        });
+        require(kinds.equals(List.of("chooseCards", "chooseCards")), "Dreams added a reveal to its hand and graveyard choices: " + kinds);
+    }
+
+    private static void arbiter(NativeSession session, Player chooser) throws Exception {
+        Player second = session.game.getPlayers().get(1), third = session.game.getPlayers().get(2);
+        card(session.game, second, "Island", ZoneType.Hand);
+        card(session.game, second, "Lightning Bolt", ZoneType.Hand);
+        card(session.game, third, "Forest", ZoneType.Hand);
+        card(session.game, third, "Ponder", ZoneType.Hand);
+        Card hidden = card(session.game, third, "Primeval Titan", ZoneType.Library);
+        Card arbiter = card(session.game, chooser, "Alhammarret, High Arbiter", ZoneType.Battlefield);
+        SpellAbility ability = forge.game.ability.AbilityFactory.getAbility(arbiter.getSVar("RevealHand"), arbiter);
+        ability.setActivatingPlayer(chooser);
+        List<String> seats = new ArrayList<>();
+        drive(session, chooser, () -> {
+            AbilityUtils.resolve(ability);
+            require(arbiter.getNamedCards().contains("Ponder"), "Arbiter did not use the selected name");
+        }, input -> {
+            String seat = JsonParser.parseString(session.prompt(0)).getAsJsonObject().get("decidingPlayerId").getAsString();
+            seats.add(seat);
+            String kind = input.get("type").getAsString();
+            require(!input.toString().contains(hidden.getName()), "Arbiter leaked an unshown library card");
+            if (seat.equals("player-0")) {
+                require(kind.equals("chooseFromSelection") && input.get("searchKind").getAsString().equals("name"),
+                        "Arbiter chooser lost the searchable combined choice: " + input);
+                Set<String> shown = new HashSet<>(), legal = new HashSet<>();
+                require(input.getAsJsonObject("presentation").has("shownCards"), "Missing name picker disclosure: " + input);
+                for (JsonElement e : input.getAsJsonObject("presentation").getAsJsonArray("shownCards"))
+                    shown.add(e.getAsJsonObject().getAsJsonObject("identity").get("name").getAsString());
+                JsonArray options = input.getAsJsonArray("options"), chosen = new JsonArray();
+                for (int i = 0; i < options.size(); i++) {
+                    String label = options.get(i).getAsJsonObject().get("label").getAsString();
+                    legal.add(label);
+                    if (label.equals("Ponder")) chosen.add(i);
+                }
+                require(shown.equals(Set.of("Island", "Forest", "Ponder", "Lightning Bolt"))
+                        && legal.equals(Set.of("Ponder", "Lightning Bolt")), "Arbiter disclosed or permitted the wrong names");
+                JsonObject response = NativeSession.object("type", "selectionDecision");
+                response.add("chosenIndices", chosen);
+                return response;
+            }
+            Set<String> expected = seat.equals("player-2") ? Set.of("Island", "Lightning Bolt") : Set.of("Forest", "Ponder");
+            require(kind.equals("revealCards") && new HashSet<>(shownNames(input)).equals(expected),
+                    "Arbiter's other viewers lost a public reveal: " + input);
+            return NativeSession.object("type", "revealCardsAcknowledged");
+        });
+        require(seats.size() == 3 && new HashSet<>(seats).size() == 3, "Arbiter duplicated a reveal for its chooser: " + seats);
     }
 
     private static void publicVisibility(NativeSession session, Player owner) {
@@ -173,7 +327,7 @@ public final class NativeDelayedRevealRegressionTest {
             require(owner.getCardsIn(ZoneType.Hand).getFirst().getId() == library.get(1).getId(), "Narset lost the chosen card");
             require(owner.getCardsIn(ZoneType.Library).getFirst() == library.get(4), "Narset changed the unlooked top");
         }, input -> {
-            int stage = decisions.getAndIncrement();
+            int stage = decisions.getAndIncrement() + (otherRecipient ? 0 : 1);
             String decider = JsonParser.parseString(session.prompt(0)).getAsJsonObject().get("decidingPlayerId").getAsString();
             require(!input.toString().contains("Primeval Titan"), "Narset disclosed a fifth card");
             if (stage == 1) {
@@ -189,7 +343,7 @@ public final class NativeDelayedRevealRegressionTest {
                     : List.of("Ponder")), "Narset's private look or public choice disclosed the wrong cards");
             return NativeSession.object("type", "revealCardsAcknowledged");
         });
-        require(decisions.get() == 3, "Unexpected Narset decisions");
+        require(decisions.get() == (otherRecipient ? 3 : 2), "Unexpected Narset decisions");
     }
 
     private static void checkCards(JsonObject input, Set<String> expected, Set<String> eligible) {

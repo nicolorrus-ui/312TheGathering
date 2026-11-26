@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+.declaration-search { display: grid; gap: .65rem; }
+.declaration-results { display: flex; flex-wrap: wrap; gap: .35rem; max-height: 14rem; overflow: auto; }
+.declaration-results .choice-card { align-self: flex-start; }
+.card-slot:has(> .permanent-declaration) { height: auto; grid-template-rows: var(--card-height) auto; }
+.permanent-declaration {
+  min-width: 0; max-width: 100%; padding: .18rem .28rem; text-align: center;
+  color: #fff; background: #182329f2; border: 1px solid var(--mint); border-radius: 4px;
+  font-size: clamp(.59rem, .9vw, .72rem); line-height: 1.14; overflow-wrap: anywhere; pointer-events: none;
+}

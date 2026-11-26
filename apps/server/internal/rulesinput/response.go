@@ -46,7 +46,7 @@ func Build(request protocol.RulesRespond, raw json.RawMessage, player int) (json
 	}
 	return forge.BuildPromptResponse(raw, player, view.PromptID, forge.PromptResponse{
 		ResponseID: request.ResponseID, CardIDs: request.CardIDs, TargetIDs: request.TargetIDs,
-		Assignments: promptAssignments(request.Assignments), ChoiceIDs: request.ChoiceIDs, OrderedIDs: request.OrderedIDs,
+		Assignments: promptAssignments(request.Assignments), ChoiceIDs: request.ChoiceIDs, OrderedIDs: request.OrderedIDs, Memorize: request.Memorize,
 		ScryPiles: promptScryPiles(request.ScryPiles), DamageOrderIDs: request.DamageOrderIDs,
 		DamageAssignments: DamageAssignments(request.DamageAssignments), ChosenNumber: request.ChosenNumber, Name: request.Name,
 	})

@@ -30,6 +30,7 @@ final class NativeSession implements AutoCloseable {
     final NativeReplay replay;
     final NativeHandKnowledge knowledge;
     final NativeCardMoves cardMoves;
+    final NativePublicChoices publicChoices;
     final List<NativeGuiGame> guis = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<Integer, String> snapshots = new HashMap<>();
     private final Set<SynchronousAnswer<?>> answers = new HashSet<>();
@@ -127,6 +128,7 @@ final class NativeSession implements AutoCloseable {
             boolean recordReplay = !request.has("skipReplay") || !request.get("skipReplay").getAsBoolean();
             replay = new NativeReplay(game, id, recordReplay);
             cardMoves = new NativeCardMoves(game, knowledge);
+            publicChoices = new NativePublicChoices(game);
             for (Player p : game.getRegisteredPlayers()) {
                 if (p.getController() instanceof PlayerControllerHuman human) {
                     NativeGuiGame gui = new NativeGuiGame(this, human);
@@ -319,6 +321,7 @@ final class NativeSession implements AutoCloseable {
         for (int viewer = -1; viewer < game.getRegisteredPlayers().size(); viewer++) {
             JsonObject snapshot = NativeSnapshot.capture(game, id, viewer, priority, knowledge);
             cardMoves.project(snapshot, viewer);
+            if (viewer == -1) publicChoices.project(snapshot);
             snapshot.addProperty("integrityHash", integrity);
             copies.put(viewer, snapshot.toString());
         }
@@ -337,6 +340,10 @@ final class NativeSession implements AutoCloseable {
         // whose native action has not started. The dispatcher releases this
         // barrier before running the action, so nested human menus still work.
         if (nativeActionQueued) return;
+        String kind = text(input, "type", "");
+        if ((kind.equals("chooseBoardTargets") || kind.equals("chooseCards"))
+                && owner.getController() instanceof NativeDecisionController controller && controller.includesOtherZones())
+            input.addProperty("includesOtherZones", true);
         capture(owner);
         JsonObject envelope = object("decidingPlayerId", playerId(decisionOwner(owner)));
         envelope.addProperty("promptId", ++serial);
