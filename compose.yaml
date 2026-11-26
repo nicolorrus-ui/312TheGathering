@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: hexproof-club
+services:
+  club:
+    image: hexproof-club:local
+    build:
+      context: .
+      dockerfile: Dockerfile.txt
+      args:
+        CLUB_IMAGE_REGISTRY_PREFIX: ${CLUB_IMAGE_REGISTRY_PREFIX-public.ecr.aws/docker/library/}
+    environment:
+      CLUB_LOCAL_CATALOG: "1"
+    ports:
+      - "127.0.0.1:57320:10000"
+    volumes:
+      - state:/var/lib/hexproof-club
+    restart: unless-stopped
+volumes:
+  state:
+    name: hexproof-club-state
+    external: true

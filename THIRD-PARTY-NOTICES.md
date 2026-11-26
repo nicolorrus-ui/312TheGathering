@@ -100,6 +100,11 @@ distribution process; game nodes do not require a local complete source archive.
 
 Upstream source: <https://github.com/Card-Forge/forge>
 
+Club builds also use Forge's GPL-3.0-or-later Genesis Device and Warp Speed
+scripts and their Star Trek printing and format data from
+[Forge revision `9870c0a`](https://github.com/Card-Forge/forge/tree/9870c0afb79c9e3de6b23d7158c8a00f922a3b93).
+The corresponding resource changes are in `deploy/club/forge-resources.patch`.
+
 Player-host client packages also contain `forge-overlay.jar`: the current native
 adapter and patched upstream classes, under the same GPL-3.0-or-later terms.
 Its `META-INF` directory preserves the Forge license and modified Java sources.

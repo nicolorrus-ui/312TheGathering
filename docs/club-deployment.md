@@ -23,6 +23,12 @@ inputs. Later builds reuse the verified archives. Set `CLUB_GOARCH=arm64`
 to build an ARM64 bundle on x86-64. Use `CLUB_FORGE_CACHE` to point to a
 prepared download cache.
 
+Club builds apply `deploy/club/forge-resources.patch` to the pinned runtime
+before generating the card catalogs. This fills in the upstream Forge scripts,
+TRK printings, and sanctioned-format eligibility for Genesis Device and Warp
+Speed. Recheck this patch when updating the pinned base. The remainder of the
+card pool and format data follows the pinned runtime.
+
 Run `./run.sh` inside the staged directory and open
 [http://127.0.0.1:57320](http://127.0.0.1:57320). Each browser tab keeps its
 seat credential in session storage. Use separate browser profiles for local
@@ -30,6 +36,33 @@ two-player testing. Room creation requires a password. Share the six-character
 room code or invitation link and the password with the other player. Decklists
 are stored in that browser's local storage. A displayed user name serves as a
 screen name. The server-issued seat credential grants control of a seat.
+
+## Docker Desktop
+
+From the source root, run `docker volume create hexproof-club-state` once.
+Compose uses this same volume as the earlier standalone container. It binds
+the app to `http://127.0.0.1:57320`, uses the local card catalog, and pulls
+base images from the ECR Public Docker Official Images mirror by default.
+Set `CLUB_IMAGE_REGISTRY_PREFIX` to an empty value in a Compose `.env` file
+to use Docker Hub instead.
+
+To migrate from an existing standalone container named `hexproof-club`,
+run `docker compose build` first. After the build succeeds and active matches
+have finished, run `docker stop hexproof-club` and `docker compose up -d`.
+Compose uses its own container name. An existing tunnel to port 57320
+continues to use the same address.
+
+For later updates, enter the updated source directory and run:
+
+```sh
+docker compose up -d --build
+```
+
+The first build with this Dockerfile prepares Forge. Subsequent builds in
+the same Docker builder reuse that layer when Forge inputs are unchanged.
+Compose replaces the container when the image changes, so update between
+matches. Use `docker compose logs -f club` to follow the service log and
+`docker compose ps` to see its status.
 
 ## Offline debugging
 
@@ -176,6 +209,12 @@ Deck search and printing selection use the club server’s `/card-search` endpoi
 The server requests matching cards from Scryfall, caches each results page for
 ten minutes, and shares its request limit with card-art lookups. Each result
 identifies the set and collector number used to display and save that printing.
+
+If the host cannot reach Scryfall reliably, set `CLUB_LOCAL_CATALOG=1` when
+starting the club bundle (or pass `-e CLUB_LOCAL_CATALOG=1` to `docker run`).
+Search and printing selection then use the card catalog bundled from Forge.
+Printings are limited to the bundled data. Artwork still uses the configured
+local image pack and the existing Scryfall lookup where available.
 
 The club server serves the image pack from its deployed `web/assets/cards/`
 directory. To build or extend a pack, save MTGA or MTGO deck exports as UTF-8

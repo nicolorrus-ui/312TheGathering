@@ -104,10 +104,10 @@ async function practiceAndResume() {
   console.log("Practice advanced turns with no AI plays, accepted a real card drag, and resumed the same seat after reload and after closing the tab");
 }
 
-async function registerLineup(player, checkInvalid = false) {
+async function registerLineup(player, decks, checkInvalid = false) {
   const page = player.page;
-  for (const [index, name] of ["Mountain", "Swamp", "Forest"].entries()) {
-    await importDeck(page, name, "60 " + name);
+  for (const [index, [name, list]] of decks.entries()) {
+    await importDeck(page, name, list);
     await page.getByLabel("Deck " + (index + 1)).selectOption({label: name});
   }
   if (checkInvalid) {
@@ -115,7 +115,8 @@ async function registerLineup(player, checkInvalid = false) {
     await page.getByLabel("Deck 1").selectOption({label: "Illegal short deck"});
     await button(page, "Validate and register lineup").click();
     await page.getByRole("alert").filter({ hasText: /Forge rejected deck 1.*format_violation/ }).waitFor({timeout: 60000});
-    await page.getByLabel("Deck 1").selectOption({label: "Mountain"});
+    const [[firstDeckName]] = decks;
+    await page.getByLabel("Deck 1").selectOption({label: firstDeckName});
   }
   await button(page, "Validate and register lineup").click();
   await button(page, "Check in").click({timeout: 60000});
@@ -134,8 +135,17 @@ async function conquest() {
   await button(guest.page, "Join tournament").click();
   await guest.page.getByLabel("Tournament code").fill(code);
   await button(guest.page, "Enter tournament").click();
-  await registerLineup(host, true);
-  await registerLineup(guest);
+  const basics = ["Mountain", "Swamp", "Forest"].map((name) => [name, "60 " + name]);
+  const starTrek = [
+    ["Forest", "200", "223"],
+    ["Swamp", "422", "387"],
+    ["Mountain", "546", "521"],
+  ].map(([land, genesis, warp]) => [
+    `Star Trek ${genesis}`,
+    `58 ${land}\n1 Genesis Device (TRK) ${genesis}\n1 Warp Speed (TRK) ${warp}`,
+  ]);
+  await registerLineup(host, starTrek, true);
+  await registerLineup(guest, basics);
   await button(host.page, "Start tournament").click();
   for (let match = 0; match < 3; match++) {
     const open = (page) => button(page, "Open match");
