@@ -1,0 +1,49 @@
+{
+  "type": "rules.prompt",
+  "payload": {
+    "roomId": "ABCDEF",
+    "gameId": "ABCDEF-1",
+    "pending": true,
+    "promptId": 92,
+    "kind": "reorder",
+    "supported": true,
+    "title": "Order replacement effects",
+    "detail": "",
+    "options": [],
+    "choices": [],
+    "cards": [],
+    "scryDestinations": [],
+    "orderItems": [
+      {
+        "responseId": "order:0",
+        "name": "Lotus Field",
+        "abilityText": "Lotus Field enters tapped."
+      },
+      {
+        "responseId": "order:1",
+        "name": "Spelunking",
+        "abilityText": "Lands you control enter untapped."
+      }
+    ],
+    "contextCards": [],
+    "contextTargets": [],
+    "contextText": "",
+    "requiredSelections": 0,
+    "minCardSelections": 0,
+    "maxCardSelections": 0,
+    "targets": [],
+    "combatSources": [],
+    "combatTargets": [],
+    "damageTargets": [],
+    "totalDamage": 0,
+    "damageDeathtouch": false,
+    "minSelections": 0,
+    "maxSelections": 0,
+    "cancellable": false,
+    "minChoiceTotal": 0,
+    "maxChoiceTotal": 0,
+    "minNumber": 0,
+    "maxNumber": 0,
+    "replacementOrder": true
+  }
+}

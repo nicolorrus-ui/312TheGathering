@@ -30,6 +30,12 @@ final class NativeOrdering {
 
     static IGuiGame.OrderResult<?> order(NativeSession session, Player owner, String title,
             int remainingMin, int remainingMax, List<?> source, List<?> destination, List<CardView> revealed) {
+        return order(session, owner, title, remainingMin, remainingMax, source, destination, revealed, true);
+    }
+
+    static IGuiGame.OrderResult<?> order(NativeSession session, Player owner, String title,
+            int remainingMin, int remainingMax, List<?> source, List<?> destination, List<CardView> revealed,
+            boolean orderSelected) {
         List<Object> candidates = new ArrayList<>();
         if (source != null) candidates.addAll(source);
         if (destination != null) candidates.addAll(destination);
@@ -43,7 +49,9 @@ final class NativeOrdering {
         }
         List<?> selected = min == total && max == total && revealed.isEmpty() ? candidates
                 : select(session, owner, title, min, max, candidates, revealed);
-        return new IGuiGame.OrderResult<>(reorder(session, owner, title, selected, revealed, candidates.stream().allMatch(CardView.class::isInstance)), false);
+        if (orderSelected)
+            selected = reorder(session, owner, title, selected, revealed, candidates.stream().allMatch(CardView.class::isInstance));
+        return new IGuiGame.OrderResult<>(selected, false);
     }
 
     static List<?> insertInList(NativeSession session, Player owner, String title, Object item, List<?> oldItems) {

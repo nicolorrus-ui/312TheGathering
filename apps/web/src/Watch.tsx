@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Board } from "./Board";
 import { LiveDeckLists } from "./LiveDeckLists";
-import { protocol, type Envelope, type GameMetadata, type Room, type ServerError, type Snapshot, type Welcome } from "./protocol";
+import { formatLabel, protocol, type Envelope, type GameMetadata, type Room, type ServerError, type Snapshot, type Welcome } from "./protocol";
 
 type WatchState = {
   online: boolean;
@@ -14,6 +14,40 @@ type WatchState = {
   notice?: string;
 };
 const ignore = () => {};
+
+type LiveRoom = Pick<Room, "roomId" | "name" | "deckFormat" | "matchMode" | "phase"> & { joinable: boolean };
+
+function LiveRoomList() {
+  const [rooms, setRooms] = useState<LiveRoom[]>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: number;
+    async function refresh() {
+      try {
+        const result = await fetch("/live-rooms", { signal: controller.signal, cache: "no-store" });
+        if (!result.ok) throw new Error();
+        const current: LiveRoom[] = await result.json();
+        if (!controller.signal.aborted) { setRooms(current); setFailed(false); }
+      } catch {
+        if (!controller.signal.aborted) { setFailed(true); setRooms(undefined); }
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(refresh, 5000);
+      }
+    }
+    void refresh();
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, []);
+  if (!rooms?.length) return <p role="status">{failed ? "Could not load live rooms. Retrying…" :
+    rooms ? "No live rooms are available." : "Loading live rooms…"}</p>;
+  return <ul className="live-room-list" aria-label="Live rooms">{rooms.map((room) => {
+    const phase = room.phase === "waiting" ? "Waiting for players" : room.phase === "loading" ? "Starting" : "In game";
+    const details = <><strong>{room.name}</strong><small>{formatLabel(room.deckFormat)} · {room.matchMode.toUpperCase()} · {phase} · {room.roomId}</small></>;
+    return <li key={room.roomId}>{room.joinable
+      ? <a href={"?watch=" + encodeURIComponent(room.roomId)}>{details}</a>
+      : <div>{details}<small>Spectators full</small></div>}</li>;
+  })}</ul>;
+}
 
 function useWatch(roomId: string) {
   const [state, setState] = useState<WatchState>({ online: false });
@@ -165,11 +199,7 @@ export function Watch({ roomId }: { roomId: string }) {
       <section className="panel">
         <h1>Watch a live duel</h1>
         {error && <p role="alert" className="notice">{error}</p>}
-        <form method="get" action={location.pathname}>
-          <label>Room code<input name="watch" required minLength={6} maxLength={6} defaultValue={roomId}
-            autoCapitalize="characters" autoComplete="off" /></label>
-          <button className="primary" type="submit">Watch duel</button>
-        </form>
+        <LiveRoomList />
       </section>
     </main> : <div className="watch-layout" data-decks={Boolean(room?.liveDeckLists?.length)}>
       {room?.liveDeckLists?.length ? <LiveDeckLists lists={room.liveDeckLists} seats={room.seats} /> : null}

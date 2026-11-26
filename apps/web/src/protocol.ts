@@ -10,9 +10,10 @@ export type DeckCard = Identity & { count: number };
 export type Deck = { id: string; name: string; text: string; mainboard: DeckCard[]; sideboard: DeckCard[] };
 export type Card = {
   id: string; visible: boolean; identity?: Identity; ownerSeat: number; controllerSeat: number;
-  tapped?: boolean; faceDown?: boolean; attacking?: boolean; blocking?: string[];
+  copy?: boolean; summoningSick?: boolean; tapped?: boolean; faceDown?: boolean; attacking?: boolean; blocking?: string[];
   power?: string; toughness?: string; damage?: number; counters?: Counter[];
   typeLine?: string; oracle?: string; land?: boolean;
+  annotations?: { kind: string; value: string }[];
 };
 export type Counter = { name: string; value: number };
 export type Player = { seat: number; name: string; life: number; manaPool: Counter[]; status: string };
@@ -20,7 +21,7 @@ export type Zone = { zone: string; ownerSeat: number; count: number; cards: Card
 export type MoveEndpoint = { zone: string; seat: number; objectId?: string };
 export type CardMove = { id: number; castId?: string; from: MoveEndpoint; to: MoveEndpoint };
 export type PendingCast = { id: string; controllerSeat: number; from: MoveEndpoint; identity: Identity };
-export type StackObject = { id: string; castId?: string; identity: Identity; text: string; controllerSeat: number };
+export type StackObject = { id: string; copy?: boolean; castId?: string; identity: Identity; text: string; controllerSeat: number };
 export type Snapshot = {
   roomId: string; gameId: string; turn: number; step: string; activeSeat: number; prioritySeat: number;
   players: Player[]; zones: Zone[]; stack: StackObject[]; gameOver: boolean; winnerSeat?: number;
@@ -31,8 +32,10 @@ export type Target = Option & Partial<Identity> & { objectId?: string; seat?: nu
 export type Choice = { responseId: string; label: string; weight: number; canRepeat: boolean; manaSymbols?: string[]; card?: Identity; actionLabel?: string };
 export type PromptCard = Identity & { id: string; selected?: boolean; readOnly?: boolean };
 export type Prompt = {
+  replacementOrder?: boolean;
   roomId: string; gameId: string; pending: boolean; promptId: number; kind: string; supported: boolean;
-  manaSourceId?: string;
+  legalNames?: string[]; searchKind?: "name" | "type";
+  manaSourceId?: string; includesOtherZones?: boolean;
   title: string; detail: string; options: Option[]; contextText: string; contextCards: PromptCard[]; contextTargets?: Target[];
   targets: Target[]; choices: Choice[]; cards: PromptCard[]; cancellable: boolean;
   minSelections: number; maxSelections: number; minCardSelections: number; maxCardSelections: number;
@@ -45,6 +48,7 @@ export type Prompt = {
 export type RulesPriority = { roomId: string; hold: boolean; stops: string[] };
 
 export type Response = {
+  memorize?: boolean;
   responseId: string; cardIds?: string[]; targetIds?: string[]; choiceIds?: string[];
   orderedIds?: string[]; chosenNumber?: number; name?: string;
   scryPiles?: { destination: string; cardIds: string[] }[];

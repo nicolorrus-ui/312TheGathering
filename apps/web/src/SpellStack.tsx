@@ -54,7 +54,7 @@ export function SpellStack({ objects, targets, targetIds, hoverCard, toggleTarge
         return <button key={(object.renderKey ?? object.id) + (face ? cardArtURL(face) : "")} type="button" data-stack-id={object.id}
           data-pending={object.pending || undefined}
           style={{ "--stack-depth": depth, zIndex: objects.length - depth } as CSSProperties}
-          title={object.text} aria-label={label} aria-description={object.text !== label ? object.text : undefined}
+          title={object.text} aria-label={label} aria-description={[object.copy && "Copy", object.text !== label && object.text].filter(Boolean).join(". ") || undefined}
           aria-pressed={target ? targetIds.includes(target.responseId) : undefined} data-actionable={Boolean(target)}
           onMouseEnter={(event) => hoverCard(face, event.currentTarget)} onMouseLeave={() => hoverCard()}
           onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) hoverCard(face, event.currentTarget); }}
@@ -64,6 +64,7 @@ export function SpellStack({ objects, targets, targetIds, hoverCard, toggleTarge
           {face ? <><span className="stack-card-label">{label}</span>
             <CardImage identity={face} className="stack-card-image" decorative compact eager /></>
             : <span className="stack-card-back card-back" aria-hidden="true" />}
+          {object.copy && <span className="permanent-status copy-tag" title="Copy">Copy</span>}
           {depth > 0 && <span className="stack-edge" aria-hidden="true">{label}</span>}
         </button>;
       })}

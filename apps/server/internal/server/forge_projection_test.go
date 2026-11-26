@@ -112,7 +112,7 @@ func TestForgeAnnotationsRespectPublicStateZones(t *testing.T) {
 func TestForgeControlledSeatAndArrivalProjection(t *testing.T) {
 	game := forgeRoomGame{gameID: "game", playerToSeat: map[int]int{0: 1, 1: 0}}
 	card := forge.CardView{ID: "top", Visibility: "visible", Identity: &forge.CardIdentityView{Name: "Forest"},
-		EnteredThisTurn: true, SummoningSick: true}
+		Copy: true, EnteredThisTurn: true, SummoningSick: true}
 	view := forge.GameView{GameID: "game", ActivePlayerID: "player-0", PriorityPlayerID: "player-0",
 		Players: []forge.PlayerView{{ID: "player-0", ControllingPlayerID: "player-1"}, {ID: "player-1"}},
 		Zones: []forge.ZoneView{{Zone: "library", OwnerID: "player-0", Count: 40, Cards: []forge.CardView{card}},
@@ -130,10 +130,10 @@ func TestForgeControlledSeatAndArrivalProjection(t *testing.T) {
 	if snapshot.Zones[0].Count != 40 || len(snapshot.Zones[0].Cards) != 1 || snapshot.Zones[0].Cards[0].Identity.Name != "Forest" {
 		t.Fatal("permitted library top or hidden count lost")
 	}
-	if snapshot.Zones[0].Cards[0].EnteredThisTurn || snapshot.Zones[0].Cards[0].SummoningSick {
+	if snapshot.Zones[0].Cards[0].Copy || snapshot.Zones[0].Cards[0].EnteredThisTurn || snapshot.Zones[0].Cards[0].SummoningSick {
 		t.Fatal("battlefield markers escaped to a hidden zone")
 	}
-	if !snapshot.Zones[1].Cards[0].EnteredThisTurn || !snapshot.Zones[1].Cards[0].SummoningSick {
+	if !snapshot.Zones[1].Cards[0].Copy || !snapshot.Zones[1].Cards[0].EnteredThisTurn || !snapshot.Zones[1].Cards[0].SummoningSick {
 		t.Fatal("public arrival state lost")
 	}
 	view.Players[0].ControllingPlayerID = "player-9"
@@ -222,12 +222,12 @@ func TestForgeStackTargetsJoinOnlyViewerObjects(t *testing.T) {
 			{ID: "face-down", Visibility: "hidden", Identity: &forge.CardIdentityView{Name: "PRIVATE"}},
 		}}},
 		Stack: []forge.StackObjectView{
-			{ID: "counter", ControllerID: "player-1", Identity: forge.CardIdentityView{Name: "Counterspell"}, Targets: []forge.StackTargetView{
+			{ID: "counter", Copy: true, ControllerID: "player-1", Identity: forge.CardIdentityView{Name: "Counterspell"}, Targets: []forge.StackTargetView{
 				{Kind: "spell", ID: "spell"}, {Kind: "card", ID: "same-name-2"}, {Kind: "player", ID: "player-0"},
 				{Kind: "card", ID: "face-down"}, {Kind: "card", ID: "private-hand"}, {Kind: "spell", ID: "departed-spell"},
 				{Kind: "card", ID: "same-name-2"}, {Kind: "player", ID: "player-9"}, {Kind: "unknown", ID: "same-name-1"},
 			}},
-			{ID: "spell", ControllerID: "player-0"},
+			{ID: "spell", Copy: true, ControllerID: "player-0"},
 		}}
 	snapshot, err := normalizeForgeSnapshot("ROOM", game, view)
 	if err != nil {
@@ -238,6 +238,9 @@ func TestForgeStackTargetsJoinOnlyViewerObjects(t *testing.T) {
 		{Kind: "player", Seat: &seat, Label: "Alice"}, {Kind: "card", ObjectID: "face-down"}}
 	if !reflect.DeepEqual(snapshot.Stack[0].Targets, want) {
 		t.Fatalf("unsafe or incorrect stack relationships: %#v", snapshot.Stack[0].Targets)
+	}
+	if !snapshot.Stack[0].Copy || snapshot.Stack[1].Copy {
+		t.Fatal("visible copy marker lost or anonymous stack identity disclosed")
 	}
 	if snapshot.Stack[0].ID != "counter" || snapshot.Stack[1].ID != "spell" {
 		t.Fatal("projection reordered the native top-first stack")

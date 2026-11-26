@@ -1,0 +1,13 @@
+{
+  "type": "rules.respond",
+  "id": "remember-order",
+  "payload": {
+    "promptId": 92,
+    "responseId": "$submit",
+    "orderedIds": [
+      "order:1",
+      "order:0"
+    ],
+    "memorize": true
+  }
+}

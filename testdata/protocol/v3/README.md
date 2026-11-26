@@ -31,6 +31,7 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `rules-prompt-mana-source.json` | server | A mana source offers distinct combinations; selecting a group submits its existing choice ID |
 | `rules-prompt-card-choice.json` | server | A private selection shows insertion positions for a visible printing and a face-down card |
 | `rules-prompt-order-abilities.json` | server | A deciding player orders triggered abilities with their source printings and individual descriptions |
+| `rules-prompt-replacement-order.json` / `rules-respond-memorize-order.json` | both | The deciding player orders applicable replacement effects and requests reuse within the current game |
 | `tournament-create-forge.json` / `tournament-listed-forge.json` / `tournament-snapshot-forge.json` | both | Immutable Forge mode survives event creation, discovery and event projection; omitted mode remains manual |
 | `tournament-chat-*.json` | both | Event-scoped text messages and bounded history; server-authored names and sequences |
 | `forge-peer-*.json` | both | Explicit per-seat direct-transport consent, private binding and bounded signaling; no spectator delivery |
@@ -88,7 +89,7 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `rules-snapshot-card-moves.json` | S -> C | Anonymous opponent draw and a physical spell moving from hand through the stack to a public graveyard object |
 | `rules-prompt-sequenced.json` / `rules-prompt-cleared-sequenced.json` | S -> C | A decision paired with `rules-snapshot-owner.json` at sequence 8, and a later empty decision at sequence 9; cleared prompts carry no private choices |
 | `rules-snapshot-relationships.json` | S -> C | Public colorless mana, confirmed blocking pairs and an attachment to a permanent |
-| `rules-snapshot-turn-control.json` | S -> C | Controlled opponent, permitted hand and library top, and independent permanent entry/sickness flags |
+| `rules-snapshot-turn-control.json` | S -> C | Controlled opponent, permitted hand and library top, and independent permanent entry, copy and sickness flags |
 | `rules-snapshot-card-annotations.json` | S -> C | Independent named-card choices, linked exile, a class level, and a command-zone dungeon room |
 | `rules-snapshot-stack-targets.json` | S -> C | Top-first stack with exact spell, player, duplicate-name card and anonymous permanent target relationships |
 | `rules-prompt.json` / `rules-prompt-auto-pass.json` / `rules-prompt-board-targets.json` / `rules-prompt-reveal.json` / `rules-prompt-acknowledge.json` / `rules-prompt-scry.json` / `rules-prompt-damage-order.json` / `rules-prompt-damage-assignment.json` / `rules-prompt-replacement.json` / `rules-respond.json` / `rules-respond-scry.json` / `rules-respond-damage-order.json` / `rules-respond-damage-assignment.json` / `rules-responded.json` | both | Deciding-player-only normalized Forge choices, including private card disclosure, single-action game notices and AI deck advisories, scry ordering, combat-damage assignment, and read-only replacement-effect context, stable response ids, and identity-free acknowledgements |

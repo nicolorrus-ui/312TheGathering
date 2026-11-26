@@ -54,6 +54,9 @@ func (h *Handler) scheduleModelDecision(r *room.Room, game forgeRoomGame, view *
 		h.pauseModelWorker(r.ID, "unsupported_prompt", false)
 		return
 	}
+	// The model already accepts exact names as free text. Avoid putting the entire
+	// catalog in its context window for a broad card-naming effect.
+	prompt.LegalNames = nil
 	prompt.PromptID, err = h.publicForgePromptID(game, view.PromptID)
 	if err != nil {
 		h.pauseModelWorker(r.ID, "engine_unavailable", false)

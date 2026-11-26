@@ -44,6 +44,9 @@ textarea { resize: vertical; font: .86rem/1.5 ui-monospace, monospace; }
 label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .watch-link { color: var(--accent); font-size: .87rem; }
 .tabs .watch-link { align-self: center; padding: .35rem; }
+.live-room-list { display: grid; gap: .5rem; list-style: none; padding: 0; }
+.live-room-list :is(a, li > div) { display: grid; gap: .25rem; padding: .75rem; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+.live-room-list a:hover { border-color: var(--accent); }
 .topbar {
   min-height: 58px; position: relative; display: flex; justify-content: space-between; align-items: center; gap: 12px;
   padding: .55rem clamp(.8rem, 3vw, 2.6rem); border-bottom: 1px solid var(--line); background: #131b17;
@@ -291,6 +294,9 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 }
 .pt, .combat-tag { position: absolute; background: #151a29; border: 1px solid #e5d6bc58; padding: .12rem .2rem; border-radius: 3px; }
 .pt { right: 3px; bottom: 3px; }
+.permanent-status { position: absolute; z-index: 1; padding: .1rem .25rem; border-radius: .25rem; font: 700 .69rem/1.1 system-ui, sans-serif; pointer-events: none; }
+.copy-tag { bottom: 3px; left: 3px; color: #e3d8ff; background: #241b3a; border: 1px solid #b99de0; }
+.sickness-tag { top: 3px; right: 3px; color: #d5f2ff; background: #122f3e; border: 1px solid #7fbad9; }
 .combat-tag { top: 3px; left: 3px; color: var(--accent); }
 .table-card[data-attack-state="choosing"], .table-card[data-attack-state="attacking"] {
   border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent);

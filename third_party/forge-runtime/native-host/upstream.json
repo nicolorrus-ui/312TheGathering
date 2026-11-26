@@ -1,11 +1,11 @@
 {
   "repository": "https://github.com/Card-Forge/forge.git",
   "revision": "0485ad49fb10c8ef5b3eda2a002c963d59be71dc",
-  "adapterRevision": 41,
+  "adapterRevision": 42,
   "mainClass": "org.hexproof.forge.NativeHost",
   "patch": {
     "file": "native-hooks.patch",
-    "sha256": "46d7453004499e53784bf1700ea39476c3b844f7f155ace1e8171d136ed63fe7"
+    "sha256": "7a887fda39e84278c6dfbdc2902e995ad88ee5f80031d47c6e82ad6788f8bb3e"
   },
-  "diagnosticSymbolsSha256": "c38ded623e7445ca37c2c85341e2396b111cd575eaa741022ca3239bc5e27e6c"
+  "diagnosticSymbolsSha256": "910053dd67a16a7612566ebc386c7305ed1155379e347d793cf01bed204d8a07"
 }

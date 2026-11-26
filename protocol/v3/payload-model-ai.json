@@ -137,6 +137,8 @@
           "type": "boolean",
           "required": false
         },
+        {"name": "legalNames", "type": "array", "required": false, "items": {"type": "string"}},
+        {"name": "searchKind", "type": "string", "required": false},
         {
           "name": "manaSourceId",
           "type": "string",
@@ -191,6 +193,16 @@
           "items": {
             "type": "string"
           }
+        },
+        {
+          "name": "includesOtherZones",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "replacementOrder",
+          "type": "boolean",
+          "required": false
         },
         {
           "name": "orderItems",
@@ -391,6 +403,11 @@
           "items": {
             "type": "string"
           }
+        },
+        {
+          "name": "memorize",
+          "type": "boolean",
+          "required": false
         },
         {
           "name": "orderedIds",

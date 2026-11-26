@@ -22,9 +22,16 @@ try {
     const page = await browser.newPage();
     let socket;
     const send = (type, payload) => socket.send(JSON.stringify({ type, payload }));
-    function snapshot(hand, library) {
+    function snapshot(hand, library, marked = true) {
       send("rules.snapshot", { roomId, gameId, activeSeat: 0, prioritySeat: 0, turn: 3, step: "main1",
-        players, gameOver: false, stack: [], zones: [
+        players, gameOver: false, stack: [
+          { id: "stack-copy", copy: true, controllerSeat: 1, identity: { name: "Counterspell" }, text: "Counterspell" },
+          { id: "stack-original", controllerSeat: 1, identity: { name: "Counterspell" }, text: "Counterspell" },
+        ], zones: [
+          { zone: "battlefield", ownerSeat: 1, count: 2, cards: [
+            { ...card("clone", "Grizzly Bears"), copy: marked, summoningSick: marked },
+            card("original", "Grizzly Bears"),
+          ] },
           { zone: "hand", ownerSeat: 1, count: 3, cards: hand },
           { zone: "library", ownerSeat: 1, count: 40, cards: library },
           { zone: "hand", ownerSeat: 0, count: 2, cards: [] },
@@ -74,6 +81,14 @@ try {
         }
       }
     }
+    const clone = page.locator('[data-card-id="clone"]');
+    await clone.locator(".copy-tag").waitFor();
+    await clone.locator(".sickness-tag").waitFor();
+    assert.equal(await page.locator('[data-card-id="original"] .permanent-status').count(), 0);
+    await page.locator('[data-stack-id="stack-copy"] .copy-tag').waitFor();
+    assert.equal(await page.locator('[data-stack-id="stack-original"] .copy-tag').count(), 0);
+    snapshot([bolt], [island], false);
+    await clone.locator(".permanent-status").first().waitFor({ state: "detached" });
     const revealed = page.locator(".opponent-hand [data-card-id]");
     await revealed.waitFor();
     assert.equal(await revealed.getAttribute("aria-label"), "Lightning Bolt");
@@ -100,5 +115,5 @@ try {
     assert.equal(await top.count(), 0);
     await page.close();
   }
-  console.log("Verified known hands, anonymous backs, hover revocation and changing library tops for a player and a spectator");
+  console.log("Verified known cards, library tops, copy badges and summoning sickness for a player and a spectator");
 } finally { await browser.close(); }

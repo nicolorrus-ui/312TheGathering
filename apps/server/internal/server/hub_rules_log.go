@@ -8,7 +8,7 @@ import (
 	"hexproof/server/internal/room"
 )
 
-func (h *Hub) UpdateRulesPublicLog(r *room.Room, snapshot protocol.RulesGameSnapshot) {
+func (h *Hub) UpdateRulesPublicLog(r *room.Room, snapshot protocol.RulesGameSnapshot, declarations ...room.RulesDeclaration) {
 	entry := h.roomEntryFor(r.ID)
 	if entry == nil {
 		return
@@ -16,7 +16,7 @@ func (h *Hub) UpdateRulesPublicLog(r *room.Room, snapshot protocol.RulesGameSnap
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.room == r {
-		r.ObserveRulesPublicState(snapshot)
+		r.ObserveRulesPublicState(snapshot, declarations...)
 		r.RecordRulesReview(snapshot)
 	}
 }

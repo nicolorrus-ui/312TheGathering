@@ -121,7 +121,8 @@
             "controllerSeat": 0,
             "counters": [],
             "enteredThisTurn": true,
-            "summoningSick": true
+            "summoningSick": true,
+            "copy": true
           }
         ]
       }

@@ -428,6 +428,10 @@ func pairingRoomOccupied(r *room.Room) bool {
 // Registry and room locks are never held together, avoiding lock inversion
 // with room removal while still taking each projection atomically.
 func (h *Hub) ListRooms() []protocol.RoomListEntry {
+	return h.listRooms(false)
+}
+
+func (h *Hub) listRooms(clubLiveOnly bool) []protocol.RoomListEntry {
 	h.mu.Lock()
 	entries := make([]*roomEntry, 0, len(h.rooms))
 	for _, entry := range h.rooms {
@@ -438,7 +442,8 @@ func (h *Hub) ListRooms() []protocol.RoomListEntry {
 	rooms := make([]protocol.RoomListEntry, 0, len(entries))
 	for _, entry := range entries {
 		entry.mu.Lock()
-		if !entry.room.Disbanded && !entry.room.Playtest && entry.tournamentID == "" {
+		if !entry.room.Disbanded && !entry.room.Playtest && entry.tournamentID == "" &&
+			(!clubLiveOnly || entry.room.ClubLiveDuel()) {
 			rooms = append(rooms, entry.room.ListEntry())
 		}
 		entry.mu.Unlock()

@@ -21,6 +21,20 @@ func normalizePromptContext(sourceCard *promptCard, presentation promptPresentat
 		card.ID = "context-card:0"
 		cards = append(cards, card)
 	}
+	if len(presentation.ShownCards) > maxPromptOptions {
+		return nil, nil, "", errors.New("Forge prompt has too many revealed cards")
+	}
+	seenCards := make(map[string]bool, len(presentation.ShownCards))
+	for _, shown := range presentation.ShownCards {
+		if shown.ID == "" || len(shown.ID) > maxPromptText || seenCards[shown.ID] || strings.TrimSpace(shown.Identity.Name) == "" {
+			return nil, nil, "", errors.New("Forge prompt has an invalid revealed card")
+		}
+		seenCards[shown.ID] = true
+		card := promptCardView(shown)
+		card.ID = "context-card:" + strconv.Itoa(len(cards))
+		card.ReadOnly = true
+		cards = append(cards, card)
+	}
 	if len(presentation.Targets) > maxPromptOptions {
 		return nil, nil, "", errors.New("Forge prompt has too many context targets")
 	}

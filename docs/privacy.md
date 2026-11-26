@@ -15,7 +15,7 @@ explicitly creates the room with the immutable `spectatorsSeeHands` policy;
 that policy grants every spectator live access to current hand identities only.
 
 In Hexproof Club, choosing Live mode when creating a duel enables this policy
-and allows viewers with the room code to enter as spectators. After the
+and lists the room under **Watch live**. Viewers can enter from the list or a shared watch link. After the
 duel starts, their role-specific `room.snapshot.liveDeckLists` also includes
 both registered deck names, card quantities, printings and the original main
 and sideboard sections. These match registrations stay fixed across games.

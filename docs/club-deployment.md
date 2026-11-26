@@ -150,15 +150,29 @@ first. Hover or focus a card to inspect the image. With Collected Company, the
 eligible creatures appear first among the six cards. With Narset, Parter of
 Veils, the eligible noncreature, nonland cards appear first among the cards
 you looked at. The remaining visible cards follow in their original order.
-Ordering decisions preserve the order you are editing. Use **Minimize** to
-free the board, then **Expand** near the priority controls to return to the same
-selection. With a board-target decision minimized, you can still select a
-target on the board and confirm it at the bottom right.
+When an effect reveals cards and asks you to pick from them, select from the revealed cards in the same window.
+For battlefield-only choices, click the highlighted permanents and use the priority
+controls to finish. Choices that also cover another card zone open a window.
+Use **Minimize** and **Expand** to inspect the board during a windowed choice.
+
+To name a card or choose a type, enter part of the name in the search field.
+Public choices appear in the game log. A permanent such as Cavern of Souls
+also shows its chosen type on the battlefield. Copies carry a **Copy** badge
+and creatures with summoning sickness carry a **zzZ** badge.
+
+Cards entering the battlefield together enter in one batch. When several
+triggered or replacement effects require an order, drag their source cards
+horizontally. The leftmost effect resolves or applies first. With the keyboard,
+focus a source and use the left or right arrow key. **OK & Memorize** saves a
+replacement order for this game when the same card name and applicable effects
+recur. For example, if Lotus Field applies after Spelunking, the land enters
+tapped and triggers Amulet of Vigor. If Spelunking applies last, the land
+enters untapped.
 
 ## Live duels
 
-Enable **Live mode** when creating a two-player duel, then share **Copy watch
-link** with viewers. The watch link or room code allows spectators to see
+Enable **Live mode** when creating a two-player duel. Spectators can select the
+room under **Watch live** or open its shared watch link. They can see
 both hands and both registered decklists without a password. Viewers can
 switch between players in the decklist panel and see the quantities in each
 registered main deck and sideboard. Hover over a card in either list to preview

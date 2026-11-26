@@ -124,7 +124,9 @@ final class NativeGuiGame implements InvocationHandler {
                 // Negative bounds mean any number; getChoices(-1,-1) instead reveals.
                 int remainingMin = max >= 0 ? choices.size() - max : -1;
                 int remainingMax = min >= 0 ? choices.size() - min : -1;
-                yield NativeOrdering.order(session, owner(), (String) a[0], remainingMin, remainingMax, choices, destination).ordered();
+                boolean simultaneousEntry = human instanceof NativeDecisionController controller && controller.selectingBattlefieldBatch();
+                yield NativeOrdering.order(session, owner(), (String) a[0], remainingMin, remainingMax,
+                        choices, destination, List.of(), !simultaneousEntry).ordered();
             }
             case "getInteger" -> number((String) a[0], (Integer) a[1], (Integer) a[2]);
             case "showConfirmDialog" -> bool((String) a[0], (String) a[2], (String) a[3]);
@@ -147,8 +149,13 @@ final class NativeGuiGame implements InvocationHandler {
                 boolean cardChoice = choices.stream().allMatch(CardView.class::isInstance);
                 List<CardView> shown = delayed == null ? List.of() : cardChoice
                         ? NativeLibrarySearch.visibleChoices(delayed, choices) : delayedReveal(delayed);
-                yield NativeOrdering.order(session, owner(), (String) a[0], choices.size() - (Integer) a[3], choices.size() - (Integer) a[2], choices, null,
-                        shown).ordered();
+                int min = (Integer) a[2], max = (Integer) a[3];
+                // The physical cards enter together. Their resulting triggers
+                // and replacement effects remain separate native decisions.
+                boolean simultaneousEntry = cardChoice && human instanceof NativeDecisionController controller
+                        && controller.selectingBattlefieldBatch();
+                yield NativeOrdering.order(session, owner(), (String) a[0], choices.size() - max,
+                        choices.size() - min, choices, null, shown, !simultaneousEntry).ordered();
             }
             case "reveal" -> { reveal((String) a[0], (List<?>) a[1]); yield null; }
             case "message" -> { acknowledge((String) a[0]); yield null; }
@@ -381,6 +388,7 @@ final class NativeGuiGame implements InvocationHandler {
                 candidates.add(candidate); choices.put("card:" + cardId(c), () -> select(c));
             }
             if (current instanceof InputSelectTargets targets) {
+                if (targets.includesOtherZones()) input.addProperty("includesOtherZones", true);
                 for (Player player : targets.getSelectablePlayers()) {
                     JsonObject candidate = object("kind", "player"); candidate.addProperty("id", session.playerId(player));
                     candidates.add(candidate); choices.put("player:" + session.playerId(player), () -> human.selectPlayer(player.getView(), null));
@@ -771,7 +779,12 @@ final class NativeGuiGame implements InvocationHandler {
             JsonObject in = callbackInput("chooseCardName", title);
             in.addProperty("message", title); in.addProperty("canCancel", optional);
             Map<String, Object> legal = new HashMap<>();
-            for (Object choice : choices) legal.put(((CardFaceView) choice).getName().toLowerCase(Locale.ROOT), choice);
+            JsonArray names = new JsonArray();
+            for (Object choice : choices) {
+                String name = ((CardFaceView) choice).getName();
+                if (legal.putIfAbsent(name.toLowerCase(Locale.ROOT), choice) == null) names.add(name);
+            }
+            in.add("legalNames", names);
             return session.ask(owner(), in, raw -> {
                 if (text(raw, "type", "").equals("cancel") && optional) return null;
                 requireType(raw, "cardName");
@@ -815,8 +828,15 @@ final class NativeGuiGame implements InvocationHandler {
             });
         }
         JsonObject in = callbackInput("chooseFromSelection", title);
+        String searchKind = ((NativeDecisionController) human).searchKind();
+        if (searchKind != null) in.addProperty("searchKind", searchKind);
         JsonArray options = new JsonArray();
         NativePromptCard presentation = new NativePromptCard(session, owner());
+        if ("name".equals(searchKind)) {
+            JsonArray seen = new JsonArray();
+            for (CardView known : ((NativeDecisionController) human).namedFromHand()) seen.add(presentation.describe(known));
+            if (!seen.isEmpty()) in.getAsJsonObject("presentation").add("shownCards", seen);
+        }
         for (Object choice : choices) {
             String label = display == null ? label(choice) : ((FSerializableFunction<Object, String>) display).apply(choice);
             options.add(presentation.scalarOption(choice, label, display != null, false, revealed));

@@ -52,3 +52,23 @@ func TestNormalizePromptContextRejectsMalformedDisplayState(t *testing.T) {
 		}
 	}
 }
+
+func TestRevealedHandBesideFiniteNames(t *testing.T) {
+	raw := json.RawMessage(`{"promptId":2,"decidingPlayerId":"player-0","input":{"type":"chooseFromSelection","searchKind":"name","minTotal":1,"maxTotal":1,"options":[{"label":"Ponder","weight":1}],"presentation":{"title":"Choose a card name","shownCards":[{"id":"card-4","identity":{"name":"Forest"}},{"id":"card-5","identity":{"name":"Ponder","setCode":"LRW","cardNumber":"79"}}]}}}`)
+	view, err := NormalizePrompt(raw)
+	if err != nil || len(view.ContextCards) != 2 || len(view.Choices) != 1 || view.SearchKind != "name" {
+		t.Fatalf("name choice/hand = %+v, %v", view, err)
+	}
+	for i, name := range []string{"Forest", "Ponder"} {
+		card := view.ContextCards[i]
+		if card.Name != name || !card.ReadOnly || card.ID == "card-4" || card.ID == "card-5" {
+			t.Fatalf("revealed card %d = %+v", i, card)
+		}
+	}
+	if view.ContextCards[1].SetCode != "LRW" || view.ContextCards[1].CollectorNumber != "79" {
+		t.Fatalf("revealed printing = %+v", view.ContextCards[1])
+	}
+	if _, err = BuildPromptResponse(raw, 0, 2, PromptResponse{ResponseID: "$submit", ChoiceIDs: []string{view.ContextCards[0].ID}}); err == nil {
+		t.Fatal("display-only land was accepted as a legal name")
+	}
+}

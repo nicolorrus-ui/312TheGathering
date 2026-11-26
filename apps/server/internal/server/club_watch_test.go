@@ -4,6 +4,8 @@
 package server
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -48,6 +50,17 @@ func TestClubWatchRequiresRoomOptInAndIsReadOnly(t *testing.T) {
 		return created.RoomID
 	}
 	liveID, privateID := create(host, true), create(privateHost, false)
+	directory := httptest.NewRecorder()
+	handler.ServeClubLiveRooms(directory, httptest.NewRequest(http.MethodGet, "/live-rooms", nil))
+	var broadcasts []map[string]any
+	if err := json.Unmarshal(directory.Body.Bytes(), &broadcasts); err != nil {
+		t.Fatal(err)
+	}
+	if len(broadcasts) != 1 || broadcasts[0]["roomId"] != liveID || broadcasts[0]["joinable"] != true ||
+		broadcasts[0]["phase"] != protocol.RoomPhaseWaiting || len(broadcasts[0]) != 6 ||
+		directory.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected Club live directory: %s", directory.Body)
+	}
 	sendClubWatchCommand(t, viewer, protocol.TypeRoomJoin, protocol.RoomJoin{
 		RoomID: privateID, AsSpectator: true, Password: "seat-password",
 	})

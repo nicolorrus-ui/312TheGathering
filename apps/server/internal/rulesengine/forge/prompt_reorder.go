@@ -42,8 +42,8 @@ func normalizeReorderItems(items []promptOrderItem) ([]PromptOrderItem, error) {
 	return result, nil
 }
 
-func reorderOutput(raw json.RawMessage, responseID string, orderedIDs []string) (any, error) {
-	if responseID != "$submit" {
+func reorderOutput(raw json.RawMessage, answer PromptResponse) (any, error) {
+	if answer.ResponseID != "$submit" {
 		return nil, errors.New("unknown reorder response")
 	}
 	_, input, _, err := decodePrompt(raw)
@@ -51,12 +51,12 @@ func reorderOutput(raw json.RawMessage, responseID string, orderedIDs []string) 
 		return nil, errors.New("invalid reorder prompt")
 	}
 	items, err := normalizeReorderItems(input.Items)
-	if err != nil || len(orderedIDs) != len(items) {
+	if err != nil || len(answer.OrderedIDs) != len(items) {
 		return nil, errors.New("invalid reorder item count")
 	}
-	ordered := make([]string, 0, len(orderedIDs))
-	seen := make(map[int]struct{}, len(orderedIDs))
-	for _, responseItemID := range orderedIDs {
+	ordered := make([]string, 0, len(answer.OrderedIDs))
+	seen := make(map[int]struct{}, len(answer.OrderedIDs))
+	for _, responseItemID := range answer.OrderedIDs {
 		if !strings.HasPrefix(responseItemID, "order:") {
 			return nil, errors.New("invalid reorder response id")
 		}
@@ -70,7 +70,9 @@ func reorderOutput(raw json.RawMessage, responseID string, orderedIDs []string) 
 		seen[index] = struct{}{}
 		ordered = append(ordered, input.Items[index].ID)
 	}
-	return map[string]any{
-		"type": "reorderDecision", "orderedIds": ordered,
-	}, nil
+	output := map[string]any{"type": "reorderDecision", "orderedIds": ordered}
+	if answer.Memorize {
+		output["memorize"] = true
+	}
+	return output, nil
 }

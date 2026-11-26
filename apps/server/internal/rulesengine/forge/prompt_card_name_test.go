@@ -64,3 +64,21 @@ func TestCardNamePromptUsesFreeTextWithoutPrivateCandidates(t *testing.T) {
 		t.Fatal("accepted a card name in an unrelated prompt")
 	}
 }
+
+func TestDeclaredNameIsCheckedAgainstCurrentForgeDomain(t *testing.T) {
+	raw := json.RawMessage(`{"promptId":7,"decidingPlayerId":"player-0","input":{"type":"chooseCardName","legalNames":["Lightning Bolt","Black Lotus"]}}`)
+	view, err := NormalizePrompt(raw)
+	if err != nil || len(view.LegalNames) != 2 {
+		t.Fatalf("domain = %v: %v", view.LegalNames, err)
+	}
+	submit := func(name string) error {
+		_, err := BuildPromptResponse(raw, 0, 7, PromptResponse{ResponseID: "$submit", Name: name})
+		return err
+	}
+	if err := submit("lightning BOLT"); err != nil {
+		t.Fatalf("legal name rejected: %v", err)
+	}
+	if err := submit("Forest"); err == nil {
+		t.Fatal("accepted a land excluded by the effect")
+	}
+}

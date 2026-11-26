@@ -5,6 +5,7 @@ package org.hexproof.forge;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import forge.card.GamePieceType;
 import forge.card.MagicColor;
 import forge.card.mana.ManaAtom;
 import forge.deck.Deck;
@@ -211,6 +212,7 @@ public final class NativeSnapshotRegressionTest {
         card(game, owner, "Mountain", ZoneType.Hand);
         check(captured.equals(spectator.toString()), "published JSON retains live Forge state");
         check(!captured.equals(NativeSnapshot.capture(game, "snapshot-regression", -1, opponent).toString()), "new stable boundary did not update public state");
+        checkCopyAndSickness(game, owner, battlefield, counterAbility);
         owner.getStats().setOutcome(PlayerOutcome.concede());
         opponent.getStats().setOutcome(PlayerOutcome.win());
         game.setGameOver(GameEndReason.AllOpponentsLost);
@@ -219,6 +221,39 @@ public final class NativeSnapshotRegressionTest {
         check(terminal.getAsJsonArray("players").get(0).getAsJsonObject().get("status").getAsString().equals("conceded"), "concession status lost");
         assertAbsent(terminal, "Lightning Bolt", "Black Lotus", "Force of Will", NativeSnapshot.cardId(otherLibrary));
         System.out.println("NATIVE_SNAPSHOT_REGRESSION_PASS: owner/opponent/spectator privacy, native look permissions, face-down stack, public state, detached publication, terminal outcome");
+    }
+
+    private static void checkCopyAndSickness(Game game, Player owner, Card original, SpellAbility targetSpell) {
+        Card clone = card(game, owner, "Clone", ZoneType.Battlefield);
+        SpellAbility cause = AbilityFactory.getAbility("DB$ Clone | Defined$ Self", clone);
+        long timestamp = game.getNextTimestamp();
+        clone.addCloneState(CardFactory.getCloneStates(original, clone, cause), timestamp);
+        original.setSickness(true);
+        Card hasty = card(game, owner, "Raging Goblin", ZoneType.Battlefield);
+        hasty.setSickness(true);
+        Card token = card(game, owner, "Grizzly Bears", ZoneType.Battlefield);
+        token.setGamePieceType(GamePieceType.TOKEN);
+        Card tokenCopy = card(game, owner, "Grizzly Bears", ZoneType.Battlefield);
+        tokenCopy.setGamePieceType(GamePieceType.TOKEN);
+        tokenCopy.setCopiedPermanent(original);
+        SpellAbility spellCopy = CardFactory.copySpellAbilityAndPossiblyHost(cause, targetSpell, owner);
+        game.getStackZone().add(spellCopy.getHostCard());
+        game.getStack().add(spellCopy);
+
+        JsonObject state = NativeSnapshot.capture(game, "snapshot-regression", -1, owner);
+        check(findCard(state, clone).get("copy").getAsBoolean(), "Clone lost its copy marker");
+        check(findCard(state, tokenCopy).get("copy").getAsBoolean(), "token copy lost its copy marker");
+        check(!findCard(state, token).has("copy") && !findCard(state, original).has("copy"), "ordinary token or original labeled copy");
+        check(findCard(state, original).get("summoningSick").getAsBoolean(), "new creature missing sickness marker");
+        check(!findCard(state, hasty).get("summoningSick").getAsBoolean(), "haste marked sick");
+        var stack = state.getAsJsonArray("stack");
+        check(stack.get(0).getAsJsonObject().get("copy").getAsBoolean() && !stack.get(1).getAsJsonObject().has("copy"),
+                "copied spell and original not distinguished");
+        clone.removeCloneState(timestamp);
+        original.setSickness(false);
+        state = NativeSnapshot.capture(game, "snapshot-regression", -1, owner);
+        check(!findCard(state, clone).has("copy") && !findCard(state, original).get("summoningSick").getAsBoolean(),
+                "expired copy or sickness marker persisted");
     }
 
     private static Card card(Game game, Player owner, String name, ZoneType zone) {

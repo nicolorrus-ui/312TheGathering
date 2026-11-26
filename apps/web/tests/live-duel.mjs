@@ -303,6 +303,23 @@ async function verifyCardInteraction(peer, card) {
 async function act(peer, opponent) {
   const { prompt, page, game } = peer;
   const panel = page.locator(".decision").last();
+  if (["chooseBoardTargets", "chooseCards"].includes(prompt.kind)) {
+    const dock = page.getByRole("group", { name: "Priority controls" });
+    const onTable = dock.getByRole("status", { name: "Battlefield choice" });
+    await onTable.or(panel).first().waitFor();
+    if (await onTable.isVisible()) {
+      const cards = prompt.kind === "chooseCards";
+      const minimum = cards ? prompt.minCardSelections : prompt.minSelections;
+      const maximum = cards ? prompt.maxCardSelections : prompt.maxSelections;
+      const eligible = page.locator('.battlefield .table-card[data-actionable="true"]');
+      if (maximum === 1 && await eligible.count()) await eligible.first().click();
+      else {
+        for (let i = 0; i < minimum; i++) await eligible.nth(i).click();
+        await dock.getByRole("button", { name: /^(Confirm|Skip)$/ }).click();
+      }
+      return;
+    }
+  }
   switch (prompt.kind) {
     case "chooseAction": {
       const seat = game.players.find((player) => player.name === peer.name).seat;

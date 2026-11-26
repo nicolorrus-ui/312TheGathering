@@ -21,11 +21,11 @@ FORGE = ROOT / "third_party/forge-runtime"
 NATIVE_TESTS = (
     "NativeAutoPayRegressionTest", "NativeManaUndoRegressionTest", "NativePriorityManaUndoRegressionTest",
     "NativeManaChoiceRegressionTest", "NativeLotusBloomRegressionTest", "NativeSnapshotRegressionTest",
-    "NativeChoiceCardRegressionTest", "NativePaymentIdRegressionTest",
+    "NativeChoiceCardRegressionTest", "NativeReplacementOrderRegressionTest", "NativePaymentIdRegressionTest",
     "NativePromptWaitRegressionTest", "NativeCrashDiagnosticsRegressionTest",
     "NativeTargetClickRegressionTest", "NativeAttackDeclarationRegressionTest",
-    "NativeCardMovesRegressionTest", "NativeHandKnowledgeRegressionTest", "NativeTopRevealRegressionTest",
-    "NativePriorityRegressionTest", "NativeDelayedRevealRegressionTest", "NativePromptContextRegressionTest",
+    "NativeDeclarationRegressionTest", "NativeCardMovesRegressionTest", "NativeHandKnowledgeRegressionTest", "NativeTopRevealRegressionTest",
+    "NativeSimultaneousEntryRegressionTest", "NativePriorityRegressionTest", "NativeDelayedRevealRegressionTest", "NativePromptContextRegressionTest",
 )
 # Each selected Go test explicitly accepts the current overlay. Other live
 # tests still construct base-only commands and belong to the full runtime gate.

@@ -75,7 +75,7 @@ function Lobby({ session }: { session: Session }) {
       {tab === "create" && !practice && <div>
         <label className="checkbox"><input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)}
           aria-describedby="live-mode-details" /> Live mode</label>
-        <small id="live-mode-details">Viewers with the room code can see both hands and registered decklists.</small>
+        <small id="live-mode-details">This room appears in Watch live. Viewers can see both hands and registered decklists.</small>
       </div>}
       <button className="primary" type="submit" disabled={blocked}>{tab === "create" ? (practice ? "Create practice room" :
         broadcast ? "Create live duel" : "Create private duel") : "Join duel"}</button>
@@ -146,7 +146,7 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
         catch { setCopied(false); }
       }}>{copied ? "Copied" : "Copy invite"}</button></div>}
     {room.allowSpectators && room.spectatorsSeeHands && <div className="notice">
-      <span><strong>Live duel.</strong> Viewers with the room code can see both hands and registered decklists.</span>
+      <span><strong>Live duel.</strong> This room appears in Watch live. Viewers can see both hands and registered decklists.</span>
       <WatchInvite roomId={room.roomId} />
     </div>}
     <ul className="seats">{room.seats.map((seat, index) => <li key={index}>
