@@ -1,0 +1,270 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* The account precedes the main navigation in the DOM. Keep both rows in tab order. */
+#root {
+  --shell-max: 90rem;
+  --shell-gutter: clamp(var(--space-6), 3.2vw, 2.5rem);
+  min-block-size: 100dvh;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 64px;
+  padding: var(--space-2) max(var(--shell-gutter), calc((100% - var(--shell-max)) / 2 + var(--shell-gutter)));
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.topbar:has(~ .duel, ~ .watch-layout .duel) {
+  min-height: 60px;
+  padding-block: var(--space-2);
+  background: var(--surface);
+  border-color: var(--line);
+}
+.topbar .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-height: 44px;
+  width: max-content;
+  max-width: 100%;
+  font: 700 clamp(1.125rem, 1.5vw, 1.375rem)/1 var(--font-heading);
+  letter-spacing: -.045em;
+  text-decoration: none;
+  color: var(--text);
+}
+.brand > span:last-child { color: inherit; }
+.brand .brand-mark {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin-inline-end: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--amber);
+  color: var(--on-amber);
+}
+.brand-mark::before, .brand-mark::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 13px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+.brand-mark::before { top: 6px; left: 6px; rotate: -12deg; }
+.brand-mark::after { top: 8px; left: 12px; rotate: 9deg; background: var(--amber); }
+
+.topbar .account {
+  display: flex;
+  justify-self: end;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  font-size: .875rem;
+}
+.topbar .account > span:not(.connection) {
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.connection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 600 .75rem/1.25 var(--font-body);
+}
+.connection::before {
+  content: "";
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.connection.online {
+  border-color: color-mix(in srgb, var(--teal) 35%, var(--line));
+  background: color-mix(in srgb, var(--teal) 8%, var(--surface));
+  color: var(--teal);
+}
+.connection.online::before, .connection.offline::before { background: currentColor; }
+.connection.offline { color: var(--danger); }
+
+.shell, .shell.cube-shell {
+  inline-size: min(100%, var(--shell-max));
+  margin: var(--space-8) auto;
+  padding-inline: var(--shell-gutter);
+}
+.shell:has(> .lobby-nav) {
+  display: grid;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  row-gap: var(--space-6);
+}
+.shell > .lobby-title { grid-column: 1; margin: 0; }
+.shell > .lobby-title h1 { overflow-wrap: anywhere; }
+.shell > .lobby-nav {
+  grid-column: 2;
+  justify-self: center;
+  justify-content: center;
+  margin: 0;
+}
+.shell:has(> .lobby-nav) > div:not(.lobby-title) { grid-column: 1 / -1; min-width: 0; }
+.panel {
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: none;
+}
+.panel > header { gap: var(--space-3); margin-bottom: var(--space-4); }
+form { gap: var(--space-4); }
+label {
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: .875rem;
+  font-weight: 500;
+}
+
+button {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font: 600 .875rem/1.35 var(--font-body);
+}
+#root :where(button, input:not([type="checkbox"], [type="radio"]), select, textarea) { min-height: 44px; }
+button:hover:not(:disabled), button[aria-pressed="true"] {
+  border-color: var(--line-bright);
+  background: var(--raised);
+  color: var(--text);
+}
+button:not(:disabled):active { border-color: var(--muted); }
+button.primary {
+  border-color: var(--amber);
+  background: var(--amber);
+  color: var(--on-amber);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 84%, var(--text));
+  color: var(--on-amber);
+}
+button:disabled, button.primary:disabled {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  opacity: 1;
+  cursor: not-allowed;
+}
+button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+button.quiet:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--raised);
+  color: var(--text);
+}
+.topbar .concede { border-color: var(--line); color: var(--danger); }
+input, select, textarea {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font-size: .875rem;
+}
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--line-bright); }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+#root :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+.tabs { align-items: center; gap: var(--space-2); margin-bottom: var(--space-4); }
+.lobby-nav button {
+  position: relative;
+  padding: var(--space-2) var(--space-3);
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.lobby-nav button:is(:hover:not(:disabled), [aria-pressed="true"]) {
+  border-color: transparent;
+  background: var(--raised);
+  color: var(--text);
+}
+.lobby-nav button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto var(--space-3) 0;
+  height: 2px;
+  background: var(--amber);
+}
+.tabs:not(.lobby-nav) > button {
+  padding-inline: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+}
+.tabs:not(.lobby-nav) > button:hover:not(:disabled) { border-color: var(--line-bright); color: var(--text); }
+.tabs:not(.lobby-nav) > button[aria-pressed="true"] {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 9%, var(--surface));
+  color: var(--text);
+}
+.tabs .watch-link { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-2); }
+
+#root::after {
+  content: "Unofficial fan content, not affiliated with or endorsed by Wizards of the Coast.";
+  display: block;
+  padding: var(--space-4) var(--shell-gutter);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  text-align: center;
+  font: 400 .75rem/1.5 var(--font-body);
+}
+
+@media (max-width: 65rem) {
+  .shell:has(> .lobby-nav) { grid-template-columns: minmax(0, 1fr); row-gap: var(--space-4); }
+  .shell > .lobby-nav { grid-column: 1; justify-self: start; justify-content: start; }
+}
+
+@media (max-width: 36rem) {
+  .shell, .shell.cube-shell { margin-block: var(--space-6); }
+  .panel { padding: var(--space-4); }
+  .lobby-nav { gap: var(--space-1); }
+  .lobby-nav button { padding-inline: var(--space-2); }
+  .topbar, .topbar:has(.concede), .topbar:has(~ .duel, ~ .watch-layout .duel) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    padding: var(--space-2) var(--shell-gutter);
+  }
+  .topbar .account, .topbar:has(.concede) .account, .topbar:has(~ .duel, ~ .watch-layout .duel) .account {
+    display: flex;
+    justify-self: start;
+    justify-content: flex-start;
+    gap: var(--space-1) var(--space-2);
+  }
+  .topbar:has(.concede) .account { justify-self: stretch; }
+  .topbar:has(.concede) .account .concede { margin-inline-start: auto; }
+  .topbar:has(.concede) .brand, .topbar:has(.concede) .account > *, .topbar:has(.concede) .account .concede { grid-area: auto; }
+  .topbar:has(~ .duel, ~ .watch-layout .duel) .brand { gap: 0; }
+}
