@@ -32,7 +32,12 @@ async function enter(index, invite) {
     if (type === "tournament.snapshot") player.event = data;
     if (type === "limited.snapshot") player.limited = data;
     if (type === "limited.deck_submitted") player.saved = data;
-    if (type === "error") errors.push(player.name + ": " + data.message);
+    if (type === "session.welcome") player.resumePending = false;
+    if (type === "error") {
+      // On reload, the client retries while its previous socket releases the seat.
+      if (data.code === "club_resume_pending") player.resumePending = true;
+      else errors.push(player.name + ": " + data.message);
+    }
   }));
   // The test uses real Forge identities, with deterministic art responses.
   await page.route("**/card-art?**", route => route.fulfill({contentType:"image/svg+xml",
@@ -199,6 +204,7 @@ try {
     }
     await until(() => host.event.status === "completed", "final standings");
   }
+  assert.ok(players.every(p => !p.resumePending), "every pending reconnect received a welcome");
   assert.deepEqual(errors, []);
   console.log(`Passed ${count}-seat ${mode} draft, 45 unique picks per seat, saved deck construction and ${playMatches ? "three rounds of Forge matches" : "round-one pairings"}`);
 } finally { await browser.close(); }
