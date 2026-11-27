@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "runtimeId": "230914a40a9e1e767391c3be990a349015b35761-adapter43-4e2bb7c6df6cba732f07049209e325016d6457aa4c9d5640dfbe74c4752b31b2",
-  "forgeManifestSha256": "88e31d597ab5c2c173bf847ef2e8f5e2121a76b7842b83c047e22d2761d6ac69",
+  "forgeManifestSha256": "eea610d27774c5afc8a7583e4404e98b80cae4012fe63064aa34b95239475ea4",
   "forge": {
     "url": "https://github.com/nicolorrus-ui/312TheGathering/releases/download/forge-runtime-230914a40a9e1e767391c3be990a349015b35761-adapter43/hexproof-forge-runtime-230914a40a9e1e767391c3be990a349015b35761-adapter43.tar.gz",
-    "size": 205038413,
-    "sha256": "d7d322958a43a849b20eab55ee10b402a5b88afd67fa38e7ee0b67435f798cf2",
+    "size": 205036394,
+    "sha256": "ee6d8b03a793a4e934f14431d80e54678aa29668b90fc85bc3ef7c473a7c4f96",
     "format": "tar.gz"
   },
   "java": {
