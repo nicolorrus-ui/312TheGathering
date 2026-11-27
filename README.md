@@ -1,6 +1,6 @@
-# Hexproof
+# 312TheGathering
 
-This fork adds a private 1v1 Forge browser client. See [Hexproof Club deployment](docs/club-deployment.md) and the [source audit](docs/club-forge-audit.md).
+This fork adds a private 1v1 Forge browser client. See [312TheGathering deployment](docs/club-deployment.md) and the [source audit](docs/club-forge-audit.md).
 
 Hexproof is a free, open-source desktop tabletop for **Magic: The Gathering**.
 Bring friends together for a casual Commander night, draft a new deck, or run a

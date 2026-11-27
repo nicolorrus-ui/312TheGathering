@@ -66,21 +66,21 @@ install -m 644 LICENSE THIRD-PARTY-NOTICES.md "$stage/"
 cp "$stage/overlay/forge-overlay.jar" "$stage/"
 commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'source')"
 if [[ -n "$offline" ]]; then
-  portable="$stage/Hexproof-Club"
+  portable="$stage/312TheGathering"
   mkdir -p "$portable"
   mv "$stage/$server" "$stage"/{hexproof-forge-runtime,forge-overlay.jar,web,LICENSE,THIRD-PARTY-NOTICES.md} "$portable/"
   python3 deploy/club/portable-jre.py --platform "$offline" --output "$portable/jre"
   install -m 644 deploy/club/offline-demo.txt deploy/club/offline/README.txt "$portable/"
   printf 'Source: %s\nTarget: %s\n' "$(git rev-parse HEAD)" "$offline" > "$portable/BUILD.txt"
-  name="Hexproof-Club-debug-$offline-$commit"
+  name="312TheGathering-debug-$offline-$commit"
   if [[ "$system" == windows ]]; then
     sed 's/\r$//;s/$/\r/' deploy/club/offline/Start-Club.cmd > "$portable/Start-Club.cmd"
     archive="$name.zip"
-    (cd "$stage" && zip -q -r "$archive" Hexproof-Club)
+    (cd "$stage" && zip -q -r "$archive" 312TheGathering)
   else
     install -m 755 deploy/club/offline/start-club.sh "$portable/"
     archive="$name.tar.gz"
-    tar -czf "$stage/$archive" -C "$stage" Hexproof-Club
+    tar -czf "$stage/$archive" -C "$stage" 312TheGathering
   fi
   (cd "$stage" && sha256sum "$archive" > "$archive.sha256")
   mv "$stage/$archive" "$stage/$archive.sha256" "$output/"

@@ -1,4 +1,4 @@
-Hexproof Club 本地调试版
+312TheGathering 本地调试版
 
 启动
 先将整个压缩包解压到可写目录。Windows 建议使用短英文路径，例如 C:\Club。

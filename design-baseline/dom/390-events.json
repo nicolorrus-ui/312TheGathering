@@ -1,0 +1,12 @@
+{
+  "tournament-create": "b3132cf1de352043d92607315f0e57e3f1e7f51fe1734ae539ee195d73486e9b",
+  "tournament-conquest": "0aee00d00935d9bd2311f3ceb682511e74ea9465ed479e6f7bdb8c139d658b5e",
+  "tournament-join": "cefbd320f88bab9b7faa3de24b45c2c579c338905922a32b20bf21386b5d6015",
+  "tournament-registration": "17d38d1f2cbe17e3ea1560c31766c0770d099aaef02138bb571936187e354896",
+  "tournament-pairings": "6ef7fe9569c3dfd8eeeb79609ca1005eb8f70ba731fea9b8cf8dc7a18b7ef8f7",
+  "tournament-complete": "5a61d520b4e36e11cd3c60486e45bdee2b3097478b9288fca8ba7c7ec0c86c75",
+  "watch-lobby": "290eedb005a6f708c71e1f444fc39df9c2218350c1358f7f8980e73fdcac7177",
+  "watch-waiting": "a4bf1f5025a54224c863ba81fdc1003d1edc2bf0a293525fe52ce764600cab17",
+  "watch-match": "af84170fa5c8cb1addf7e9771fb8ae56e20a7126a0bcb2b32bf6b55ee7ac0cb8",
+  "watch-decklist": "3ab51c5a94ca0c81640474896d15c6c8ccbf9731ef9b72cff156229a6341af2e"
+}

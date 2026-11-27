@@ -1,4 +1,4 @@
-# Hexproof Club source audit and verification
+# 312TheGathering source audit and verification
 
 ## Source baseline
 

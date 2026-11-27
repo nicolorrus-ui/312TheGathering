@@ -11,10 +11,9 @@
   padding: .25rem;
   max-width: calc(100vw - 12px);
   overflow-x: auto;
-  border: 1px solid #79869a;
+  border: 1px solid var(--line-bright);
   border-radius: 1.25rem;
-  background: #172436;
-  box-shadow: 0 .25rem .8rem #0009;
+  background: var(--surface);
 }
 .mana-choice-menu button {
   display: inline-flex;
@@ -30,7 +29,7 @@
 }
 .mana-choice-menu .deck-pip { font-size: 1.12rem; }
 .mana-choice-menu .mana-ability-label { max-width: min(16rem, 70vw); white-space: normal; }
-.mana-choice-menu .mana-choice-cancel { color: #c8cfdb; background: transparent; font-size: 1.1rem; }
+.mana-choice-menu .mana-choice-cancel { color: var(--muted); background: transparent; font-size: 1.1rem; }
 @media (prefers-reduced-motion: no-preference) {
   .mana-choice-menu { animation: detail-appear 130ms ease-out; }
 }

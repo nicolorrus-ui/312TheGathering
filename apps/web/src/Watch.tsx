@@ -190,7 +190,7 @@ export function Watch({ roomId }: { roomId: string }) {
   const betweenGames = metadata?.result && !metadata.result.matchFinished;
   return <>
     <header className="topbar">
-      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
+      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true"></span>312<span>TheGathering</span></a>
       <div className="account"><span>{room?.name ?? "Live duels"}</span>
         {roomId && <button type="button" className="quiet" onClick={leave}>Leave live view</button>}</div>
     </header>

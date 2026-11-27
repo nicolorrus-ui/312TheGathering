@@ -1,4 +1,4 @@
-# Hexproof Club deployment
+# 312TheGathering deployment
 
 The club build serves the React client and private 1v1 rooms from one Go
 process. A separate headless Forge JVM owns each live game. You can run the
@@ -256,7 +256,7 @@ building. To transfer a pack between your own machines, copy the entire
 directory, including `index.json` and the corresponding JPEGs.
 
 Card images come from [Scryfall](https://scryfall.com/) and remain the property
-of their respective rights holders. Hexproof Club is an unofficial fan
+of their respective rights holders. 312TheGathering is an unofficial fan
 project. Wizards of the Coast does not endorse it. Refer to
 [Scryfall API guidance](https://scryfall.com/docs/faqs/i-m-having-trouble-accessing-the-scryfall-api-or-i-m-blocked-17)
 and the [Wizards of the Coast Fan Content Policy](https://company.wizards.com/en/legal/fancontentpolicy)

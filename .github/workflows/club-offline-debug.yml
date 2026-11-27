@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Hexproof contributors
-name: Windows offline Club debug package
+name: Windows 312TheGathering debug package
 on:
   workflow_dispatch:
     inputs:
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows-offline
-          path: build/portable/Hexproof-Club-debug-windows-amd64-*.zip*
+          path: build/portable/312TheGathering-debug-windows-amd64-*.zip*
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
@@ -82,13 +82,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $zip = Get-Item "Hexproof-Club-debug-windows-amd64-$($env:SOURCE_SHA.Substring(0,12)).zip"
+          $zip = Get-Item "312TheGathering-debug-windows-amd64-$($env:SOURCE_SHA.Substring(0,12)).zip"
           $expected = ((Get-Content "$($zip.FullName).sha256" -Raw).Trim() -split '\s+')[0]
           if ((Get-FileHash $zip.FullName -Algorithm SHA256).Hash -ne $expected) { throw 'ZIP checksum mismatch' }
           $dest = Join-Path $env:RUNNER_TEMP 'Offline Club smoke'
           7z x $zip.FullName "-o$dest" -bd -bso0
           if ($LASTEXITCODE) { throw 'ZIP extraction failed' }
-          $club = Join-Path $dest 'Hexproof-Club'
+          $club = Join-Path $dest '312TheGathering'
           if ((Get-Content "$club/BUILD.txt") -notcontains "Source: $env:SOURCE_SHA") { throw 'Wrong packaged source' }
           $launcher = Start-Process cmd.exe -ArgumentList '/d /c Start-Club.cmd' -WorkingDirectory $club -PassThru
           try {
@@ -100,7 +100,8 @@ jobs:
               catch { Start-Sleep -Seconds 1 }
             }
             if (!$ready) { throw 'Club never reported ready' }
-            if ((Invoke-WebRequest "$url/").StatusCode -ne 200) { throw 'Club UI unavailable' }
+            $homePage = Invoke-WebRequest "$url/"
+            if ($homePage.StatusCode -ne 200 -or !$homePage.Content.Contains('<title>312TheGathering</title>')) { throw '312TheGathering UI unavailable' }
             if ((Invoke-RestMethod "$url/card-search?name=Lightning%20Bolt").cards.name -notcontains 'Lightning Bolt') {
               throw 'Offline card catalog unavailable'
             }
@@ -155,7 +156,7 @@ jobs:
           [[ "$TAG" =~ ^club-offline-debug-([0-9a-f]{7,40})$ ]]
           prefix=${BASH_REMATCH[1]}
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_SHA" == "$prefix"* ]]
-          zip="Hexproof-Club-debug-windows-amd64-${SOURCE_SHA:0:12}.zip"
+          zip="312TheGathering-debug-windows-amd64-${SOURCE_SHA:0:12}.zip"
           checksum="$zip.sha256"
           actual=$(sha256sum "$zip")
           [[ "$actual" == "$(cat "$checksum")" ]]

@@ -1,4 +1,4 @@
-# Hexproof Club development handoff
+# 312TheGathering development handoff
 
 Use `nicolorrus-ui/312TheGathering` and start from
 `codex/continue-development`. This branch includes the latest verified duel
@@ -7,7 +7,7 @@ commit and auto-deploy settings in Render before changing the release branch.
 
 ## Scope and code map
 
-- Hexproof Club is a Forge-only browser platform for private 1v1 MTG games
+- 312TheGathering is a Forge-only browser platform for private 1v1 MTG games
   for a small school club. It supports human duels, passive practice,
   BO1/BO3, sideboarding, reconnect, Swiss with optional Top 8, and Conquest.
 - The React/TypeScript client is in `apps/web/`. Start with `Board.tsx`,
@@ -19,7 +19,7 @@ commit and auto-deploy settings in Render before changing the release branch.
   remains the only rules authority. Keep each player's private state
   isolated. Use real Forge sessions to verify changes to play.
 - Deployment sources are `Dockerfile` and `deploy/club/`. See
-  [Hexproof Club deployment](club-deployment.md) for build, readiness,
+  [312TheGathering deployment](club-deployment.md) for build, readiness,
   card image imports and operations. Upstream guides cover the separate
   native product. Keep club changes in this repository.
 

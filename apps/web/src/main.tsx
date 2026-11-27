@@ -232,7 +232,7 @@ function PlayerApp() {
   }
   return <>
     <header className="topbar">
-      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
+      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true"></span>312<span>TheGathering</span></a>
       {session.identity && <div className="account"><span className={`connection ${session.connection}`}>{session.connection}</span>
         <span>{session.identity}</span>
         {matchSection && session.room?.allowSpectators && session.room.spectatorsSeeHands &&
