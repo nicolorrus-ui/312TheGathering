@@ -89,6 +89,7 @@ type Event struct {
 	instanceSeq    int
 	packSeq        int
 	cubeStock      []*CardInstance
+	rochester      *rochesterDraft
 }
 
 const (
@@ -183,6 +184,9 @@ func New(config Config, seed int64) (*Event, error) {
 		packsPerBatch: settings.PacksPerBatch,
 		playerByID:    make(map[string]*PlayerState, len(config.Participants)),
 		random:        rand.New(rand.NewSource(seed)), // #nosec G404 -- the server supplies a cryptographic seed.
+	}
+	if settings.Mode == protocol.LimitedDraftModeRochester {
+		event.rochester = &rochesterDraft{}
 	}
 	for _, participant := range config.Participants {
 		if !validText(participant.ID, maxProductText) ||

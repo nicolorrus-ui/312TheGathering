@@ -1115,6 +1115,8 @@
       "name": "LimitedEventCommanderCube",
       "value": "commander_cube"
     },
+    {"name": "LimitedDraftModeBooster", "value": "booster"},
+    {"name": "LimitedDraftModeRochester", "value": "rochester"},
     {
       "name": "LimitedCoordinatorSwiss",
       "value": "swiss"

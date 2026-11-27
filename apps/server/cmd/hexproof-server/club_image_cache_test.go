@@ -26,7 +26,7 @@ const testFaces = `{"name":"Front // Back","set":"neo","collector_number":"9∞"
 func TestClubImageCacheImportedPackHasPriority(t *testing.T) {
 	cache := newClubImageCache(t.TempDir())
 	id := clubImageID{artKey{"bolt", "m11", "149"}, false}
-	if err := storeClubJPEG(cache.path(id), offlineTestJPEG(t, 30)); err != nil {
+	if err := storeClubFile(cache.path(id), offlineTestJPEG(t, 30)); err != nil {
 		t.Fatal(err)
 	}
 	const file = "004c709b-d53d-4691-bbc8-2438fb8847e0.jpg"
@@ -151,7 +151,7 @@ func TestClubImageCacheRepairsDamagedJPEGAndRetries(t *testing.T) {
 	cache := newClubImageCache(t.TempDir())
 	id := clubImageID{artKey{"front", "neo", "9∞"}, false}
 	portrait := offlineTestJPEG(t, 180)
-	if err := storeClubJPEG(cache.path(id), []byte("corrupt file")); err != nil {
+	if err := storeClubFile(cache.path(id), []byte("corrupt file")); err != nil {
 		t.Fatal(err)
 	}
 	var hits atomic.Int32

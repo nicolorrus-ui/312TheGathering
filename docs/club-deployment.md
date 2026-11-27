@@ -169,6 +169,38 @@ recur. For example, if Lotus Field applies after Spelunking, the land enters
 tapped and triggers Amulet of Vigor. If Spelunking applies last, the land
 enters untapped.
 
+## Cube
+
+Open **Cube** in the Club lobby and select **Vintage Cube**, **100 Ornithopters**
+or **Customed**. The two presets ship with their mainboards, including repeated
+cards. **Update list** fetches a new mainboard from the corresponding Cube Cobra list.
+Successful updates are saved locally. If a fetch fails or the new list contains a card the bundled Forge cannot play,
+the last usable list stays available. When a printing is unavailable, the
+preset uses an available printing of the same card.
+The custom cube accepts an uploaded TXT or CSV decklist and an editable name. The color
+columns show physical card counts, card types and mana costs.
+
+Choose four to eight seats and a draft format, then create the room and share
+its invitation. Each player drafts three 15-card boosters. Booster draft passes
+packs left, right, then left. Rochester draft opens one pack for the whole
+table and takes picks in snake order. Each physical copy can be picked once.
+A cube needs at least 45 cards per seat.
+
+Deck construction lasts up to 30 minutes. Click a card in the drafted pool to
+add one copy to the main deck. Click its list entry to remove one. Basic lands
+from **Basic lands** can be added in batches. **Confirm** adds the quantities
+shown, and **Cancel** discards those entries. Removing a supplied basic land
+returns it to the land supply. A legal main deck has at least 40 cards.
+A missed pick is made automatically after 60 seconds. The player can make the
+next pick normally. At the deck-building deadline, the server keeps submitted
+decks and completes unfinished decks from the saved selection, drafted pool
+and basic lands. When everyone is ready, pairings start immediately. Four players play three
+rounds, once against each opponent. Five to eight players play three Swiss
+rounds, with a bye for an odd field. Each pairing plays a best-of-three Forge match.
+
+The preset lists are available on Cube Cobra. [Vintage Cube](https://cubecobra.com/cube/list/modovintage)
+and [100 Ornithopters](https://cubecobra.com/cube/list/100-ornithopters).
+
 ## Live duels
 
 Enable **Live mode** when creating a two-player duel. Spectators can select the

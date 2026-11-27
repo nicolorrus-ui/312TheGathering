@@ -161,8 +161,8 @@ func TestForgeLimitedPairingPreservesModeLockedPoolAndNativeVariant(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			request, seats, err := forgeStartRequest(r, players)
-			if err != nil || request.Variant != "Limited" || request.StartingLife != 20 ||
+			request, seats, err := forgeStartRequest(r, players, true)
+			if err != nil || request.Variant != "Limited" || request.DeckFormat != "" || !request.SkipReplay || request.StartingLife != 20 ||
 				!reflect.DeepEqual(seats, []int{0, 1}) || len(request.Players[0].Deck) != 40 ||
 				len(request.Players[0].Sideboard) != 44 || request.Players[0].Sideboard[43].SetCode != "M10" {
 				t.Fatalf("Limited native request: %+v %v", request, err)

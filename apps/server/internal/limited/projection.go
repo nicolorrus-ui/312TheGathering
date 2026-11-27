@@ -34,6 +34,9 @@ func (e *Event) Snapshot(participantID string) protocol.LimitedSnapshot {
 		Participants:      []protocol.LimitedParticipantView{},
 		AllDecksSubmitted: e.AllDecksSubmitted(),
 	}
+	if e.rochester != nil && e.Stage == protocol.LimitedStageDraft {
+		snapshot.Rochester = e.rochesterView()
+	}
 	for _, player := range e.Players {
 		packCards := 0
 		if len(player.Inbox) > 0 {

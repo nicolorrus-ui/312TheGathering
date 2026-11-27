@@ -123,9 +123,24 @@ type LimitedParticipantView struct {
 // LimitedDraftSettings is locked when the room is created. Packs remain
 // independent even when two are opened and passed together.
 type LimitedDraftSettings struct {
-	PacksPerPlayer int `json:"packsPerPlayer"`
-	PacksPerBatch  int `json:"packsPerBatch"`
-	CardsPerPack   int `json:"cardsPerPack,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	PacksPerPlayer int    `json:"packsPerPlayer"`
+	PacksPerBatch  int    `json:"packsPerBatch"`
+	CardsPerPack   int    `json:"cardsPerPack,omitempty"`
+}
+
+// LimitedRochesterView exposes the one open Rochester pack to the entire table.
+type LimitedRochesterView struct {
+	ActiveParticipantID string                 `json:"activeParticipantId"`
+	OpenerID            string                 `json:"openerId"`
+	PackNumber          int                    `json:"packNumber"`
+	Cards               []LimitedCardView      `json:"cards"`
+	Picks               []LimitedRochesterPick `json:"picks"`
+}
+
+type LimitedRochesterPick struct {
+	ParticipantID string          `json:"participantId"`
+	Card          LimitedCardView `json:"card"`
 }
 
 type LimitedDraftPackView struct {
@@ -144,8 +159,9 @@ type LimitedBasicLand struct {
 }
 
 type LimitedPick struct {
-	InstanceID  string   `json:"instanceId,omitempty"`
-	InstanceIDs []string `json:"instanceIds,omitempty"`
+	PickDeadline string   `json:"pickDeadline,omitempty"`
+	InstanceID   string   `json:"instanceId,omitempty"`
+	InstanceIDs  []string `json:"instanceIds,omitempty"`
 }
 
 type LimitedSetDraftControl struct {
@@ -171,6 +187,7 @@ type LimitedPicked struct {
 }
 
 type LimitedSubmitDeck struct {
+	DraftOnly            bool                    `json:"draftOnly,omitempty"`
 	Name                 string                  `json:"name"`
 	MainboardInstanceIDs []string                `json:"mainboardInstanceIds"`
 	CommanderInstanceIDs []string                `json:"commanderInstanceIds,omitempty"`
@@ -193,6 +210,9 @@ type LimitedDeckSubmitted struct {
 // LimitedSnapshot is role-specific. CurrentPack and Pool are empty unless the
 // recipient owns the participant projection.
 type LimitedSnapshot struct {
+	PickDeadline         string                    `json:"pickDeadline,omitempty"`
+	BuildDeadline        string                    `json:"buildDeadline,omitempty"`
+	Rochester            *LimitedRochesterView     `json:"rochester,omitempty"`
 	TournamentID         string                    `json:"tournamentId"`
 	EventType            string                    `json:"eventType"`
 	Stage                string                    `json:"stage"`

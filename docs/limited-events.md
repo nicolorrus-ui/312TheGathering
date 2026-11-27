@@ -52,6 +52,22 @@ Draft. Ordinary room creation always uses **Free play**. **Events → Create
 tournament → Cube draft** creates a Swiss tournament with the same Cube and
 draft settings, but a separate registration and competition experience.
 
+### Club Cube draft rules
+
+The Club browser seats four to eight players and shuffles the Cube once.
+Each player opens three packs of fifteen. Booster Draft gives each player
+a private pack. Packs pass left, right, then left over the three rounds.
+
+Rochester Draft opens one pack face up for the table. In the first round each
+seat opens one pack in seating order. The last opener opens first in round
+two and the order reverses. The first seat starts round three. The opener
+gets first pick in their pack. Picks move in the round's direction until the
+last player, who takes the next pick as well. Picks then travel back along
+the same seats, reversing at each end until the pack is empty. Everyone can
+see the open pack, current picker and picks in that pack. The server accepts
+a selection only from the current seat. Each expired selection makes one
+random legal pick for its owner.
+
 ## Local draft practice
 
 **Pack simulator → Draft practice** and the draft tournament creation shortcut

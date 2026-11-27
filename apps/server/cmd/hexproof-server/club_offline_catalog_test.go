@@ -32,7 +32,7 @@ func TestClubOfflineCatalogRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	if err := registerClubCardRoutes(mux, fstest.MapFS{offlineCatalogPath: {Data: data}}, true, nil); err != nil {
+	if err := registerClubCardRoutes(mux, fstest.MapFS{offlineCatalogPath: {Data: data}}, true, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	image := httptest.NewRecorder()
@@ -82,10 +82,10 @@ func TestClubOfflineRequiresCatalogAndOnlineDoesNot(t *testing.T) {
 		if data != "" {
 			files[offlineCatalogPath] = &fstest.MapFile{Data: []byte(data)}
 		}
-		if err := registerClubCardRoutes(http.NewServeMux(), files, true, nil); err == nil {
+		if err := registerClubCardRoutes(http.NewServeMux(), files, true, nil, ""); err == nil {
 			t.Fatalf("accepted broken offline catalog %q", data)
 		}
-		if err := registerClubCardRoutes(http.NewServeMux(), files, false, nil); err != nil {
+		if err := registerClubCardRoutes(http.NewServeMux(), files, false, nil, ""); err != nil {
 			t.Fatalf("online mode requires offline catalog: %v", err)
 		}
 	}

@@ -75,6 +75,12 @@ The complete notice is preserved in `testdata/limited/MTGJSON-LICENSE.txt`.
 Sources: <https://mtgjson.com/api/v5/FRA.json>,
 <https://mtgjson.com/api/v5/SPG.json>. License: <https://mtgjson.com/license/>.
 
+## Club Cube presets
+
+The bundled MTGO Vintage Cube and 100 Ornithopters lists come from their
+public mainboards on Cube Cobra. The presets preserve the curators’ card
+selections, quantities and color groups. [MTGO Vintage Cube](https://cubecobra.com/cube/list/modovintage) · [100 Ornithopters](https://cubecobra.com/cube/list/100-ornithopters)
+
 ## Mana symbol font
 
 The client bundles the unmodified Mana 1.18 font by Andrew Gioia under the SIL

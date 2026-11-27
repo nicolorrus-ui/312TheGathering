@@ -28,18 +28,22 @@ def card_scripts(directory):
             yield mode, faces
 
 
-def card_style(mode, faces):
+def card_colors(mode, faces):
     colors = set()
-    costs = []
     for face in faces if mode == "Split" else faces[:1]:
         cost = face.get("ManaCost", "")
-        if cost and cost != "no cost":
-            costs.append(cost)
         if "Colors" in face:
             colors.update(COLOR_NAMES[color] for name in face["Colors"].lower().split(",")
                           if (color := name.strip()) in COLOR_NAMES)
         else:
             colors.update(set(cost) & set("WUBRG"))
+    return sorted(colors, key="WUBRG".index)
+
+
+def card_style(mode, faces):
+    colors = card_colors(mode, faces)
+    costs = [cost for face in (faces if mode == "Split" else faces[:1])
+             if (cost := face.get("ManaCost", "")) and cost != "no cost"]
     if "Land" in faces[0].get("Types", "").split():
         frame = "land"
     else:

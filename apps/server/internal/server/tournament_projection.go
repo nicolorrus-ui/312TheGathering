@@ -138,6 +138,9 @@ func (h *Handler) fanoutTournamentState(tournamentID string,
 	if entry == nil {
 		return
 	}
+	entry.mu.Lock()
+	h.scheduleClubCubeLocked(entry)
+	entry.mu.Unlock()
 	for _, member := range members {
 		sess, binding := member.session, member.binding
 		entry.mu.Lock()

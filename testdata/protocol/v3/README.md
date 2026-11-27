@@ -65,6 +65,8 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `room-listed-cube.json` / `room-join-cube-credential.json` | both | Room-oriented Cube discovery and authenticated reentry into the same private draft seat |
 | `tournament-create-commander-cube.json` / `room-listed-commander-cube.json` | both | Commander Cube uses a casual coordinator and EDH-tagged Cube room discovery, not Swiss event listing |
 | `limited-pick-commander-cube.json` / `limited-submit-deck-commander-cube.json` | C -> S | Atomic two-instance pick and a 60-card deck including an exact selected commander instance |
+| `limited-submit-deck-draft.json` / `limited-snapshot-club-building.json` | both | Private editable selections and a shared 30-minute Club Cube construction deadline |
+| `limited-snapshot-rochester-public.json` | S -> C | Public face-up pack, opener, active drafter and picks in the current Rochester pack |
 | `limited-snapshot-commander-cube-draft.json` / `limited-snapshot-commander-cube-owner.json` / `limited-snapshot-commander-cube-spectator.json` | S -> C | Public 2-pick/3-pack/60-card profile; draft pack and submitted commander/pool identities remain owner-only |
 | `limited-create-casual-match-commander-*.json` / `tournament-snapshot-commander-cube.json` | both | Four-player invitation, each invited player's own acceptance/cancellation, and public membership/consent lists |
 | `room-created-commander-cube.json` / `room-snapshot-commander-cube.json` | S -> C | Server-created four-seat EDH BO1 table with locked `commander_limited` decks; ordinary `room.create` cannot create this format |

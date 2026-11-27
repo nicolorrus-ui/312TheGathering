@@ -12,6 +12,7 @@ import (
 
 const (
 	ClubSwiss    = "swiss"
+	ClubCube     = "cube"
 	ClubConquest = "conquest"
 )
 
@@ -82,6 +83,9 @@ func (t *Tournament) RecordForgeResult(pairingID, roomID string, score MatchScor
 			t.Rounds = append(t.Rounds, t.buildRound(t.activeParticipants(), now))
 		} else {
 			p.Result = result
+			if t.ClubStyle == ClubCube && t.RoundComplete() {
+				t.advanceFinishedRound(now.UTC())
+			}
 		}
 		return true
 	}

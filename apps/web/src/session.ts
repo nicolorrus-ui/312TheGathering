@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { protocol, type Envelope, type GameMetadata, type Prompt, type Response, type Room, type RulesCrashReport, type ServerError, type Snapshot, type Tournament, type Welcome } from "./protocol";
+import { protocol, type Envelope, type GameMetadata, type LimitedSnapshot, type Prompt, type Response, type Room, type RulesCrashReport, type ServerError, type Snapshot, type Tournament, type Welcome } from "./protocol";
 
 export const identityStorage = "hexproof-club.identity.v1";
 const activeRoomStorage = "hexproof-club.active-room.v1";
@@ -10,7 +10,8 @@ type Connection = "idle" | "connecting" | "online" | "offline";
 type SessionState = { connection: Connection; welcome?: Welcome; seat?: number; room?: Room;
   resuming?: boolean; pendingReady?: string;
   game?: Snapshot; prompt?: Prompt; metadata?: GameMetadata; error?: string; crash?: RulesCrashReport;
-  dismissedCrashId?: string; awaiting?: number; tournament?: Tournament };
+  dismissedCrashId?: string; awaiting?: number; tournament?: Tournament; limited?: LimitedSnapshot;
+  pendingPick?: string; limitedReply?: { id: string; ok: boolean } };
 const initialState: SessionState = { connection: "idle" };
 const rotatedIdentity = (identity: Identity, token: string, roomId?: string) => ({ name: identity.name, resumeToken: token, roomId });
 
@@ -36,6 +37,10 @@ export function useSession() {
   const [state, setState] = useState(initialState);
   const socket = useRef<WebSocket | null>(null);
   const counter = useRef(0);
+  const pickRequest = useRef<{ id: string; accepted: boolean } | undefined>(undefined);
+  const deckRequests = useRef(new Set<string>());
+  const tournamentRole = useRef<{ id: string; role: string } | undefined>(undefined);
+  const enteringEvent = useRef<{ request: string; id: string; credential?: string } | undefined>(undefined);
   const inFlightDecision = useRef<{ request: string; promptId: number } | null>(null);
 
   const remember = useCallback((value: Identity | null) => {
@@ -51,11 +56,25 @@ export function useSession() {
   }, []);
 
   const send = useCallback((type: string, payload = {}) => {
-    if (socket.current?.readyState !== WebSocket.OPEN) return undefined;
+    if (socket.current?.readyState !== WebSocket.OPEN || (type === "limited.pick" && pickRequest.current)) return undefined;
     const id = String(++counter.current);
     socket.current.send(JSON.stringify({ type, id, payload }));
+    if (type === "limited.pick") {
+      pickRequest.current = { id, accepted: false };
+      setState((previous) => ({ ...previous, pendingPick: id, error: undefined }));
+    }
+    if (type === "limited.submit_deck") deckRequests.current.add(id);
     return id;
   }, []);
+
+  const enterTournament = useCallback((id: string) => {
+    const tournamentId = id.trim().toUpperCase();
+    const name = latestIdentity.current?.name;
+    if (!name || !tournamentId) return;
+    const credential = localStorage.getItem(eventTokenKey(name, tournamentId)) ?? undefined;
+    const request = send("tournament.enter", { tournamentId, credential });
+    if (request) enteringEvent.current = { request, id: tournamentId, credential };
+  }, [send]);
 
   useEffect(() => {
     if (!identity) return;
@@ -77,6 +96,7 @@ export function useSession() {
           clientVersion: "club-web/0.1", protocol, rulesCrashReportSchema: 1 });
       };
       current.onmessage = ({ data }) => {
+        if (closing || current !== socket.current) return;
         const envelope = JSON.parse(data) as Envelope;
         const payload = envelope.payload;
         switch (envelope.type) {
@@ -93,32 +113,77 @@ export function useSession() {
             delay = 500;
             remember(rotatedIdentity(value, welcome.resumeToken, welcome.roomId));
             inFlightDecision.current = null;
+            pickRequest.current = undefined;
+            deckRequests.current.clear();
+            enteringEvent.current = undefined;
             setState((previous) => ({ connection: "online", welcome, seat: welcome.seat,
               crash: welcome.resumed ? previous.crash : undefined,
               dismissedCrashId: welcome.resumed ? previous.dismissedCrashId : undefined,
               error: value.roomId && !welcome.resumed ? "Your previous seat is no longer available." : undefined }));
             const event = localStorage.getItem(eventKey(value.name));
-            if (event) send("tournament.enter", { tournamentId: event, credential: localStorage.getItem(eventTokenKey(value.name, event)) ?? undefined });
+            const invitedCube = new URLSearchParams(location.search).get("cube")?.trim().toUpperCase();
+            if (event && (!invitedCube || invitedCube === event || welcome.roomId)) {
+              enterTournament(event);
+            }
             break;
           }
           case "tournament.created":
           case "tournament.registered":
           case "tournament.entered": {
-            const event = payload as { tournamentId: string; organizerToken?: string; participantToken?: string };
+            const event = payload as { tournamentId: string; organizerToken?: string; participantToken?: string; role?: string };
             const name = latestIdentity.current!.name;
             const key = eventTokenKey(name, event.tournamentId);
             if (event.organizerToken) localStorage.setItem(key, event.organizerToken);
-            if (event.participantToken && !localStorage.getItem(key)) localStorage.setItem(key, event.participantToken);
+            if (event.participantToken && !(tournamentRole.current?.id === event.tournamentId && tournamentRole.current.role === "organizer")) {
+              localStorage.setItem(key, event.participantToken);
+            }
+            if (event.role) tournamentRole.current = { id: event.tournamentId, role: event.role };
+            if (envelope.id === enteringEvent.current?.request) enteringEvent.current = undefined;
             localStorage.setItem(eventKey(name), event.tournamentId);
             setState((previous) => ({ ...previous, error: undefined }));
             break;
           }
-          case "tournament.snapshot":
-            setState((previous) => ({ ...previous, tournament: payload as Tournament }));
+          case "tournament.snapshot": {
+            const tournament = payload as Tournament;
+            if (tournament.role === "viewer" && tournamentRole.current?.id === tournament.tournamentId && tournamentRole.current.role === "participant") {
+              localStorage.removeItem(eventTokenKey(latestIdentity.current!.name, tournament.tournamentId));
+            }
+            tournamentRole.current = { id: tournament.tournamentId, role: tournament.role };
+            setState((previous) => {
+              const sameSeat = previous.tournament?.tournamentId === tournament.tournamentId &&
+                previous.tournament?.participantId === tournament.participantId && previous.tournament.role === tournament.role;
+              return { ...previous, tournament, limited: sameSeat ? previous.limited : undefined };
+            });
+            break;
+          }
+          case "limited.snapshot": {
+            const limited = payload as LimitedSnapshot;
+            if (pickRequest.current?.accepted) pickRequest.current = undefined;
+            const pendingPick = pickRequest.current?.id;
+            setState((previous) => previous.tournament?.tournamentId === limited.tournamentId
+              ? { ...previous, limited, pendingPick } : previous);
+            break;
+          }
+          case "limited.progress": {
+            const { tournamentId, participants } = payload as Pick<LimitedSnapshot, "tournamentId" | "participants">;
+            setState((previous) => previous.limited?.tournamentId === tournamentId
+              ? { ...previous, limited: { ...previous.limited, participants } } : previous);
+            break;
+          }
+          case "limited.picked":
+            if (pickRequest.current && pickRequest.current.id === envelope.id) pickRequest.current.accepted = true;
+            break;
+          case "limited.deck_submitted":
+            if (envelope.id && deckRequests.current.delete(envelope.id)) {
+              const reply = { id: envelope.id, ok: true };
+              setState((previous) => ({ ...previous, limitedReply: reply, error: undefined }));
+            }
             break;
           case "tournament.left":
+            pickRequest.current = undefined;
+            deckRequests.current.clear();
             localStorage.removeItem(eventKey(latestIdentity.current!.name));
-            setState((previous) => ({ ...previous, tournament: undefined }));
+            setState((previous) => ({ ...previous, tournament: undefined, limited: undefined, pendingPick: undefined, limitedReply: undefined }));
             break;
           case "room.created":
           case "room.joined": {
@@ -150,7 +215,7 @@ export function useSession() {
           case "room.kicked":
             remember({ ...latestIdentity.current!, roomId: undefined });
             inFlightDecision.current = null;
-            setState((previous) => ({ connection: previous.connection, welcome: previous.welcome, tournament: previous.tournament }));
+            setState((previous) => ({ connection: previous.connection, welcome: previous.welcome, tournament: previous.tournament, limited: previous.limited }));
             break;
           case "rules.snapshot": {
             const game = payload as Snapshot;
@@ -174,6 +239,17 @@ export function useSession() {
             break;
           case "error": {
             const error = payload as ServerError;
+            const entry = enteringEvent.current;
+            if (entry && envelope.id === entry.request) {
+              enteringEvent.current = undefined;
+              if (entry.credential && error.code === "tournament_forbidden" && error.message === "invalid tournament credential") {
+                // A seat can be released while its player is disconnected. Re-enter the public lobby with no seat.
+                const key = eventTokenKey(latestIdentity.current!.name, entry.id);
+                if (localStorage.getItem(key) === entry.credential) localStorage.removeItem(key);
+                enterTournament(entry.id);
+                break;
+              }
+            }
             if (envelope.id === hello && error.code === "club_resume_pending") {
               current.close();
               break;
@@ -181,6 +257,14 @@ export function useSession() {
             refused = envelope.id === hello;
             const failedDecision = envelope.id === inFlightDecision.current?.request;
             if (failedDecision) inFlightDecision.current = null;
+            if (pickRequest.current && pickRequest.current.id === envelope.id) {
+              pickRequest.current = undefined;
+              setState((previous) => ({ ...previous, pendingPick: undefined }));
+            }
+            if (envelope.id && deckRequests.current.delete(envelope.id)) {
+              const reply = { id: envelope.id, ok: false };
+              setState((previous) => ({ ...previous, limitedReply: reply }));
+            }
             const report = error.rulesCrashReport;
             if (report?.schemaVersion === 1) {
               setState((previous) => {
@@ -214,7 +298,7 @@ export function useSession() {
       socket.current = null;
       current?.close();
     };
-  }, [identity, remember, send]);
+  }, [identity, remember, send, enterTournament]);
 
   function enter(name: string) {
     const next = { name: name.trim() };
@@ -240,12 +324,6 @@ export function useSession() {
     if (!request) return;
     inFlightDecision.current = { request, promptId: prompt.promptId };
     setState((previous) => ({ ...previous, awaiting: prompt.promptId, error: undefined }));
-  }
-
-  function enterTournament(id: string) {
-    const tournamentId = id.trim().toUpperCase();
-    const credential = localStorage.getItem(eventTokenKey(latestIdentity.current!.name, tournamentId)) ?? undefined;
-    send("tournament.enter", { tournamentId, credential });
   }
 
   return { ...state, identity: identity?.name, enter, forget, send, setReady, answer, enterTournament,

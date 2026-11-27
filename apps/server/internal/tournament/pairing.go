@@ -13,6 +13,13 @@ import (
 type playerPair [2]*Participant
 
 func (t *Tournament) pairPlayers(players []*Participant, roundNumber int) []playerPair {
+	if t.ClubStyle == ClubCube && t.MaxPlayers == 4 && len(players) == 4 && roundNumber >= 1 && roundNumber <= 3 {
+		// Stable draft seats meet each other once, independent of standings.
+		seats := t.activeParticipants()
+		schedule := [3][4]int{{0, 2, 1, 3}, {0, 1, 2, 3}, {0, 3, 1, 2}}
+		slots := schedule[roundNumber-1]
+		return []playerPair{{seats[slots[0]], seats[slots[1]]}, {seats[slots[2]], seats[slots[3]]}}
+	}
 	if roundNumber == 1 {
 		if t.Limited != nil && (t.EventType == protocol.LimitedEventSetDraft ||
 			t.EventType == protocol.LimitedEventCubeDraft) {

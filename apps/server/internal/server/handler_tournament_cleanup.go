@@ -65,7 +65,9 @@ func (h *Handler) reconcileTournamentRetentionLocked(id string, entry *tournamen
 		if !event.ClosedAt.IsZero() {
 			deadline = event.ClosedAt.Add(h.config.TournamentClosedTTL)
 		}
-	} else if online {
+	} else if online || !event.ClubCubeDeadline().IsZero() {
+		// While the server is drafting or building on the seats' clocks it
+		// owns the next action. Start the normal absence grace at pairings.
 		entry.unattendedSince = time.Time{}
 	} else {
 		if entry.unattendedSince.IsZero() {

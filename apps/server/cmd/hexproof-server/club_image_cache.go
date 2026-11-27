@@ -115,7 +115,7 @@ func (c *clubImageCache) download(id clubImageID, path string, call *clubImageDo
 	if image == nil {
 		image, status = c.fetch(ctx, id)
 		if image != nil {
-			if err := storeClubJPEG(path, image); err != nil {
+			if err := storeClubFile(path, image); err != nil {
 				log.Printf("Club artwork cache: %v", err)
 				image = nil
 			}
@@ -140,11 +140,11 @@ func (c *clubImageCache) download(id clubImageID, path string, call *clubImageDo
 	c.mu.Unlock()
 }
 
-func storeClubJPEG(path string, data []byte) error {
+func storeClubFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".card-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".club-*")
 	if err != nil {
 		return err
 	}

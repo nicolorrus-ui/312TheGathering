@@ -56,7 +56,7 @@ func TestForgeAIStartRequestAndTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, _, err := forgeStartRequest(r, players)
+	request, _, err := forgeStartRequest(r, players, false)
 	if err != nil || !request.Players[1].AI || request.Players[0].AI || request.Players[1].AIDifficulty != protocol.AIDifficultyHard {
 		t.Fatalf("controller lost: %+v %v", request, err)
 	}

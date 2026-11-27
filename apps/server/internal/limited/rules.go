@@ -34,6 +34,21 @@ func CubeDraftCardsRequiredForEvent(eventType string, players int) int {
 func ResolveDraftSettings(eventType string, players int, requested *protocol.LimitedDraftSettings) (protocol.LimitedDraftSettings, error) {
 	settings := protocol.LimitedDraftSettings{PacksPerPlayer: draftPacksPerPlayer, PacksPerBatch: 1,
 		CardsPerPack: cubeCardsPerPack(eventType)}
+	if eventType == protocol.LimitedEventCubeDraft && requested != nil {
+		if requested.Mode != protocol.LimitedDraftModeBooster && requested.Mode != protocol.LimitedDraftModeRochester {
+			return settings, fail(ErrInvalid, "choose Booster Draft or Rochester Draft")
+		}
+		if players < 4 || players > MaxCubeDraftPlayers {
+			return settings, fail(ErrInvalid, "select four to eight seats for this Cube")
+		}
+		if (requested.PacksPerPlayer != 0 && requested.PacksPerPlayer != settings.PacksPerPlayer) ||
+			(requested.PacksPerBatch != 0 && requested.PacksPerBatch != settings.PacksPerBatch) ||
+			(requested.CardsPerPack != 0 && requested.CardsPerPack != settings.CardsPerPack) {
+			return settings, fail(ErrInvalid, "regular Cube opens three packs of fifteen per seat")
+		}
+		settings.Mode = requested.Mode
+		return settings, nil
+	}
 	if eventType != protocol.LimitedEventCommanderCube {
 		if requested != nil {
 			return settings, fail(ErrInvalid, "custom draft settings require Commander Cube")
@@ -44,6 +59,9 @@ func ResolveDraftSettings(eventType string, players int, requested *protocol.Lim
 		settings.PacksPerPlayer, settings.PacksPerBatch = 6, 2
 	}
 	if requested != nil {
+		if requested.Mode != "" {
+			return settings, fail(ErrInvalid, "draft mode applies only to regular Cube")
+		}
 		settings = *requested
 		// Older clients omit pack size and retain the original 20-card packs.
 		if settings.CardsPerPack == 0 {

@@ -1,0 +1,46 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+.cube-shell:has(.cube-build) { margin-block: 1.25rem; }
+.cube-shell:has(.cube-build) .lobby-title { margin-bottom: .75rem; }
+.cube-build { color: var(--ink); min-width: 0; }
+.cube-build-heading, .cube-build-actions, .cube-build-actions > div,
+.cube-build-time, .cube-basics-dialog footer { display: flex; align-items: center; gap: .8rem; }
+.cube-build-heading { justify-content: space-between; margin-bottom: .85rem; }
+.cube-build-heading h2, .cube-build-left h3, .cube-basics-dialog h2 { margin: 0; }
+.cube-build-time { padding: .4rem .75rem; border: 1px solid var(--line); border-radius: var(--radius); }
+.cube-build-time span, .cube-build-actions span, .cube-build-list p { color: var(--soft); font-size: .8rem; }
+.cube-build-time time { color: var(--accent); font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.cube-build-table { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, 24%); min-height: 20rem;
+  height: clamp(20rem, calc(100dvh - 24rem), 52rem); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); }
+.cube-build-left { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; padding: .85rem; gap: .7rem; }
+.cube-build-left > .cube-pool { margin: 0; min-height: 0; max-height: none; align-content: start; }
+.cube-build-list > .live-deck-section { margin: 0; }
+.cube-build-left h3 { display: flex; align-items: center; gap: .5rem; font-size: 1rem; }
+.cube-build-left h3 span { color: var(--soft); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.cube-build-actions { justify-content: space-between; border-top: 1px solid var(--line); padding-top: .7rem; }
+.cube-build-list { padding: 0 .65rem .65rem; border-inline-start: 1px solid var(--line); background: #191d30; overflow-y: auto; min-width: 0; }
+.cube-build-list p { margin-top: .65rem; }
+.live-deck-section li:has(> .deck-row-action) { padding: 0; }
+.deck-row-action { display: flex; align-items: center; gap: .32rem; width: 100%; min-width: 0; padding: .3rem; border: 0;
+  background: transparent; text-align: left; font: inherit; color: inherit; }
+.deck-row-action:not(:disabled):hover { background: #ffffff15; }
+.deck-row-action:focus-visible { outline-offset: -2px; }
+.cube-basics-dialog { color: var(--ink); background: #191d30; padding: clamp(.85rem, 2vw, 1.6rem);
+  width: min(49rem, calc(100vw - 2rem)); max-height: 90dvh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.cube-basics-dialog::backdrop { background: #080b13c9; }
+.cube-basics-dialog p { margin: .35rem 0 1rem; color: var(--soft); }
+.cube-basics-choices { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: clamp(.35rem, 1vw, .8rem); }
+.cube-basics-choices label { display: grid; gap: .4rem; min-width: 0; }
+.cube-basics-choices input { width: 100%; min-width: 0; }
+.cube-basics-choices .decision-art { display: flex; width: 100%; }
+.cube-basic-art { width: 100%; aspect-ratio: 63 / 88; object-fit: contain; border-radius: .35rem; }
+.cube-basics-dialog footer { justify-content: end; margin-top: 1.1rem; }
+@media (max-width: 650px) {
+  .cube-build-table { grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 37%); }
+  .cube-build-list { padding-inline: .35rem; }
+  .cube-build-left { padding: .5rem; }
+  .cube-build-actions, .cube-build-actions > div, .cube-build-time { gap: .35rem; flex-wrap: wrap; }
+  .cube-build-actions > div { margin-inline-start: auto; }
+  .cube-build-actions button { padding-inline: .5rem; }
+  .cube-basics-choices { grid-template-columns: repeat(5, minmax(3rem, 1fr)); gap: .32rem; overflow-x: auto; }
+  .cube-basics-choices label { font-size: .72rem; }
+}

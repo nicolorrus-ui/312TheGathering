@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"hexproof/server/internal/protocol"
+	"hexproof/server/internal/tournament"
 )
 
 // ServeClubLiveRooms exposes only the room details used by the spectator directory.
@@ -38,8 +39,9 @@ func clubCommandAllowed(kind string) bool {
 		protocol.TypeRulesRespond, protocol.TypeRulesPriority,
 		protocol.TypeGameConcede, protocol.TypeGameReturnToRoom,
 		protocol.TypeTournamentCreate, protocol.TypeTournamentEnter, protocol.TypeTournamentLeave,
-		protocol.TypeTournamentRegister, protocol.TypeTournamentCheckIn, protocol.TypeTournamentStart,
+		protocol.TypeTournamentRegister, protocol.TypeTournamentUnregister, protocol.TypeTournamentCheckIn, protocol.TypeTournamentStart,
 		protocol.TypeTournamentOpenMatch, protocol.TypeTournamentNextRound, protocol.TypeTournamentCancel,
+		protocol.TypeLimitedPick, protocol.TypeLimitedSubmitDeck,
 		protocol.TypeSideboardMove, protocol.TypeSideboardReady, protocol.TypeSideboardChooseStartingPlayer:
 		return true
 	default:
@@ -48,6 +50,14 @@ func clubCommandAllowed(kind string) bool {
 }
 
 func validClubTournament(request protocol.TournamentCreate) bool {
+	if request.ClubStyle == tournament.ClubCube {
+		return request.RulesMode == protocol.RulesModeForge && request.EventType == protocol.LimitedEventCubeDraft &&
+			request.Coordinator == protocol.LimitedCoordinatorSwiss && request.Format == protocol.DeckFormatLimited &&
+			request.MaxPlayers >= 4 && request.MaxPlayers <= 8 && request.MatchMode == protocol.MatchBO3 &&
+			!request.TopEight && request.PlannedRounds == 0 && request.Plan == nil && request.Product != nil &&
+			request.Product.ProductType == "cube" && request.DraftSettings != nil &&
+			(request.DraftSettings.Mode == protocol.LimitedDraftModeBooster || request.DraftSettings.Mode == protocol.LimitedDraftModeRochester)
+	}
 	if request.EventType != "" || request.Coordinator != "" || request.Product != nil ||
 		request.Plan != nil || request.DraftSettings != nil || request.RulesMode != protocol.RulesModeForge ||
 		(request.MatchMode != protocol.MatchBO1 && request.MatchMode != protocol.MatchBO3) {

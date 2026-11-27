@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 )
 
 const offlineCatalogPath = "assets/offline-cards.json"
@@ -33,27 +34,31 @@ type offlineCardInfo struct {
 type offlineCard struct {
 	offlineCardInfo
 	Printings []offlinePrinting `json:"printings"`
+	Colors    []string          `json:"colors,omitempty"`
 	Faces     []offlineCardInfo `json:"faces,omitempty"`
 	key       string
 }
 
 type offlineCatalog struct {
-	Version int               `json:"version"`
-	Sets    map[string]string `json:"sets"`
-	Cards   []offlineCard     `json:"cards"`
+	Version    int               `json:"version"`
+	Sets       map[string]string `json:"sets"`
+	Cards      []offlineCard     `json:"cards"`
+	SetAliases map[string]string `json:"setAliases"`
 
 	byName map[string]*offlineCard
 	faces  map[string]*offlineCardInfo
 }
 
-func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool, artwork *clubImageCache) error {
+func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool, artwork *clubImageCache, cubeDir string) error {
+	getCatalog := sync.OnceValues(func() (*offlineCatalog, error) { return loadOfflineCatalog(files) })
+	newClubCubes(cubeDir, getCatalog).register(mux)
 	if !offline {
 		cards := newClubCardArt()
 		mux.Handle("GET /card-search", clubSearchFunc(cards.search))
 		mux.Handle("GET /card-art", cards)
 		return nil
 	}
-	catalog, err := loadOfflineCatalog(files)
+	catalog, err := getCatalog()
 	if err != nil {
 		return err
 	}

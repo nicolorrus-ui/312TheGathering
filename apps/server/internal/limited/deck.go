@@ -138,7 +138,7 @@ func (e *Event) submitDeck(participantID string, request protocol.LimitedSubmitD
 		totalCount += basic.Count
 		mainboard[key] += basic.Count
 	}
-	if mainboardCount < e.MinimumDeckCards() ||
+	if (!request.DraftOnly && mainboardCount < e.MinimumDeckCards()) ||
 		mainboardCount > protocol.MaxDeckCards {
 		return nil, fail(ErrDeckInvalid, "limited main deck must contain at least "+itoa(e.MinimumDeckCards())+" cards")
 	}
@@ -171,7 +171,9 @@ func (e *Event) submitDeck(participantID string, request protocol.LimitedSubmitD
 		}
 		deck.Commander = deck.Commanders[0]
 	}
-	player.Deck = &deck
+	if !request.DraftOnly {
+		player.Deck = &deck
+	}
 	player.MainboardInstanceIDs = append([]string(nil), request.MainboardInstanceIDs...)
 	player.CommanderInstanceIDs = append([]string(nil), request.CommanderInstanceIDs...)
 	player.CommanderColors = append([]protocol.LimitedCommanderColor(nil), request.CommanderColors...)

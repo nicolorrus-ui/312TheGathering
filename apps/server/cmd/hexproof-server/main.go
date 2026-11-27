@@ -169,14 +169,14 @@ func main() {
 			log.Fatalf("hexproof-server: club web build unavailable: %v", err)
 		}
 		var artwork *clubImageCache
+		state := filepath.Join(filepath.Dir(*clubWebRoot), "state")
+		if *retentionDir != "" {
+			state = filepath.Dir(*retentionDir)
+		}
 		if *clubOffline {
-			state := filepath.Join(filepath.Dir(*clubWebRoot), "state")
-			if *retentionDir != "" {
-				state = filepath.Dir(*retentionDir)
-			}
 			artwork = newClubImageCache(filepath.Join(state, "card-art"))
 		}
-		if err := registerClubCardRoutes(mux, os.DirFS(*clubWebRoot), *clubOffline, artwork); err != nil {
+		if err := registerClubCardRoutes(mux, os.DirFS(*clubWebRoot), *clubOffline, artwork, filepath.Join(state, "cubes")); err != nil {
 			log.Fatalf("hexproof-server: club card catalog: %v", err)
 		}
 		if *forgeOverlay == "" || *forgeHeap < 256 || *forgeGamesPerJVM != 1 {

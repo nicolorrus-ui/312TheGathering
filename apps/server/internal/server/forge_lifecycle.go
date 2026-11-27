@@ -58,13 +58,9 @@ func (h *Handler) startForgeGame(r *room.Room) (forgeStartState, error) {
 	if err != nil {
 		return forgeStartState{}, err
 	}
-	request, seatOrder, err := forgeStartRequest(r, players)
+	request, seatOrder, err := forgeStartRequest(r, players, h.config.ClubMode)
 	if err != nil {
 		return forgeStartState{}, err
-	}
-	if h.config.ClubMode {
-		request.DeckFormat = r.DeckFormat
-		request.SkipReplay = true
 	}
 	startTimeout := forgeGameStartTimeout
 	if runtime := h.config.ForgeRuntime; h.config.ClubMode && runtime != nil && runtime.StartTimeout > forgeGameStartTimeout {
@@ -135,7 +131,7 @@ func elapsedMillis(duration time.Duration) time.Duration {
 	return duration.Round(time.Millisecond)
 }
 
-func forgeStartRequest(r *room.Room, players []room.RulesStartPlayer) (
+func forgeStartRequest(r *room.Room, players []room.RulesStartPlayer, clubMode bool) (
 	forge.StartGameRequest, []int, error) {
 	if r == nil || len(players) < 2 {
 		return forge.StartGameRequest{}, nil, errors.New("Forge game requires at least two players")
@@ -162,6 +158,14 @@ func forgeStartRequest(r *room.Room, players []room.RulesStartPlayer) (
 		StartingLife: startingLife,
 		Seed:         seedValue.Int64(),
 		Players:      make([]forge.PlayerConfig, 0, len(players)),
+	}
+	if clubMode {
+		request.SkipReplay = true
+		// The Limited table validates the deck against its locked draft pool.
+		// Forge's deckFormat field selects a constructed format legality check.
+		if !r.LimitedDeckLocked || (r.DeckFormat != protocol.DeckFormatLimited && r.DeckFormat != protocol.DeckFormatCommanderLimited) {
+			request.DeckFormat = r.DeckFormat
+		}
 	}
 	seatOrder := make([]int, 0, len(players))
 	for _, player := range players {

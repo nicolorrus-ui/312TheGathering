@@ -67,6 +67,19 @@ export function addDeckCard(list: DeckList, zone: DeckZone, result: Identity): D
   return editDeckCard(list, zone, main ?? side ?? result, (main?.count ?? 0) + (side?.count ?? 0) + 1);
 }
 
+/** Parse a quantity and optional Club printing, shared by deck and cube imports. */
+export function parseCardLine(line: string, lineNumber: number, options?: { allowSingle: boolean; maxCount: number }): DeckCard {
+  const match = line.match(/^(\d+)[x×]?\s+(.+)$/i);
+  const count = match ? Number(match[1]) : options?.allowSingle ? 1 : 0;
+  if (!Number.isSafeInteger(count) || count < 1 || count > (options?.maxCount ?? 1000)) {
+    throw new Error(`Line ${lineNumber} needs a quantity and card name.`);
+  }
+  const printing = (match?.[2] ?? line).match(/^(.+?)(?:\s+\(([a-z0-9]+)\)\s+(\S+))?$/i);
+  if (!printing) throw new Error(`Line ${lineNumber} needs a card name.`);
+  return { name: knownFaceNames(printing[1])?.club ?? printing[1], setCode: printing[2]?.toUpperCase() ?? "",
+    collectorNumber: printing[3] ?? "", count };
+}
+
 function readDeckLines(text: string, onCard: (zone: DeckZone, entry: Identity, count: number) => void,
   onComment?: (zone: DeckZone, line: string) => void) {
   let zone: DeckZone = "mainboard";
@@ -92,15 +105,10 @@ function readDeckLines(text: string, onCard: (zone: DeckZone, entry: Identity, c
       onComment?.(zone, raw);
       continue;
     }
-    const card = line.match(/^(SB:\s*)?(\d+)x?\s+(.+?)(?:\s+\(([a-z0-9]+)\)\s+(\S+))?$/i);
-    if (!card || Number(card[2]) < 1 || Number(card[2]) > 1000) {
-      throw new Error(`Line ${index + 1} needs a quantity and card name.`);
-    }
-    if (possibleSideboard && zone === "mainboard" && !card[1]) zone = "sideboard";
-    const entry: Identity = {
-      name: knownFaceNames(card[3])?.club ?? card[3], setCode: card[4]?.toUpperCase() ?? "", collectorNumber: card[5] ?? "",
-    };
-    onCard(card[1] ? "sideboard" : zone, entry, Number(card[2]));
+    const sideboard = /^SB:\s*/i.test(line);
+    const { count, ...entry } = parseCardLine(sideboard ? line.replace(/^SB:\s*/i, "") : line, index + 1);
+    if (possibleSideboard && zone === "mainboard" && !sideboard) zone = "sideboard";
+    onCard(sideboard ? "sideboard" : zone, entry, count);
     started = true;
     possibleSideboard = false;
   }
