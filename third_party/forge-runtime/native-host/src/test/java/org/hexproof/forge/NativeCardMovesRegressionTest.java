@@ -137,10 +137,11 @@ public final class NativeCardMovesRegressionTest {
             var hand = caster.getZone(ZoneType.Hand);
             var ability = physical.getFirstSpellAbility();
             ability.setActivatingPlayer(caster);
+            final int waitingMark = game.getTriggerHandler().getWaitingTriggerCount();
             ability.setHostCard(game.getAction().moveToStack(physical, ability));
             // Reproduce a cancellation with no published announcement, or just one authorized view.
             if (discloseToOpponent) moves(session, 1);
-            GameActionUtil.rollbackAbility(ability, hand, 0, new CostPayment(ability.getPayCosts(), ability), physical);
+            GameActionUtil.rollbackAbility(ability, hand, 0, new CostPayment(ability.getPayCosts(), ability), physical, waitingMark);
             checkKnownHand(session, -1, null);
             checkKnownHand(session, 1, discloseToOpponent ? NativeSession.cardId(physical) : null);
         }

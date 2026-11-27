@@ -4,13 +4,10 @@
 
 - Hexproof `f2b56e2bd77710488041e6530fffb90a4748264a`, GPL-3.0-or-later.
   The fork retains its licenses, notices, and unrelated desktop sources.
-- Forge `0485ad49fb10c8ef5b3eda2a002c963d59be71dc`, GPL-3.0-or-later.
-  The immutable adapter-25 archive supplies the Java classes, library JARs
-  and data. Hexproof's adapter-34 overlay replaces the patched classes and
-  native adapter ahead of the base JAR. The fork rebuilds its own overlay from
-  the same pinned inputs and ships alongside a Java 21 runtime installed on
-  the host. The upstream Maven parent is compiled for Java 17 and the current
-  Hexproof host and overlay use JDK 21.
+- Forge `230914a40a9e1e767391c3be990a349015b35761`, GPL-3.0-or-later.
+  The adapter-43 base includes the matching Java rules, card scripts, editions,
+  formats and dependency JARs. Club builds its search indexes from those same
+  resources and loads the matching native adapter with Java 21.
 - `third_party/forge-runtime/native-host/native-hooks.patch` lists the exact
   modified upstream files across `forge-core`, `forge-game`, `forge-gui`
   and `forge-ai`. The patch supports native input queues, scoped game threads

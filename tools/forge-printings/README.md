@@ -44,8 +44,7 @@ python3 tools/forge-printings/generate.py \
   --output build/printing-index-review
 ```
 
-The first index uses the default catalog generated on 2026-09-20, identified by
-its SHA-256 in `printing-aliases.json`. The census found 86,381 exact native
+The first index used the default catalog generated on 2026-09-20. The census found 86,381 exact native
 printings and 10,719 additional aliases. Another 3,525 catalog printings had no
 eligible native parent; these include absent scripts and out-of-scope variant
 cards, and remain unresolved. A successful lookup is not evidence that every
@@ -66,17 +65,24 @@ the census: 591 resolve exactly and 2,009 use verified aliases.
 No existing aliases were removed or remapped. This is a registration census,
 not a guarantee that every upstream ability is implemented correctly.
 
-The remaining 2,591 records are enumerated individually in
-[`printing-unavailable.tsv`](../../third_party/forge-runtime/native-host/src/main/resources/org/hexproof/forge/printing-unavailable.tsv):
+Adapter 43 uses the November 22 catalog and the November 27 Forge tree.
+Of 104,815 paper printing identities, 89,090 resolve directly and 13,103 have a
+verified parent. All 586 current TRK printings resolve directly, including
+`All Good Things... / TRK / 226`. The catalog also contains the earlier
+`Gwyndala, the Progeny / TRK / 450†`, which shares rules with TRK 450.
+Both TRC 197 and PURL 2026-3 resolve to Borg Queen, Perfection Manifest.
+
+The [unavailable index](../../third_party/forge-runtime/native-host/src/main/resources/org/hexproof/forge/printing-unavailable.tsv)
+lists the other 2,622 records.
 
 | Reason | Count | Meaning |
 | --- | ---: | --- |
-| `native_rules_missing` | 1,637 | No corresponding supported native rules card is present. |
+| `native_rules_missing` | 1,551 | No corresponding supported native rules card is present. |
 | `native_variant_missing` | 13 | The edition declares this functional variant, but Forge does not implement it. |
 | `different_rules_same_name` | 9 | The native same-name card belongs to a different catalog Oracle identity. |
 | `meld_result` | 21 | An independently cataloged meld back cannot be registered as a deck card. |
 | `not_a_playing_card` | 315 | A deck/theme/display front card, rather than a playable card. |
-| `unsupported_game_piece` | 596 | A plane, scheme, Vanguard, attraction, sticker or other piece outside this adapter's deck modes. |
+| `unsupported_game_piece` | 713 | A plane, scheme, Vanguard, attraction, sticker or other piece outside this adapter's deck modes. |
 
 `unmatched_native_printing` is an actionable gap and must not enter the shipped
 baseline. The current census has zero such gaps. A deliberately unsupported
@@ -91,14 +97,6 @@ the shared lookup sources, so the static tests require a refreshed census after
 a resolver/generator change. Rebuilding the native runtime also checks every
 exclusion against the actual registration lookup and reports newly supported
 entries that need a baseline refresh.
-
-Session lifecycle and AI admission changes do not alter printing registration.
-The provenance retains the original census commit and SHA-256 of the exact
-registration/lookup region, from `resolveDecks` through the next `handle`
-method. Static checks require both the current whole-file source hash and that
-unchanged region hash. Updating the current source hash does not claim a new
-census; any change inside the protected region requires one. The next full
-generation naturally replaces the preservation proof with fresh provenance.
 
 `NativePrintingAliasRegressionTest` tests every shipped alias and actual startup
 of the reported decks. Existing rejection tests continue to reject mismatched

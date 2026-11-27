@@ -12,6 +12,7 @@ import forge.game.event.GameEventCardChangeZone;
 import forge.game.event.GameEventCardStatsChanged;
 import forge.game.event.GameEventCardTapped;
 import forge.game.event.GameEventLandPlayed;
+import forge.game.event.GameEventPlayerPriority;
 import forge.game.event.GameEventPlayerStatsChanged;
 import forge.game.event.GameEventZone;
 import forge.game.player.Player;
@@ -83,6 +84,9 @@ final class NativeLandUndo {
                     || change.to() == null || change.to().zoneType() != ZoneType.Battlefield;
             case GameEventCardTapped tap -> tap.card().getId() != id;
             case GameEventLandPlayed land -> land.land().getId() != id;
+            // Forge announces priority again before asking for the next action.
+            // A different player receiving priority still commits the land play.
+            case GameEventPlayerPriority priority -> !player.getView().equals(priority.priority());
             case GameEventCardStatsChanged ignored -> false;
             case GameEventPlayerStatsChanged ignored -> false;
             default -> true;

@@ -91,7 +91,7 @@ public final class NativePrintingAliasRegressionTest {
                 {"Forest", "UNF", "198"}, {"Nearby Planet", "UNF", "999999"},
                 {"Sophina, Spearsage Deserter", "SLX", "8"}, {"Ratonhnhaké꞉ton", "ACR", "61"},
                 {"Havengul Laboratory // The Upside Down", "SLX", "9"},
-                {"Havengul Laboratory // Forest", "SLX", "9"}, {"Red Herring", "CMB1", "62"},
+                {"Havengul Laboratory // Forest", "SLX", "9"}, {"All Good Things...", "TRK", "225"}, {"Red Herring", "CMB1", "62"},
                 {"Everythingamajig", "UST", "147a"}})
             check(NativeSession.findCard(database, wrong[0], wrong[1], wrong[2]) == null,
                     "Unrelated name, face or rules variant was substituted: " + Arrays.toString(wrong));
@@ -170,7 +170,9 @@ public final class NativePrintingAliasRegressionTest {
                 {"Casal, Lurkwood Pathfinder // Casal, Pathbreaker Owlbear", "SLX", "29"},
                 {"Nearby Planet", "UNF", "198"}, {"Nearby Planet", "UNF", "484"},
                 {"Aswan Jaguar", "PMIC", "1"}, {"Abomination", "4BB", "117"},
-                {"Aether Shockwave", "PSAL", "C26"}, {"Pteramander", "PWCS", "2019-1"}};
+                {"Aether Shockwave", "PSAL", "C26"}, {"Pteramander", "PWCS", "2019-1"},
+                {"Borg Queen, Perfection Manifest", "TRC", "197"}, {"Borg Queen, Perfection Manifest", "PURL", "2026-3"},
+                {"All Good Things...", "TRK", "226"}, {"Gwyndala, the Progeny", "TRK", "450†"}};
         var request = NativeSession.object("gameId", "printing-regression");
         request.addProperty("variant", "constructed");
         request.addProperty("seed", 91);

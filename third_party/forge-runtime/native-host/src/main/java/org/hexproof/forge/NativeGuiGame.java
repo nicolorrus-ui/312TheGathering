@@ -59,13 +59,13 @@ final class NativeGuiGame implements InvocationHandler {
             case "isNetGame", "isGamePaused", "isSelecting", "isUiSetToSkipPhase" -> false;
             case "tempShowZones" -> a[1];
             case "openZones" -> new PlayerZoneUpdates();
-            case "setSelectables" -> {
+            case "setSelection" -> {
+                var selection = (forge.gamemodes.match.Selection) a[0];
                 Set<Integer> ids = new HashSet<>();
-                for (Object value : (Iterable<?>) a[0]) ids.add(((CardView) value).getId());
-                cardSelectionBounds = new CardSelectionBounds(Set.copyOf(ids), (Integer) a[1], (Integer) a[2]);
+                for (CardView card : selection.cards()) ids.add(card.getId());
+                cardSelectionBounds = new CardSelectionBounds(Set.copyOf(ids), selection.min(), selection.max());
                 yield null;
             }
-            case "clearSelectables" -> { cardSelectionBounds = null; yield null; }
             case "showPromptMessage" -> {
                 message = (String) a[1];
                 messageCard = (CardView) a[2];

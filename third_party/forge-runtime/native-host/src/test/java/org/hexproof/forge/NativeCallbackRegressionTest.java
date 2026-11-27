@@ -84,8 +84,10 @@ public final class NativeCallbackRegressionTest {
     }
 
     private static void generic(NativeSession session, Player owner) throws Exception {
-        Card source = card(session.game, owner, "Forest", ZoneType.Battlefield);
-        SpellAbility ability = source.getManaAbilities().get(0);
+        // Mana abilities use the separate on-card output picker. A spell
+        // uses Forge's generic numeric allocation callback.
+        Card source = card(session.game, owner, "Grizzly Bears", ZoneType.Hand);
+        SpellAbility ability = source.getFirstSpellAbility();
         ability.setActivatingPlayer(owner);
         PlayerControllerHuman human = (PlayerControllerHuman) owner.getController();
         AtomicInteger decisions = new AtomicInteger();

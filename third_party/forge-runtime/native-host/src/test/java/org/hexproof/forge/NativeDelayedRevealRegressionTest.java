@@ -79,7 +79,9 @@ public final class NativeDelayedRevealRegressionTest {
             if (!card.isLand()) legal.add(card.getName());
         }
 
-        SpellAbility ability = forge.game.ability.AbilityFactory.getAbility(source.getSVar("TrigReveal"), source);
+        SpellAbility ability = source.getTriggers().stream()
+                .filter(trigger -> "Battlefield".equals(trigger.getParam("Destination")))
+                .findFirst().orElseThrow().ensureAbility();
         ability.setActivatingPlayer(chooser);
         ability.getTargets().add(target);
         if (prevented) session.game.getAction().moveTo(ZoneType.Graveyard, source, null, null);

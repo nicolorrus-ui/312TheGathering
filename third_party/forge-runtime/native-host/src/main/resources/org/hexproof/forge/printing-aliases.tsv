@@ -90,6 +90,7 @@ Aegar, the Freezing Flame	MUL	161z	MUL	161
 Aeolipile	PTC	ml81sb	FEM	81
 Aeolipile	PTC	pp81	FEM	81
 Aerial Extortionist	PNCC	11p	NCC	11
+Aerid Konstrari	PFRA	121p	FRA	121
 Aerith Gainsborough	PFIN	4s	FIN	4
 Aether Channeler	PDMU	42p	DMU	42
 Aether Channeler	PDMU	42s	DMU	42
@@ -140,7 +141,10 @@ Air Elemental	PS11	26	10E	64
 Air Elemental	SUM	47	2ED	47
 Airbender Ascension	PTLA	6s	TLA	6
 Aisha of Sparks and Smoke	SLD	430	SLX	12
+Ajani Resolute	PFRA	195p	FRA	195
+Ajani Unrelenting	PFRA	242p	FRA	242
 Ajani Unyielding	PAER	127s	AER	127
+Ajani's Anguish	PFRA	72p	FRA	72
 Ajani's Last Stand	PM19	4s	M19	4
 Ajani, Adversary of Tyrants	PM19	3s	M19	3
 Ajani, Caller of the Pride	PFDN	134s	FDN	134
@@ -251,7 +255,7 @@ Analyze the Pollen	PMKM	150p	MKM	150
 Analyze the Pollen	PMKM	150s	MKM	150
 Anarchist	9ED	173★	9ED	173
 Anarchy	PTC	mj49sb	ICE	170
-Anax and Cymede & Kynaios and Tiro	MB2	589	UNK	RZ01a
+Anax and Cymede & Kynaios and Tiro	MB2	589	UNK	20230547
 Ancestor's Chosen	10E	1★	10E	1
 Ancestral Memories	7ED	59★	7ED	59
 Ancestral Recall	CED	48	2ED	48
@@ -260,6 +264,7 @@ Ancient Adamantoise	PFIN	172s	FIN	172
 Ancient Brass Dragon	PCLB	111s	CLB	111
 Ancient Bronze Dragon	PCLB	214s	CLB	214
 Ancient Copper Dragon	PCLB	161s	CLB	161
+Ancient Cornucopia	PBIG	16p	BIG	16
 Ancient Den	WC04	mb278	MRD	278
 Ancient Gold Dragon	PCLB	3s	CLB	3
 Ancient Greenwarden	PZNR	178p	ZNR	178
@@ -649,6 +654,7 @@ Avalanche Riders	WC99	mlp74	ULG	74
 Avalanche Tusker	PKTK	166s	PKTK	166
 Avatar Aang // Aang, Master of Elements	PTLA	207s	TLA	207
 Avatar Destiny	PTLA	165s	TLA	165
+Avatar of Burgeoning Echoes	PFRA	122p	FRA	122
 Avatar of Hope	8ED	4★	8ED	4
 Avatar of Might	10E	251★	10E	251
 Avatar of the Resolute	PDTK	175s	DTK	175
@@ -1091,6 +1097,7 @@ Bloodletter of Aclazotz	PLCI	92s	LCI	92
 Bloodline Bidding	PECL	91p	ECL	91
 Bloodline Culling	PMID	89p	MID	89
 Bloodline Culling	PMID	89s	MID	89
+Bloodline Recollector // Ancestral Craving	PFRA	49p	FRA	49
 Bloodline Shaman	PSAL	B26	ONS	249
 Bloodmark Mentor	PS11	94	DDG	50
 Bloodscent	PSAL	D4	MRD	114
@@ -1297,6 +1304,7 @@ Brion Stoutarm	OCM1	2	A25	200
 Brion Stoutarm	PLRW	A2	LRW	246
 Brion Stoutarm	PS11	167	A25	200
 Bristlebane Battler	PECL	168p	ECL	168
+Bristlebud Farmer	PBIG	17p	BIG	17
 Bristling Hydra	PKLD	147s	KLD	147
 Bristling Hydra	PKLD	147★	KLD	147
 Bristly Bill, Spine Sower	POTJ	157p	OTJ	157
@@ -1448,6 +1456,7 @@ Caretaker's Talent	PBLB	6s	BLB	6
 Carnage Tyrant	PXLN	179p	XLN	179
 Carnage Tyrant	PXLN	179s	XLN	179
 Carnage, Crimson Chaos	PSPM	125s	SPM	125
+Carnivorous Cultivator // Enroot	PFRA	100p	FRA	100
 Carnivorous Plant	4BB	235	4ED	235
 Carnivorous Plant	REN	117	4ED	235
 Carrion Ants	4BB	125	4ED	125
@@ -1583,6 +1592,7 @@ Chandra, Acolyte of Flame	PM20	126p	M20	126
 Chandra, Acolyte of Flame	PM20	126s	M20	126
 Chandra, Awakened Inferno	PM20	127p	M20	127
 Chandra, Awakened Inferno	PM20	127s	M20	127
+Chandra, Chill of Compliance	PFRA	212p	FRA	212
 Chandra, Dressed to Kill	PVOW	149p	VOW	149
 Chandra, Dressed to Kill	PVOW	149s	VOW	149
 Chandra, Fire Artisan	PWAR	119p	WAR	119
@@ -1597,6 +1607,7 @@ Chandra, Hope's Beacon	PMOM	134p	MOM	134
 Chandra, Hope's Beacon	PMOM	134s	MOM	134
 Chandra, Spark Hunter	PDFT	116p	DFT	116
 Chandra, Spark Hunter	PDFT	116s	DFT	116
+Chandra, Torch of Defiance	PFRA	244p	FRA	244
 Chandra, Torch of Defiance	PKLD	110s	KLD	110
 Change of Fortune	PVOW	150s	VOW	150
 Change of Plans	PNCC	24p	NCC	24
@@ -1854,6 +1865,7 @@ Cockatrice	CEI	190	2ED	190
 Cockatrice	FBB	189	3ED	189
 Cockatrice	SUM	189	3ED	189
 Cocoon	BCHR	59	CHR	59
+Codie, Ravenous Codex	PFRA	168p	FRA	168
 Codie, Vociferous Codex	PSTX	253p	STX	253
 Codie, Vociferous Codex	PSTX	253s	STX	253
 Coercion	8ED	122★	8ED	122
@@ -1867,6 +1879,7 @@ Collective Effort	40K	183★	40K	183
 Collective Effort	PEMN	17s	EMN	17
 Collective Inferno	PECL	132p	ECL	132
 Collective Unconscious	8ED	238★	8ED	238
+Collector's Cage	PBIG	1p	BIG	1
 Colorstorm Stallion	PSOS	180p	SOS	180
 Colossal Rattlewurm	POTJ	159p	OTJ	159
 Colossal Rattlewurm	POTJ	159s	OTJ	159
@@ -1902,6 +1915,7 @@ Commit // Memory	PAKH	211p	AKH	211
 Commit // Memory	PAKH	211s	AKH	211
 Common Black Removal	MB2	543	MB2	F543
 Company Commander	40K	113★	40K	113
+Compel Brutality	FRA	101b	FRA	101
 Complete the Circuit	PMOM	52p	MOM	52
 Complete the Circuit	PMOM	52s	MOM	52
 Compost	7ED	235★	7ED	235
@@ -2069,6 +2083,7 @@ Cranial Plating	WC04	ap113	5DN	113
 Crash the Party	PNCC	57p	NCC	57
 Crater Elemental	PDTK	132s	DTK	132
 Crater's Claws	PKTK	106s	KTK	106
+Craterclaw Colossus	PFRA	78p	FRA	78
 Craterhoof Behemoth	PTDM	138p	TDM	138
 Craterhoof Behemoth	PTDM	138s	TDM	138
 Craw Giant	BCHR	61	CHR	61
@@ -2115,6 +2130,7 @@ Crown of Vigor	PSAL	B54	ONS	253
 Crown of Vigor	PSAL	D6	ONS	253
 Crucible of Fire	PS11	97	ALA	96
 Crucible of Worlds	PM19	229s	M19	229
+Cruel Calculations	PFRA	26p	FRA	26
 Cruel Edict	9ED	121★	9ED	121
 Cruel Reality	PAKH	84s	AKH	84
 Cruel Somnophage // Can't Wake Up	PWOE	222p	WOE	222
@@ -2197,6 +2213,7 @@ Curse of Silence	PMID	15p	MID	15
 Curse of Silence	PMID	15s	MID	15
 Curse of Surveillance	PMID	46p	MID	46
 Curse of Surveillance	PMID	46s	MID	46
+Curse-Marred Demon	PFRA	79p	FRA	79
 Cursecloth Wrappings	PDFT	81p	DFT	81
 Cursecloth Wrappings	PDFT	81s	DFT	81
 Cursed Land	4BB	127	4ED	127
@@ -2299,6 +2316,7 @@ Dark Banishing	WC03	we123sb	7ED	127
 Dark Confidant	PFIN	94s	FIN	94
 Dark Confidant	RVR	323z	RVR	323
 Dark Intimations	PAER	128s	AER	128
+Dark Matter Manipulator	PFRA	52p	FRA	52
 Dark Petition	PORI	90p	ORI	90
 Dark Petition	PORI	90s	ORI	90
 Dark Privilege	MGB	3	VIS	56
@@ -2318,6 +2336,7 @@ Dark Salvation	PEMN	87s	EMN	87
 Dark-Dweller Oracle	PM19	134s	M19	134
 Darkbore Pathway // Slitherbore Pathway	PKHM	254s	KHM	254
 Darkest Hour	7ED	128★	7ED	128
+Darklight Phoenix	PFRA	53p	FRA	53
 Darkness	40K	197★	40K	197
 Darkpact	CED	100	2ED	100
 Darkpact	CEI	100	2ED	100
@@ -2518,6 +2537,7 @@ Dennick, Pious Apprentice // Dennick, Pious Apparition	PMID	217s	MID	217
 Denry Klin, Editor in Chief	PNCC	71p	NCC	71
 Deny Reality	40K	223★	40K	223
 Deny the Witch	40K	116★	40K	116
+Denzilore Fatehold	PFRA	128p	FRA	128
 Depala, Pilot Exemplar	PKLD	178s	KLD	178
 Deploy the Gatewatch	PEMN	20s	EMN	20
 Deploy to the Front	40K	184★	40K	184
@@ -2534,6 +2554,7 @@ Desert Twister	4BB	240	4ED	240
 Desert Twister	FBB	192	3ED	192
 Desert Twister	SUM	192	3ED	192
 Desert of the Glorified	40K	275★	40K	275
+Deserted Beach	PFRA	176p	FRA	176
 Deserted Beach	PMID	260p	MID	260
 Deserted Beach	PMID	260s	MID	260
 Deserted Temple	LTC	393z	LTC	393
@@ -2683,6 +2704,7 @@ Divine Transformation	4BB	23	4ED	23
 Divine Transformation	REN	8	4ED	23
 Divine Visitation	PGRN	10p	GRN	10
 Divine Visitation	RVR	306z	RVR	306
+Diviner of Victory // Unwind History	PFRA	28p	FRA	28
 Diving Griffin	8ED	17★	8ED	17
 Djeru and Hazoret	PMOM	221p	MOM	221
 Djeru and Hazoret	PMOM	221s	MOM	221
@@ -2747,6 +2769,7 @@ Draconic Destiny	PBRO	130p	BRO	130
 Draconic Destiny	PBRO	130s	BRO	130
 Draconic Intervention	PSTX	96p	STX	96
 Draconic Intervention	PSTX	96s	STX	96
+Draconic Visitor	PFRA	80p	FRA	80
 Drafna, Founder of Lat-Nam	PBRO	47p	BRO	47
 Drafna, Founder of Lat-Nam	PBRO	47s	BRO	47
 Drag the Canal	PMKM	199p	MKM	199
@@ -3169,6 +3192,7 @@ Emptiness	PECL	222p	ECL	222
 Empyrial Armor	WC98	bh13	WTH	13
 Emrakul's Evangel	PEMN	156s	EMN	156
 Emrakul, the Aeons Torn	P10	4★	ROE	4
+Emrakul, the Exigent Doom	PFRA	1p	FRA	1
 Emrakul, the Promised End	PEMN	6s	EMN	6
 Emrakul, the World Anew	MH3	381z	MH3	381
 Emrakul, the World Anew	PMH3	6s	MH3	6
@@ -3221,6 +3245,7 @@ Engulfing Flames	PSAL	D5	ODY	191
 Enigmatic Incarnation	PTHB	215p	THB	215
 Enigmatic Incarnation	PTHB	215s	THB	215
 Enkira, Hostile Scavenger	SLD	146	SLX	20
+Enlightened Confidant	PFRA	5p	FRA	5
 Enlightened Tutor	WC00	nl19	6ED	19
 Enlightened Tutor	WC00	tvdl19	6ED	19
 Enormous Baloth	PSAL	K2	10E	263
@@ -3242,6 +3267,7 @@ Entrancing Melody	PXLN	55s	XLN	55
 Entrapment Maneuver	40K	185★	40K	185
 Entropic Battlecruiser	PEOE	99p	EOE	99
 Entropic Battlecruiser	PEOE	99s	EOE	99
+Entrust the Spark	PFRA	131p	FRA	131
 Envelop	WC03	dh39sb	JUD	39
 Epiphany at the Drownyard	PSOI	59s	SOI	59
 Epistolary Librarian	40K	118★	40K	118
@@ -3286,6 +3312,7 @@ Eshki Dragonclaw	PTDM	182s	TDM	182
 Esika's Chariot	PKHM	169p	KHM	169
 Esika's Chariot	PKHM	169s	KHM	169
 Esika, God of the Tree // The Prismatic Bridge	PKHM	168s	KHM	168
+Esoteric Duplicator	PBIG	5p	BIG	5
 Esper Origins // Summon: Esper Maduin	PFIN	185s	FIN	185
 Esper Sentinel	PMH2	12s	MH2	12
 Essence Channeler	PBLB	12p	BLB	12
@@ -3381,6 +3408,7 @@ Extraction Specialist	PSNC	12p	SNC	12
 Extraction Specialist	PSNC	12s	SNC	12
 Extraordinary Journey	PWOE	48p	WOE	48
 Extraordinary Journey	PWOE	48s	WOE	48
+Extrapolate the Impossible	PFRA	55p	FRA	55
 Extravagant Replication	PFDN	154s	FDN	154
 Extravagant Replication	PNCC	25p	NCC	25
 Extus, Oriq Overlord // Awaken the Blood Avatar	PSTX	149s	STX	149
@@ -3407,6 +3435,7 @@ Fabled Passage	PM21	246s	M21	246
 Fabricate	WC04	mb35	MRD	35
 Fabrication Foundry	PLCI	12p	LCI	12
 Fabrication Foundry	PLCI	12s	LCI	12
+Face Yourself	PFRA	83p	FRA	83
 Faceless Haven	PKHM	255p	KHM	255
 Faceless Haven	PKHM	255s	KHM	255
 Fact or Fiction	WC01	ar57	INV	57
@@ -3711,6 +3740,7 @@ Fleeting Image	7ED	74★	7ED	74
 Fleeting Image	8ED	79★	8ED	79
 Fleeting Image	9ED	78★	9ED	78
 Fleetwheel Cruiser	PKLD	214s	KLD	214
+Flickering Hound	PFRA	7p	FRA	7
 Flight	4BB	72	4ED	72
 Flight	7ED	75★	7ED	75
 Flight	8ED	80★	8ED	80
@@ -3742,6 +3772,10 @@ Flowstone Slide	9ED	186★	9ED	186
 Flumph	PAFR	15a	AFR	15
 Flumph	PAFR	15p	AFR	15
 Flumph	PAFR	15s	AFR	15
+Fluros of Myra's Marvels	UNF	247	UNF	F247
+Fluros of Myra's Marvels	UNF	332	UNF	F332
+Fluros of Myra's Marvels	UNF	46	UNF	F46
+Fluros of Myra's Marvels	UNF	498	UNF	F498
 Flying Carpet	4BB	320	4ED	320
 Flying Carpet	7ED	297★	7ED	297
 Flying Carpet	8ED	301★	8ED	301
@@ -4034,6 +4068,7 @@ Frondland Felidar	PIKO	186s	IKO	186
 Frontier Bivouac	40K	281★	40K	281
 Frontier Explorer	CMB2	6	CMB1	6
 Frontier Siege	FRF	131★	FRF	131
+Frostbite Pyromental	PFRA	135p	FRA	135
 Frostboil Snarl	PSTX	265p	STX	265
 Frostboil Snarl	PSTX	265s	STX	265
 Frostcliff Siege	PTDM	187p	TDM	187
@@ -4116,6 +4151,7 @@ Gandalf the White	LTR	732z	LTR	732
 Gandalf the White	PLTR	19s	LTR	19
 Gandalf, Friend of the Shire	PLTR	401s	LTR	401
 Gang of Elk	7ED	247★	7ED	247
+Gardenize	PFRA	103p	FRA	103
 Gargos, Vicious Watcher	PM20	172p	PM20	172
 Gargos, Vicious Watcher	PM20	172s	PM20	172
 Gargoyle Flock	40K	123★	40K	123
@@ -4123,10 +4159,12 @@ Garna, the Bloodflame	PDOM	194s	DOM	194
 Garruk's Harbinger	PM21	185p	M21	185
 Garruk's Harbinger	PM21	185s	M21	185
 Garruk, Apex Predator	MED	WS5	M15	210
+Garruk, Curse Breaker	PFRA	259p	FRA	259
 Garruk, Cursed Huntsman	PELD	191p	ELD	191
 Garruk, Cursed Huntsman	PELD	191s	ELD	191
 Garruk, Unleashed	PM21	183p	M21	183
 Garruk, Unleashed	PM21	183s	M21	183
+Garruk, Veiled Butcher	PFRA	229p	FRA	229
 Garth One-Eye	PMH2	197s	MH2	197
 Garza Zol, Plague Queen	PS11	171	CSP	129
 Gas Guzzler	PDFT	85p	DFT	85
@@ -4178,6 +4216,7 @@ Geralf's Masterpiece	PSOI	65s	SOI	65
 Geralf, Visionary Stitcher	PVOW	61s	VOW	61
 Geralf, the Fleshwright	POTJ	50p	OTJ	50
 Geralf, the Fleshwright	POTJ	50s	OTJ	50
+Germinate Recruits	PFRA	9p	FRA	9
 Germination Practicum	PSOS	149p	SOS	149
 Gerrard's Wisdom	7ED	16★	7ED	16
 Get Lost	PLCI	14p	LCI	14
@@ -4267,7 +4306,9 @@ Gideon Blackblade	PWAR	13p	WAR	13
 Gideon Blackblade	PWAR	13s	WAR	13
 Gideon Blackblade	PWAR	13s★	WAR	13
 Gideon of the Trials	PAKH	14s	AKH	14
+Gideon the Oathless	PFRA	230p	FRA	230
 Gideon's Intervention	PAKH	15s	AKH	15
+Gideon's Memorial	PFRA	198p	FRA	198
 Gideon's Phalanx	PORI	14s	ORI	14
 Gideon, Ally of Zendikar	PBFZ	29s	BFZ	29
 Gift of Estates	9ED	15★	9ED	15
@@ -4377,6 +4418,8 @@ Goblin Balloon Brigade	CED	154	2ED	154
 Goblin Balloon Brigade	CEI	154	2ED	154
 Goblin Balloon Brigade	FBB	154	2ED	154
 Goblin Balloon Brigade	SUM	154	2ED	154
+Goblin Blastronauts	UNF	109	UNF	F109
+Goblin Blastronauts	UNF	395	UNF	F395
 Goblin Brigand	9ED	190★	9ED	190
 Goblin Chainwhirler	PDOM	129p	DOM	129
 Goblin Chainwhirler	PDOM	129s	DOM	129
@@ -4550,6 +4593,7 @@ Greater Realm of Preservation	OLEP	38	5ED	31
 Greed	4BB	140	4ED	140
 Greed	7ED	140★	7ED	140
 Greed	REN	56	4ED	140
+Greed's Gambit	PBIG	8p	BIG	8
 Green Mana Battery	4BB	323	4ED	323
 Green Mana Battery	REN	145	4ED	323
 Green Sun's Twilight	PONE	169p	ONE	169
@@ -4644,6 +4688,7 @@ Guardian's Magemark	PSAL	G52	GPT	8
 Guerrilla Tactics	8ED	192★	8ED	192
 Guerrilla Tactics	9ED	196★	9ED	196
 Guide of Souls	PMH3	29s	MH3	29
+Guiding Hydra	PFRA	11p	FRA	11
 Guiltfeeder	WC03	pk68sb	C16	112
 Gumdrop Poisoner // Tempt with Treats	PWOE	93p	WOE	93
 Gumdrop Poisoner // Tempt with Treats	PWOE	93s	WOE	93
@@ -4655,6 +4700,7 @@ Gwen Stacy // Ghost-Spider	PSPM	78s	SPM	78
 Gwenna, Eyes of Gaea	PBRO	185p	BRO	185
 Gwenna, Eyes of Gaea	PBRO	185s	BRO	185
 Gwenom, Remorseless	PSPM	56s	SPM	56
+Gwyndala, the Progeny	TRK	450†	TRK	450
 Gyruda, Doom of Depths	MUL	172z	MUL	172
 Gyruda, Doom of Depths	PIKO	221p	IKO	221
 Gyruda, Doom of Depths	PIKO	221s	IKO	221
@@ -4669,6 +4715,7 @@ Haktos the Unscarred	PTHB	218s	THB	218
 Halana and Alena, Partners	PVOW	239s	VOW	239
 Haliya, Guided by Light	PEOE	19p	EOE	19
 Haliya, Guided by Light	PEOE	19s	EOE	19
+Hall of Echoes	PFRA	179p	FRA	179
 Hall of Gemstone	WC98	bs221sb	MIR	221
 Hall of Oracles	PSTX	267p	STX	267
 Hall of Oracles	PSTX	267s	STX	267
@@ -4689,7 +4736,7 @@ Hallowed Respite	PMID	227s	MID	227
 Halo Fountain	PSNC	15p	SNC	15
 Halo Fountain	PSNC	15s	SNC	15
 Halvar, God of Battle // Sword of the Realms	PKHM	15s	KHM	15
-Halving Season	MB2	545	UNK	UB
+Halving Season	MB2	545	UNK	20240218
 Hamlet Vanguard	PVOW	201s	VOW	201
 Hamletback Goliath	PS11	108	C15	156
 Hammer of Bogardan	8ED	193★	8ED	193
@@ -4745,6 +4792,7 @@ Hatchery Spider	PGRN	132s	GRN	132
 Hatred	WC99	js64sb	EXO	64
 Haughty Djinn	PDMU	52p	DMU	52
 Haughty Djinn	PDMU	52s	DMU	52
+Haunted Ridge	PFRA	180p	FRA	180
 Haunted Ridge	PMID	263p	MID	263
 Haunted Ridge	PMID	263s	MID	263
 Haunting Echoes	WC03	pk142sb	M10	98
@@ -4844,6 +4892,7 @@ Heron's Grace Champion	PEMN	185s	PEMN	185
 Hew the Entwood	LTR	737z	LTR	737
 Hew the Entwood	PLTR	136s	LTR	136
 Hewed Stone Retainers	UGIN	161	FRF	161
+Hexhaven Invigorator	PFRA	106p	FRA	106
 Hexing Squelcher	PECL	145p	ECL	145
 Hexmark Destroyer	40K	36★	40K	36
 Hibernation	7ED	79★	7ED	79
@@ -4967,6 +5016,7 @@ Horror of Horrors	PSAL	F26	9ED	140
 Hostage Taker	PXLN	223s	XLN	223
 Hostile Desert	PHOU	178s	HOU	178
 Hostile Hostel // Creeping Inn	PMID	264s	MID	264
+Hostile Investigator	PBIG	10p	BIG	10
 Hostile Negotiations	PBRO	105p	BRO	105
 Hostile Negotiations	PBRO	105s	BRO	105
 Hostile Takeover	PSNC	191p	SNC	191
@@ -5014,6 +5064,7 @@ Hull Breach	40K	224★	40K	224
 Hullbreaker Horror	PVOW	63p	VOW	63
 Hullbreaker Horror	PVOW	63s	VOW	63
 Hungering Hydra	PM19	189s	M19	189
+Hungering Puppetbeast	PFRA	107p	FRA	107
 Hunted Bonebrute	PMKM	87p	MKM	87
 Hunted Bonebrute	PMKM	87s	MKM	87
 Hunted Nightmare	PIKO	92p	IKO	92
@@ -5114,6 +5165,7 @@ Icy Manipulator	PTC	mj322	ICE	322
 Icy Manipulator	PTC	ml322	ICE	322
 Icy Manipulator	PTC	pp322	ICE	322
 Icy Manipulator	PTC	shr322	ICE	322
+Identity Echo	PFRA	87p	FRA	87
 Identity Thief	PEMN	64s	PEMN	64
 Idol of Endurance	PM21	23p	M21	23
 Idol of Endurance	PM21	23s	M21	23
@@ -5230,6 +5282,7 @@ Ingenious Mastery	PSTX	44p	STX	44
 Ingenious Mastery	PSTX	44s	STX	44
 Ingenious Prodigy	PWOE	56p	WOE	56
 Ingenious Prodigy	PWOE	56s	WOE	56
+Ingris Stingerquill	PFRA	137p	FRA	137
 Initiates of the Ebon Hand	5ED	169s	5ED	169
 Innkeeper's Talent	PBLB	180p	BLB	180
 Innkeeper's Talent	PBLB	180s	BLB	180
@@ -5568,10 +5621,12 @@ Izoni, Thousand-Eyed	PGRN	180s	GRN	180
 J. Jonah Jameson	PSPM	81s	SPM	81
 Jace Reawakened	POTJ	271p	OTJ	271
 Jace Reawakened	POTJ	271s	OTJ	271
+Jace's Machinations	PFRA	32p	FRA	32
 Jace's Sanctum	PORI	61p	ORI	61
 Jace, Cunning Castaway	PXLN	60s	XLN	60
 Jace, Mirror Mage	PZNR	63p	ZNR	63
 Jace, Mirror Mage	PZNR	63s	ZNR	63
+Jace, Reality Sculptor	PFRA	216p	FRA	216
 Jace, Unraveler of Secrets	PSOI	69s	SOI	69
 Jace, Vryn's Prodigy // Jace, Telepath Unbound	PORI	60s	ORI	60
 Jace, Wielder of Mysteries	PWAR	54p	WAR	54
@@ -5789,6 +5844,8 @@ Karn's Bastion	PWAR	248s	PWAR	248
 Karn's Sylex	PDMU	234p	DMU	234
 Karn's Sylex	PDMU	234s	DMU	234
 Karn's Temporal Sundering	PDOM	55s	DOM	55
+Karn, Argent Defender	PFRA	279p	FRA	279
+Karn, Gilded Guardian	PFRA	272p	FRA	272
 Karn, Living Legacy	PDMU	1p	DMU	1
 Karn, Living Legacy	PDMU	1s	DMU	1
 Karn, Scion of Urza	MED	RA1	DOM	1
@@ -5915,6 +5972,7 @@ Killer Cosplay	UNF	431	UNF	F431
 Killer Service	PNCC	61p	NCC	61
 Kinbinding	PECL	20p	ECL	20
 Kindred Discovery	PCLB	81s	CLB	81
+Kindred Judgment	PFRA	13p	FRA	13
 King Cheetah	9ED	250★	9ED	250
 King Cheetah	MGB	10	9ED	250
 King Darien XLVIII	PDMU	204p	DMU	204
@@ -6057,6 +6115,7 @@ Kutzil's Flanker	PLCI	20p	LCI	20
 Kutzil's Flanker	PLCI	20s	LCI	20
 Kwende, Pride of Femeref	MUL	135z	MUL	135
 Kwende, Pride of Femeref	PDOM	25s	DOM	25
+Kwia Vigorbloom	PFRA	140p	FRA	140
 Kykar, Wind's Fury	PM20	212p	M20	212
 Kykar, Wind's Fury	PM20	212s	M20	212
 Kykar, Zephyr Awakener	PFDN	122p	FDN	122
@@ -6144,6 +6203,7 @@ Ledger Shredder	PSNC	46p	SNC	46
 Ledger Shredder	PSNC	46s	SNC	46
 Legion Angel	PZNR	23p	ZNR	23
 Legion Angel	PZNR	23s	ZNR	23
+Legion Extruder	PBIG	12p	BIG	12
 Legion Loyalty	PCLB	31s	CLB	31
 Legion Warboss	PGRN	109p	GRN	109
 Legion Warboss	PGRN	109s	GRN	109
@@ -6229,6 +6289,7 @@ Library of Leng	SUM	261	3ED	261
 Lich	CED	114	2ED	114
 Lich	CEI	114	2ED	114
 Lich's Mastery	PDOM	98s	DOM	98
+Lich's Relic	PFRA	57p	FRA	57
 Lich-Knights' Conquest	PWOE	96p	WOE	96
 Lich-Knights' Conquest	PWOE	96s	WOE	96
 Lictor	40K	94★	40K	94
@@ -6293,6 +6354,8 @@ Lilah, Undefeated Slickshot	POTJ	217p	OTJ	217
 Lilah, Undefeated Slickshot	POTJ	217s	OTJ	217
 Liliana of the Veil	PDMU	97p	DMU	97
 Liliana of the Veil	PDMU	97s	DMU	97
+Liliana the Faultless	PFRA	200p	FRA	200
+Liliana the Repentant	PFRA	231p	FRA	231
 Liliana's Contract	PM19	107s	M19	107
 Liliana's Mastery	PAKH	98s	AKH	98
 Liliana's Other Contract // Liliana's Undead Minion	MB2	548	MB2	F548
@@ -6399,6 +6462,7 @@ Looming Shade	8ED	140★	8ED	140
 Looming Shade	9ED	142★	9ED	142
 Loot, Exuberant Explorer	PFDN	106p	FDN	106
 Loot, Exuberant Explorer	PFDN	106s	FDN	106
+Loot, the Key to Everything	PBIG	21p	BIG	21
 Loot, the Pathfinder	PDFT	212p	DFT	212
 Loot, the Pathfinder	PDFT	212s	DFT	212
 Loran of the Third Path	PBRO	12p	BRO	12
@@ -6435,6 +6499,7 @@ Lorehold Command	PSTX	199p	STX	199
 Lorehold Command	PSTX	199s	STX	199
 Lorehold, the Historian	PSOS	201p	SOS	201
 Lost Isle Calling	PLTR	61s	LTR	61
+Lost Jitte	PBIG	23p	BIG	23
 Lost Legacy	PKLD	88s	KLD	88
 Lost Soul	4BB	145	4ED	145
 Lost Soul	ITP	20	4ED	145
@@ -6460,6 +6525,7 @@ Loxodon Stalwart	PSAL	G2	5DN	11
 Loxodon Warhammer	10E	332★	10E	332
 Loxodon Warhammer	9ED	303★	9ED	303
 Loxodon Warhammer	PS11	194	10E	332
+Loyal Tutor	PFRA	14p	FRA	14
 Loyal Warhound	PAFR	23a	AFR	23
 Loyal Warhound	PAFR	23p	AFR	23
 Loyal Warhound	PAFR	23s	AFR	23
@@ -6512,6 +6578,8 @@ Luxury Suite	PCLB	355s	CLB	355
 Lychguard	40K	39★	40K	39
 Lyra Dawnbringer	PDOM	26p	DOM	26
 Lyra Dawnbringer	PDOM	26s	DOM	26
+Lyra, Archangel of Dawn	PFRA	201p	FRA	201
+Lyra, Tolarian Archangel	PFRA	217p	FRA	217
 Lys Alana Huntmaster	PS11	147	C14	205
 Maarika, Brutal Gladiator	SLD	435	SLX	15
 Mabel, Heir to Cragflame	PBLB	224p	BLB	224
@@ -6717,6 +6785,7 @@ Master Healer	7ED	27★	7ED	27
 Master Healer	8ED	30★	8ED	30
 Master Healer	9ED	28★	9ED	28
 Master Trinketeer	PKLD	21s	KLD	21
+Master of Barbs	PFRA	88p	FRA	88
 Master of Ceremonies	PNCC	18p	NCC	18
 Master of Cruelties	RVR	373z	RVR	373
 Master of Death	PMH2	205s	MH2	205
@@ -6797,6 +6866,7 @@ Memory Lapse	PTC	shr32asb	5ED	103
 Memory Lapse	PTC	shr32bsb	5ED	103
 Memory Lapse	WC02	cr88	7ED	88
 Memory Lapse	WC98	rb32	5ED	103
+Memory Vessel	PBIG	13p	BIG	13
 Mendicant Core, Guidelight	PDFT	213p	DFT	213
 Mendicant Core, Guidelight	PDFT	213s	DFT	213
 Mending Hands	9ED	29★	9ED	29
@@ -7222,7 +7292,7 @@ Mox Jet	CED	263	2ED	263
 Mox Jet	CEI	263	2ED	263
 Mox Pearl	CED	264	2ED	264
 Mox Pearl	CEI	264	2ED	264
-Mox Poison	MB2	608	UNK	RA11b
+Mox Poison	MB2	608	UNK	20230251
 Mox Ruby	CED	265	2ED	265
 Mox Ruby	CEI	265	2ED	265
 Mox Sapphire	CED	266	2ED	266
@@ -7441,6 +7511,7 @@ New Way Forward	PTDM	211p	TDM	211
 New Way Forward	PTDM	211s	TDM	211
 Nexos	40K	95★	40K	95
 Next of Kin	PNCC	62p	NCC	62
+Nexus of Becoming	PBIG	25p	BIG	25
 Neyam Shai Murad	40K	135★	40K	135
 Nezahal, Primal Tide	PRIX	45p	RIX	45
 Nezahal, Primal Tide	PRIX	45s	RIX	45
@@ -7563,6 +7634,7 @@ Noxious Bayou	CMB2	118	CMB1	118
 Noxious Gearhulk	PKLD	96p	KLD	96
 Noxious Gearhulk	PKLD	96s	KLD	96
 Noyan Dar, Roil Shaper	PBFZ	216s	BFZ	216
+Null Summoner	PFRA	142p	FRA	142
 Nulldrifter	PMH3	13s	MH3	13
 Nullmage Shepherd	PSAL	B2	KHC	70
 Nullmage Shepherd	PSAL	B40	KHC	70
@@ -7677,6 +7749,7 @@ Olivia, Crimson Bride	PVOW	245p	VOW	245
 Olivia, Crimson Bride	PVOW	245s	VOW	245
 Olivia, Mobilized for War	PSOI	248s	SOI	248
 Oloro, Ageless Ascetic	OC13	203	C13	203
+Oltec Matterweaver	PBIG	3p	BIG	3
 Omenpath Journey	PBIG	18p	BIG	18
 Omenpath to Naya	MB2	616	MB2	F616
 Omnath, Locus of All	PMOM	249p	MOM	249
@@ -7687,6 +7760,7 @@ Omnath, Locus of Rage	PBFZ	217p	BFZ	217
 Omnath, Locus of Rage	PBFZ	217s	BFZ	217
 Omnath, Locus of the Roil	PM20	216p	M20	216
 Omnath, Locus of the Roil	PM20	216s	M20	216
+Omnipresence	PFRA	110p	FRA	110
 Omniscience	PFDN	161s	FDN	161
 Omniscience	PM19	65s	M19	65
 Omnivorous Flytrap	PDSK	192p	DSK	192
@@ -7819,6 +7893,7 @@ Over the Top	PBRO	146s	BRO	146
 Overcharged Amalgam	PVOW	71p	VOW	71
 Overcharged Amalgam	PVOW	71s	VOW	71
 Overflowing Insight	PXLN	66s	XLN	66
+Overgrown Farmland	PFRA	185p	FRA	185
 Overgrown Farmland	PMID	265p	MID	265
 Overgrown Farmland	PMID	265s	MID	265
 Overgrown Tomb	PECL	266p	ECL	266
@@ -7843,6 +7918,7 @@ Overrun	WC99	ml243sb	10E	284
 Overwhelm	PSAL	J39	J25	697
 Overwhelming Denial	POGW	61s	OGW	61
 Overwhelming Splendor	PHOU	19s	HOU	19
+Overwrite the Multiverse	PFRA	59p	FRA	59
 Ovika, Enigma Goliath	PONE	213p	ONE	213
 Ovika, Enigma Goliath	PONE	213s	ONE	213
 Ovinomancer	MGB	2	DMR	64
@@ -7984,6 +8060,7 @@ Personal Incarnation	FBB	31	30A	31
 Personal Incarnation	OLEP	33	2ED	32
 Personal Incarnation	SUM	31	30A	31
 Persuasion	10E	95★	10E	95
+Pest Control	PBIG	22p	BIG	22
 Pestilence	4BB	152	4ED	152
 Pestilence	CED	121	2ED	121
 Pestilence	CEI	121	2ED	121
@@ -8303,6 +8380,7 @@ Polukranos, Unchained	PTHB	224p	THB	224
 Polukranos, Unchained	PTHB	224s	THB	224
 Polymorph	9ED	90★	9ED	90
 Polyraptor	PRIX	144s	RIX	144
+Pompous Battlemage // Improvised Act	PFRA	90p	FRA	90
 Poppet Stitcher // Poppet Factory	PMID	71s	MID	71
 Popular Entertainer	PCLB	192s	CLB	192
 Port Town	40K	289★	40K	289
@@ -8391,6 +8469,7 @@ Prismari, the Inspiration	PSOS	212p	SOS	212
 Pristine Skywise	PDTK	228s	PDTK	228
 Pristine Talisman	BRR	106z	BRR	106
 Prized Amalgam	PSOI	249s	SOI	249
+Proctor of Potential	PFRA	145p	FRA	145
 Prodigal Pyromancer	PS11	118	PLC	118
 Prodigal Sorcerer	4BB	94	4ED	94
 Prodigal Sorcerer	7ED	94★	7ED	94
@@ -8444,6 +8523,7 @@ Pugnacious Hammerskull	PLCI	208s	LCI	208
 Pull from Tomorrow	PAKH	65p	AKH	65
 Pull from Tomorrow	PAKH	65s	AKH	65
 Pulse of the Tangle	PSAL	K25	DST	80
+Puppet Crafting	PFRA	111p	FRA	111
 Puppet Master	BCHR	23	CHR	23
 Puppeteer	8ED	94★	8ED	94
 Puppeteer	9ED	91★	9ED	91
@@ -8467,6 +8547,7 @@ Pursued Whale	PM21	60p	M21	60
 Pursued Whale	PM21	60s	M21	60
 Pygmy Pyrosaur	7ED	208★	7ED	208
 Pyramid of the Pantheon	PAKH	235s	AKH	235
+Pyre Rhymer // Molten Tide	PFRA	91p	FRA	91
 Pyre of Heroes	PKHM	241p	KHM	241
 Pyre of Heroes	PKHM	241s	KHM	241
 Pyrewood Gearhulk	PDFT	216p	DFT	216
@@ -8521,7 +8602,7 @@ Queen's Bay Paladin	PLCI	115p	LCI	115
 Queen's Bay Paladin	PLCI	115s	LCI	115
 Questing Beast	PELD	171p	ELD	171
 Questing Beast	PELD	171s	ELD	171
-Questing Cosplayer	MB2	583	UNK	RG02d
+Questing Cosplayer	MB2	583	UNK	20230920
 Questing Druid // Seek the Beast	PWOE	234p	WOE	234
 Questing Druid // Seek the Beast	PWOE	234s	WOE	234
 Quick Sliver	PSAL	D16	CMM	907
@@ -8859,6 +8940,7 @@ Reprisal	WC02	bk33sb	6ED	37
 Reprocess	7ED	159★	7ED	159
 Repulse	WC02	cr70	INV	70
 Repulse	WC02	rl70sb	CMD	58
+Repurposed Enforcer	PFRA	19p	FRA	19
 Repurposing Bay	PDFT	56p	DFT	56
 Repurposing Bay	PDFT	56s	DFT	56
 Requiem Monolith	PEOE	113p	EOE	113
@@ -8875,6 +8957,7 @@ Resplendent Angel	PM19	34s	M19	34
 Resplendent Marshal	PKHM	22p	KHM	22
 Resplendent Marshal	PKHM	22s	KHM	22
 Response // Resurgence	PGRN	229s	GRN	229
+Rest in Peace	PBIG	4p	BIG	4
 Restless Anchorage	PLCI	280p	LCI	280
 Restless Anchorage	PLCI	280s	LCI	280
 Restless Bivouac	PWOE	257p	WOE	257
@@ -8908,6 +8991,7 @@ Retriever Phoenix	PSTX	113p	STX	113
 Retriever Phoenix	PSTX	113s	STX	113
 Return of the Wildspeaker	PELD	172p	ELD	172
 Return of the Wildspeaker	PELD	172s	ELD	172
+Return to the Light Realms	PFRA	20p	FRA	20
 Revel in Riches	PXLN	117p	XLN	117
 Revel in Riches	PXLN	117s	XLN	117
 Revelation	BCHR	68	CHR	68
@@ -8972,6 +9056,7 @@ Riptide Gearhulk	PDFT	219s	DFT	219
 Riptide Replicator	PSAL	D49	ONS	309
 Rise and Shine	PMH2	58s	MH2	58
 Rise of the Dark Realms	PFDN	183s	FDN	183
+Rise of the Deathbringer	PFRA	63p	FRA	63
 Rise of the Dread Marn	PKHM	107p	KHM	107
 Rise of the Dread Marn	PKHM	107s	KHM	107
 Rishadan Dockhand	PMH2	59s	MH2	59
@@ -9039,6 +9124,7 @@ Rock Hydra	SUM	173	3ED	173
 Rocket Launcher	FBB	272	3ED	272
 Rocket Launcher	SUM	272	3ED	272
 Rocket-Powered Goblin Glider	PSPM	172s	SPM	172
+Rockfall Vale	PFRA	186p	FRA	186
 Rockfall Vale	PMID	266p	MID	266
 Rockfall Vale	PMID	266s	MID	266
 Rod of Ruin	4BB	344	4ED	344
@@ -9056,6 +9142,7 @@ Rogue Class	PAFR	230p	AFR	230
 Rogue Class	PAFR	230s	AFR	230
 Rogue Elephant	WC97	sg139	WTH	139
 Rogue Kavu	9ED	213★	9ED	213
+Roiling Canopy	PFRA	187p	FRA	187
 Roiling Vortex	PZNR	156p	ZNR	156
 Roiling Vortex	PZNR	156s	ZNR	156
 Role Reversal	PWAR	214s	WAR	214
@@ -9209,8 +9296,10 @@ Samite Healer	CED	38	10E	38
 Samite Healer	CEI	38	10E	38
 Samite Healer	FBB	38	10E	38
 Samite Healer	SUM	38	10E	38
+Samut, Hazoret's Champion	PFRA	251p	FRA	251
 Samut, Tyrant Smasher	PWAR	235s	WAR	235
 Samut, Tyrant Smasher	PWAR	235s★	WAR	235
+Samut, Tyrant of Naktamun	PFRA	220p	FRA	220
 Samut, Voice of Dissent	PAKH	205s	AKH	205
 Samut, the Driving Force	PDFT	222p	DFT	222
 Samut, the Driving Force	PDFT	222s	DFT	222
@@ -9225,6 +9314,7 @@ Sanctuary Warden	PSNC	30p	SNC	30
 Sanctuary Warden	PSNC	30s	SNC	30
 Sanctum Guardian	9ED	40★	9ED	40
 Sanctum Guardian	PSAL	G51	9ED	40
+Sanctum Lurker	PFRA	64p	FRA	64
 Sanctum Seeker	PXLN	120p	XLN	120
 Sanctum Seeker	PXLN	120s	XLN	120
 Sanctum Weaver	PMH2	171s	MH2	171
@@ -9437,6 +9527,7 @@ Season of the Bold	PBLB	152p	BLB	152
 Season of the Bold	PBLB	152s	BLB	152
 Season of the Burrow	PBLB	29p	BLB	29
 Season of the Burrow	PBLB	29s	BLB	29
+Seasoned Cryomancer	PFRA	38p	FRA	38
 Seasoned Marshal	7ED	40★	7ED	40
 Seasoned Marshal	8ED	44★	8ED	44
 Seasoned Marshal	9ED	42★	9ED	42
@@ -9693,6 +9784,7 @@ Shinen of Fury's Fire	PSAL	C55	SOK	112
 Shineshadow Snarl	PSTX	272p	STX	272
 Shineshadow Snarl	PSTX	272s	STX	272
 Shinka, the Bloodsoaked Keep	LTC	404z	LTC	404
+Shipwreck Marsh	PFRA	189p	FRA	189
 Shipwreck Marsh	PMID	267p	MID	267
 Shipwreck Marsh	PMID	267s	MID	267
 Shivan Devastator	PDMU	143p	DMU	143
@@ -9795,6 +9887,7 @@ Simulacrum	CED	129	2ED	129
 Simulacrum	CEI	129	2ED	129
 Simulacrum	FBB	130	3ED	130
 Simulacrum	SUM	130	3ED	130
+Simulacrum Shaper	PFRA	113p	FRA	113
 Simulacrum Synthesizer	PBIG	6p	BIG	6
 Sin Prodder	PSOI	181s	SOI	181
 Sin, Spira's Punishment	PFIN	242s	FIN	242
@@ -9992,12 +10085,14 @@ Sol'kanar the Swamp King	BCHR	85	CHR	85
 Sol'kanar the Swamp King	OLEP	15	CHR	85
 Solar Blaze	PWAR	216p	WAR	216
 Solar Blaze	PWAR	216s	WAR	216
+Solarium Sentry	PFRA	148p	FRA	148
 Solemn Recruit	PAER	22s	AER	22
 Solemn Simulacrum	PFDN	257s	FDN	257
 Solemn Simulacrum	PM21	239p	M21	239
 Solemn Simulacrum	PM21	239s	M21	239
 Solemnity	PHOU	22s	HOU	22
 Solidarity	8ED	46★	8ED	46
+Solitary Cell	PFRA	149p	FRA	149
 Solitude	PMH2	32s	MH2	32
 Solphim, Mayhem Dominus	PONE	150p	ONE	150
 Solphim, Mayhem Dominus	PONE	150s	ONE	150
@@ -10152,6 +10247,7 @@ Sphere of Annihilation	PAFR	121s	AFR	121
 Sphere of Resistance	WC99	js139sb	EXO	139
 Sphinx of Clear Skies	PDMU	67p	DMU	67
 Sphinx of Clear Skies	PDMU	67s	DMU	67
+Sphinx of False Conclusions	PFRA	40p	FRA	40
 Sphinx of Foresight	PRNA	55s	RNA	55
 Sphinx of Forgotten Lore	PFDN	51s	FDN	51
 Sphinx of Jwar Isle	PS11	55	C14	126
@@ -10327,8 +10423,10 @@ Stillness in Motion	PTDM	59p	TDM	59
 Stillness in Motion	PTDM	59s	TDM	59
 Stiltzkin, Moogle Merchant	PFIN	34s	FIN	34
 Sting, the Glinting Dagger	PLTR	250s	LTR	250
+Stingcaster Mage	PFRA	93p	FRA	93
 Stingerback Terror	POTJ	147p	OTJ	147
 Stingerback Terror	POTJ	147s	OTJ	147
+Stinging Vitriol	PFRA	152p	FRA	152
 Stir the Pride	PSAL	C52	DST	16
 Stirring Hopesinger	PSOS	35p	SOS	35
 Stitch Together	WC03	pk72	JUD	72
@@ -10839,6 +10937,7 @@ Talisman of Progress	40K	258★	40K	258
 Talisman of Progress	WC04	mb256	MRD	256
 Tallyman of Nurgle	40K	60★	40K	60
 Tam, Mindful First-Year	PECL	245p	ECL	245
+Tam, the Possibility	PFRA	276p	FRA	276
 Tameshi, Reality Architect	PNEO	82p	NEO	82
 Tameshi, Reality Architect	PNEO	82s	NEO	82
 Tamiyo's Journal	PSOI	265s	SOI	265
@@ -10869,6 +10968,7 @@ Tannuk, Steadfast Second	PEOE	162s	EOE	162
 Taranika, Akroan Veteran	PTHB	39p	THB	39
 Taranika, Akroan Veteran	PTHB	39s	THB	39
 Tariel, Reckoner of Souls	OCMD	229	CMD	229
+Tarmogoyf	PFRA	116p	FRA	116
 Tarnation Vista	PBIG	30p	BIG	30
 Tarrian's Soulcleaver	PLCI	264p	LCI	264
 Tarrian's Soulcleaver	PLCI	264s	LCI	264
@@ -11004,6 +11104,7 @@ Tendershoot Dryad	PRIX	147s	RIX	147
 Teneb, the Harvester	OCMD	230	CMD	230
 Tenth District Hero	PMKM	34p	MKM	34
 Tenth District Hero	PMKM	34s	MKM	34
+Tenured Tethermage	PFRA	154p	FRA	154
 Terastodon	PWWK	A6	WWK	115
 Tergrid, God of Fright // Tergrid's Lantern	PKHM	112s	KHM	112
 Terisian Mindbreaker	PBRO	83p	BRO	83
@@ -11028,6 +11129,7 @@ Terrasymbiosis	PEOE	210s	EOE	210
 Territorial Allosaurus	PDOM	184s	DOM	184
 Territorial Gorger	PKLD	136s	KLD	136
 Territorial Kavu	PMH2	216s	MH2	216
+Territory Forge	PBIG	15p	BIG	15
 Terror	4BB	164	4ED	164
 Terror	CED	131	2ED	131
 Terror	CEI	131	2ED	131
@@ -11144,9 +11246,11 @@ The Deck of Many Things	PAFR	241p	AFR	241
 The Deck of Many Things	PAFR	241s	AFR	241
 The Dominion Bracelet	PEOE	239p	EOE	239
 The Dominion Bracelet	PEOE	239s	EOE	239
+The Dragon-Kami Reborn // Dragon-Kami's Egg	NEO	181†	NEO	181
 The Dragon-Kami Reborn // Dragon-Kami's Egg	PNEO	181s	NEO	181
 The Earth Crystal	PFIN	184s	FIN	184
 The Earth King	PTLA	172s	TLA	172
+The Echoverse Fulcrum	PFRA	169p	FRA	169
 The Eighth Doctor	WHO	559z	WHO	559
 The Elder Dragon War	PDMU	121p	DMU	121
 The Elder Dragon War	PDMU	121s	DMU	121
@@ -11303,6 +11407,7 @@ The Tarrasque	PAFR	207s	AFR	207
 The Temporal Anchor	PBRO	82p	BRO	82
 The Temporal Anchor	PBRO	82s	BRO	82
 The Tenth Doctor	WHO	561z	WHO	561
+The Theorist, Jace Beleren	PFRA	43p	FRA	43
 The Third Doctor	WHO	554z	WHO	554
 The Thirteenth Doctor	WHO	564z	WHO	564
 The Twelfth Doctor	WHO	563z	WHO	563
@@ -11330,6 +11435,8 @@ Theater of Horrors	PRNA	213s	RNA	213
 Their Name Is Death	40K	62★	40K	62
 Their Number Is Legion	40K	63★	40K	63
 Thelonite Hermit	PSAL	J49	ARC	71
+Theorist's Proxy	PFRA	44p	FRA	44
+Theorist's Sanctum	PFRA	191p	FRA	191
 There and Back Again	PLTR	151s	LTR	151
 Thicket Basilisk	4BB	274	4ED	274
 Thicket Basilisk	CED	219	2ED	219
@@ -11614,6 +11721,7 @@ Transmogrify	PM21	167p	M21	167
 Transmogrify	PM21	167s	M21	167
 Transmogrifying Wand	PM19	247s	M19	247
 Transmutation	BCHR	40	CHR	40
+Transmutation Font	PBIG	28p	BIG	28
 Trap Essence	PKTK	209s	KTK	209
 Trapjaw Tyrant	PRIX	29s	RIX	29
 Traumatic Critique	PSOS	239p	SOS	239
@@ -11783,6 +11891,7 @@ Uktabi Wildcats	7ED	278★	7ED	278
 Ulamog, the Ceaseless Hunger	PBFZ	15s	BFZ	15
 Ulamog, the Defiler	MH3	383z	MH3	383
 Ulamog, the Defiler	PMH3	15s	MH3	15
+Uldaros Theorix	PFRA	159p	FRA	159
 Ulrich of the Krallenhorde // Ulrich, Uncontested Alpha	PEMN	191s	EMN	191
 Ultima	PFIN	38s	FIN	38
 Ultima, Origin of Oblivion	PFIN	2s	FIN	2
@@ -12056,6 +12165,7 @@ Vanquisher's Banner	PXLN	251p	XLN	251
 Vanquisher's Banner	PXLN	251s	XLN	251
 Vantress Gargoyle	PELD	71p	ELD	71
 Vantress Gargoyle	PELD	71s	ELD	71
+Variable Chaser // Arc of Fortune	PFRA	47p	FRA	47
 Varis, Silverymoon Ranger	PAFR	209a	AFR	209
 Varis, Silverymoon Ranger	PAFR	209p	AFR	209
 Varis, Silverymoon Ranger	PAFR	209s	AFR	209
@@ -12108,6 +12218,7 @@ Verdant Force	9ED	278★	9ED	278
 Verdant Force	PDOM	187s	DOM	187
 Verdant Force	PS11	163	10E	307
 Verdant Force	WC98	bs263	TMP	263
+Verdant Kraken	PFRA	118p	FRA	118
 Verdant Mastery	PSTX	146p	STX	146
 Verdant Mastery	PSTX	146s	STX	146
 Verdant Sun's Avatar	PXLN	213p	XLN	213
@@ -12163,6 +12274,7 @@ Villainous Wrath	PSPM	74s	SPM	74
 Vincent Valentine // Galian Beast	PFIN	125s	FIN	125
 Vindictive Flamestoker	PONE	154p	ONE	154
 Vindictive Flamestoker	PONE	154s	ONE	154
+Vindictive Triumph	PFRA	162p	FRA	162
 Vine Trellis	8ED	287★	8ED	287
 Vineglimmer Snarl	PSTX	274p	STX	274
 Vineglimmer Snarl	PSTX	274s	STX	274
@@ -12289,14 +12401,17 @@ Vraska Joins Up	POTJ	236p	OTJ	236
 Vraska Joins Up	POTJ	236s	OTJ	236
 Vraska's Contempt	PXLN	129p	XLN	129
 Vraska's Contempt	PXLN	129s	XLN	129
+Vraska's Final Mercy	PFRA	71p	FRA	71
 Vraska, Betrayal's Sting	PONE	115p	ONE	115
 Vraska, Betrayal's Sting	PONE	115s	ONE	115
 Vraska, Golgari Queen	MED	GR8	GRN	213
 Vraska, Golgari Queen	PGRN	213p	GRN	213
 Vraska, Relic Seeker	PXLN	232p	XLN	232
 Vraska, Relic Seeker	PXLN	232s	XLN	232
+Vraska, Soul of Stone	PFRA	277p	FRA	277
 Vraska, Swarm's Eminence	PWAR	236s	WAR	236
 Vraska, Swarm's Eminence	PWAR	236s★	WAR	236
+Vraska, the Cutting Glare	PFRA	278p	FRA	278
 Vraska, the Silencer	POTJ	237p	OTJ	237
 Vraska, the Silencer	POTJ	237s	OTJ	237
 Vren, the Relentless	PBLB	239p	BLB	239
@@ -12582,7 +12697,7 @@ White Ward	CEI	45	2ED	45
 White Ward	FBB	45	2ED	45
 White Ward	SUM	45	2ED	45
 Whitemane Lion	PSAL	L32	A25	39
-Who's That Praetor?	MB2	506	UNK	RC06
+Who's That Praetor?	MB2	506	UNK	20230260
 Wick, the Whorled Mind	PBLB	120p	BLB	120
 Wick, the Whorled Mind	PBLB	120s	BLB	120
 Wicked Reward	MGB	7	VIS	75

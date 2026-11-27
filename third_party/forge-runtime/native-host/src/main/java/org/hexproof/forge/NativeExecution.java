@@ -37,7 +37,7 @@ final class NativeExecution implements ThreadUtil.ExecutionContext, ComputerUtil
     NativeExecution(long seed, Consumer<Throwable> failure, NativeDiagnostics diagnostics) {
         this.failure = failure;
         this.diagnostics = diagnostics;
-        random = new Random(seed);
+        random = forge.util.MyRandom.counting(new Random(seed));
         game = new ScopedExecutor(Executors.newThreadPerTaskExecutor(
                 Thread.ofVirtual().name("Game-Hexproof-", 0).factory()), 64, "game_callback");
         edt = new ScopedExecutor(new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,

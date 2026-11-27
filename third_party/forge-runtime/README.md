@@ -6,6 +6,11 @@ upstream revision, native adapter revision and reviewed native patch.
 The adapter reuses native inputs, costs, legal choices and cancellation.
 The old Manabrew harness, fork patches and build path have been retired.
 
+Revision 43 updates the engine and its card resources to [Forge 230914a4](https://github.com/Card-Forge/forge/commit/230914a40a9e1e767391c3be990a349015b35761).
+The [adapter-43 release](https://github.com/nicolorrus-ui/312TheGathering/releases/tag/forge-runtime-230914a40a9e1e767391c3be990a349015b35761-adapter43)
+contains the matching runtime and complete source, including third-party dependencies.
+Club generates the deck builder and offline printing indexes from the packaged resources.
+
 Revision 34 also exposes source undo at ordinary priority after producing
 floating mana. Only the next native undo entry is offered, and only for an
 entirely unspent, reversible mana activation owned by the current priority

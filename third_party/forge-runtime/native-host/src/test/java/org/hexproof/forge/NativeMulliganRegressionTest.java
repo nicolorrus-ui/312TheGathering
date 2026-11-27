@@ -200,7 +200,7 @@ public final class NativeMulliganRegressionTest {
         }
         require(visible.equals(expected), "Owner snapshot does not expose exactly the current hand");
         for (int viewer = -1; viewer < playerCount; viewer++) {
-            String snapshot = session.snapshot(viewer);
+            String snapshot = openingSnapshot(session, viewer);
             for (Card card : owner.getCardsIn(ZoneType.Library))
                 require(!snapshot.contains("\"" + NativeSession.cardId(card) + "\""), "Library card ID escaped the hidden zone");
             if (viewer == 0) continue;
@@ -209,6 +209,26 @@ public final class NativeMulliganRegressionTest {
                 require(!snapshot.contains("\"name\":\"" + card.getName() + "\""), "Replacement hand identity escaped to another viewer");
             }
         }
+    }
+
+    /** During opening-hand selection only the owner saw the old hand
+     * endpoint. Every hidden endpoint and all other viewers are checked intact. */
+    static String openingSnapshot(NativeSession session, int viewer) {
+        JsonObject projection = JsonParser.parseString(session.snapshot(viewer)).getAsJsonObject();
+        if (viewer == 0 && projection.has("cardMoves")) {
+            for (JsonElement move : projection.getAsJsonArray("cardMoves")) {
+                for (String end : List.of("from", "to")) {
+                    JsonObject location = move.getAsJsonObject().getAsJsonObject(end);
+                    String zone = location.get("zone").getAsString();
+                    if ("hand".equals(zone) && "player-0".equals(location.get("playerId").getAsString())) {
+                        location.remove("objectId");
+                    } else if ("library".equals(zone) || "extrahand".equals(zone)) {
+                        require(!location.has("objectId"), "Hidden opening-hand movement exposed a card");
+                    }
+                }
+            }
+        }
+        return projection.toString();
     }
 
     private static void submitKeep(NativeSession session, boolean keep) {

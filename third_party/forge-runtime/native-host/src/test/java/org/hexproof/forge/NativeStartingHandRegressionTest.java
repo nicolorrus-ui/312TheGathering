@@ -138,7 +138,7 @@ public final class NativeStartingHandRegressionTest {
         }
         require(actualIds.equals(expectedIds), "New hand snapshot did not replace the previous private cards");
         for (int viewer : List.of(-1, 0, 1)) {
-            String snapshot = session.snapshot(viewer);
+            String snapshot = NativeMulliganRegressionTest.openingSnapshot(session, viewer);
             for (Card card : deckCards) {
                 if (viewer == 0 && viewedHand.contains(card)) continue;
                 require(!snapshot.contains("\"" + NativeSession.cardId(card) + "\""), "Hidden starting-hand or library object ID escaped to a viewer");
