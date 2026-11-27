@@ -125,7 +125,7 @@ func (a *clubCardArt) searchPage(ctx context.Context, key, name string) (cardSea
 			if len(a.cache) >= 1024 {
 				clear(a.cache)
 			}
-			a.cache[artKey{strings.ToLower(card.Name), card.Set, strings.ToLower(card.CollectorNumber)}] = artEntry{urls, expires}
+			a.cache[clubImageID{artKey: artKey{strings.ToLower(card.Name), card.Set, strings.ToLower(card.CollectorNumber)}}] = artEntry{urls, expires}
 		}
 	}
 	if len(a.searches) >= 128 {

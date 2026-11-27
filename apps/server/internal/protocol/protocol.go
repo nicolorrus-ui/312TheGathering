@@ -465,7 +465,7 @@ type SpectatorProjection struct {
 	DisplayName string `json:"displayName"`
 }
 
-// LiveDeckList carries the submitted match registration for one Club broadcast seat.
+// LiveDeckList carries the committed deck partition for the current game of a Club broadcast.
 type LiveDeckList struct {
 	Seat      int        `json:"seat"`
 	Name      string     `json:"name"`

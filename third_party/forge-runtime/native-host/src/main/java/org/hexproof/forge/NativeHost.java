@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 /** JSONL entry point. Shared workers require an explicit bounded capacity. */
 public final class NativeHost {
     public static final String FORGE_COMMIT = "230914a40a9e1e767391c3be990a349015b35761";
-    static final int ADAPTER_REVISION = 43;
+    static final int ADAPTER_REVISION = 44;
     static final Gson JSON = new Gson();
     private NativeHost() { }
 

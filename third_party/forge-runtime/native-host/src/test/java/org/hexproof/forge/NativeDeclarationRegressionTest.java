@@ -73,11 +73,6 @@ public final class NativeDeclarationRegressionTest {
                 else require(shown.getAsJsonArray("annotations").toString().contains(value), "Missing public permanent label");
             }
         }, input -> {
-            // Favored Enemy first selects an opponent. Its separate player-selection notice
-            // precedes the declaration and contains no creature type.
-            if (noted && input.get("type").getAsString().equals("acknowledge")
-                    && input.getAsJsonObject("presentation").get("description").getAsString().equals("Alice picked Bob"))
-                return NativeSession.object("type", "acknowledged");
             prompts.incrementAndGet();
             require(JsonParser.parseString(session.prompt(0)).getAsJsonObject().get("decidingPlayerId").getAsString()
                     .equals("player-0"), "Opponent was asked to confirm the declaration");

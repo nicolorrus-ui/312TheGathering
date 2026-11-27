@@ -103,8 +103,6 @@ public final class NativeDelayedRevealRegressionTest {
             }
             require(seat.equals("player-0"), "Hand choice assigned to the wrong player");
             chooserInputs.add(kind);
-            if (kind.equals("acknowledge") && shown.isEmpty())
-                return NativeSession.object("type", "acknowledged");
             if (kind.equals("revealCards")) {
                 require(new HashSet<>(shownNames(input)).equals(shown), "No-choice reveal lost cards " + scenario + " " + input + " expected " + shown);
                 return NativeSession.object("type", "revealCardsAcknowledged");
@@ -122,9 +120,11 @@ public final class NativeDelayedRevealRegressionTest {
             if (!privateLook) rejectCard(session, null);
             return choose(privateLook ? null : bolt);
         });
-        List<String> expected = shown.isEmpty() ? List.of("acknowledge") : eligibleCount == 0 || prevented
+        List<String> expected = shown.isEmpty() ? List.of() : eligibleCount == 0 || prevented
                 ? List.of("revealCards") : List.of("chooseCards");
         require(chooserInputs.equals(expected), scenario + " had redundant or missing windows: " + chooserInputs);
+        if (shown.isEmpty()) require(session.snapshot(0).contains("viewerNotices") && !session.snapshot(-1).contains("viewerNotices"),
+                "Empty hand announcement missing or leaked into the spectator view");
         require(thirdSeatInputs.size() == (!shown.isEmpty() && !privateLook && !prevented ? (eligibleCount > 0 ? 2 : 1) : 0),
                 "Bystander lost or gained a reveal in " + scenario);
     }

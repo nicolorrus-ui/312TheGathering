@@ -20,29 +20,45 @@ function play(element: HTMLElement, frames: Keyframe[], duration: number, finish
   animation.finished.then(done, done);
 }
 
-function pose(card: HTMLElement) {
-  const rect = card.getBoundingClientRect();
-  const transform = getComputedStyle(card).transform;
-  const matrix = new DOMMatrixReadOnly(transform === "none" ? undefined : transform);
-  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
-    width: card.offsetWidth * Math.hypot(matrix.a, matrix.b), angle: Math.atan2(matrix.b, matrix.a) };
+export function cardTransform(x: number, y: number, angle: number, scale: number, tiltX = 0, tiltY = 0) {
+  return `translate3d(${x}px,${y}px,0) perspective(680px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) rotateZ(${angle}rad) scale(${scale})`;
 }
 
-export function prepareHandReturn(ghost: HTMLElement | null, hand: Element | null, id: string) {
-  const card = hand?.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(id)}"]`);
-  if (!card || !ghost || reduced.matches || document.hidden) return;
-  const from = pose(ghost);
-  // Wait for React to restore the fan. Animate the live card itself so a new
-  // projection can replace its face or remove the card even halfway home.
+export function measureCard(card: HTMLElement) {
+  const rect = card.getBoundingClientRect(), style = getComputedStyle(card);
+  const matrix = new DOMMatrixReadOnly(style.transform === "none" ? undefined : style.transform);
+  return { centerX: rect.left + rect.width / 2, centerY: rect.top + rect.height / 2,
+    width: parseFloat(style.width), height: parseFloat(style.height),
+    scale: Math.hypot(matrix.a, matrix.b), angle: Math.atan2(matrix.b, matrix.a) };
+}
+
+export function prepareCardRelease(ghost: HTMLElement, card: HTMLElement, grip: { x: number; y: number },
+  pointer: { x: number; y: number }, kind: "returning" | "landing") {
+  if (reduced.matches || document.hidden) return;
+  const { transform, transformOrigin, width, height, boxShadow } = ghost.style;
+  // Animate the live source after React restores its slot. Changes in visibility,
+  // printing or zone therefore remove/replace the moving face immediately.
   return () => {
     if (!card.isConnected || reduced.matches || document.hidden) return;
-    card.setAttribute("data-returning", "");
-    const to = pose(card);
-    const frames = [from, to].map(({ x, y, width, angle }) => ({
-      position: "fixed", left: "0px", top: "0px", zIndex: 7, pointerEvents: "none", opacity: 1,
-      transform: `translate(${x - card.offsetWidth / 2}px, ${y - card.offsetHeight / 2}px) rotate(${angle}rad) scale(${width / card.offsetWidth})`,
-    }));
-    play(card, frames, 180, () => card.removeAttribute("data-returning"));
+    card.dataset[kind] = "";
+    const to = measureCard(card);
+    const dx = (grip.x - to.width / 2) * to.scale, dy = (grip.y - to.height / 2) * to.scale;
+    const x = to.centerX + dx * Math.cos(to.angle) - dy * Math.sin(to.angle) - grip.x;
+    const y = to.centerY + dx * Math.sin(to.angle) + dy * Math.cos(to.angle) - grip.y;
+    const common = { position: "fixed", left: "0px", top: "0px", zIndex: 7, pointerEvents: "none",
+      opacity: 1, transformOrigin, width, height };
+    const shadow = getComputedStyle(card).boxShadow;
+    const start = { ...common, transform, boxShadow };
+    const rest = { ...common, transform: cardTransform(x, y, to.angle, to.scale), boxShadow: shadow };
+    const frames: Keyframe[] = [start];
+    if (kind === "landing") {
+      // Keep the last pointer position through touchdown. The next snapshot
+      // can hand this on-screen position to CardMovements for the cast/land.
+      const drop = { ...common, transform: cardTransform(pointer.x - grip.x, pointer.y - grip.y, 0, 1), boxShadow: shadow };
+      frames.push({ ...drop, offset: .35 }, { ...drop, offset: .56 });
+    }
+    frames.push(rest);
+    play(card, frames, kind === "landing" ? 350 : 210, () => delete card.dataset[kind]);
   };
 }
 

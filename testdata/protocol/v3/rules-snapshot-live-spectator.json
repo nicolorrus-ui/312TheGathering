@@ -1,0 +1,22 @@
+{
+  "type": "rules.snapshot",
+  "seq": 14,
+  "payload": {
+    "roomId": "ABCDEF",
+    "gameId": "ABCDEF-2",
+    "turn": 1,
+    "step": "main1",
+    "activeSeat": 0,
+    "prioritySeat": 0,
+    "players": [
+      {"seat": 0, "name": "Alice", "status": "playing", "life": 20, "counters": [], "manaPool": [], "commanders": [], "liveLibraryCounts": {"Mountain": 53, "Lightning Bolt": 0}},
+      {"seat": 1, "name": "Bob", "status": "playing", "life": 20, "counters": [], "manaPool": [], "commanders": [], "liveLibraryCounts": {"Forest": 53}}
+    ],
+    "zones": [
+      {"zone": "library", "ownerSeat": 0, "count": 53, "cards": []},
+      {"zone": "library", "ownerSeat": 1, "count": 53, "cards": []}
+    ],
+    "stack": [],
+    "gameOver": false
+  }
+}

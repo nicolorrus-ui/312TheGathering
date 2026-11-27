@@ -18,14 +18,16 @@ type RulesCardIdentity struct {
 }
 
 type RulesPlayerState struct {
-	ControllingSeat *int                  `json:"controllingSeat,omitempty"`
-	Seat            int                   `json:"seat"`
-	Name            string                `json:"name"`
-	Status          string                `json:"status"`
-	Life            int                   `json:"life"`
-	Counters        []RulesCounter        `json:"counters"`
-	ManaPool        []RulesCounter        `json:"manaPool"`
-	Commanders      []RulesCommanderState `json:"commanders"`
+	// Only opted-in Club broadcast spectators receive this unordered count by registered main-deck title.
+	LiveLibraryCounts map[string]int        `json:"liveLibraryCounts,omitempty"`
+	ControllingSeat   *int                  `json:"controllingSeat,omitempty"`
+	Seat              int                   `json:"seat"`
+	Name              string                `json:"name"`
+	Status            string                `json:"status"`
+	Life              int                   `json:"life"`
+	Counters          []RulesCounter        `json:"counters"`
+	ManaPool          []RulesCounter        `json:"manaPool"`
+	Commanders        []RulesCommanderState `json:"commanders"`
 }
 
 // RulesCommanderState is read-only designation/history, never a rules action.
@@ -346,21 +348,29 @@ type RulesPriority struct {
 	Stops       []string `json:"stops,omitempty"`
 }
 
+// RulesViewerNotice is delivered only to the seat Forge originally addressed.
+type RulesViewerNotice struct {
+	ID   int64  `json:"id"`
+	Turn int    `json:"turn"`
+	Text string `json:"text"`
+}
+
 // RulesGameSnapshot is a viewer-specific normalized projection. Raw Forge
 // payloads never cross the public protocol boundary.
 type RulesGameSnapshot struct {
-	RoomID        string             `json:"roomId"`
-	GameID        string             `json:"gameId"`
-	Turn          int                `json:"turn"`
-	Step          string             `json:"step"`
-	ActiveSeat    int                `json:"activeSeat"`
-	PrioritySeat  int                `json:"prioritySeat"`
-	Players       []RulesPlayerState `json:"players"`
-	Zones         []RulesZoneState   `json:"zones"`
-	Stack         []RulesStackObject `json:"stack"`
-	PendingCast   *RulesPendingCast  `json:"pendingCast,omitempty"`
-	CardMoves     []RulesCardMove    `json:"cardMoves,omitempty"`
-	GameOver      bool               `json:"gameOver"`
-	WinnerSeat    *int               `json:"winnerSeat,omitempty"`
-	PromptFollows bool               `json:"promptFollows,omitempty"`
+	RoomID        string              `json:"roomId"`
+	GameID        string              `json:"gameId"`
+	Turn          int                 `json:"turn"`
+	Step          string              `json:"step"`
+	ActiveSeat    int                 `json:"activeSeat"`
+	PrioritySeat  int                 `json:"prioritySeat"`
+	Players       []RulesPlayerState  `json:"players"`
+	Zones         []RulesZoneState    `json:"zones"`
+	Stack         []RulesStackObject  `json:"stack"`
+	PendingCast   *RulesPendingCast   `json:"pendingCast,omitempty"`
+	CardMoves     []RulesCardMove     `json:"cardMoves,omitempty"`
+	ViewerNotices []RulesViewerNotice `json:"viewerNotices,omitempty"`
+	GameOver      bool                `json:"gameOver"`
+	WinnerSeat    *int                `json:"winnerSeat,omitempty"`
+	PromptFollows bool                `json:"promptFollows,omitempty"`
 }

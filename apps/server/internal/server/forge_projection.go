@@ -130,6 +130,9 @@ func (h *Handler) rulesProjections(r *room.Room) (map[string]protocol.Envelope, 
 		}
 	}
 	spectatorSnapshot := rulesSpectatorSnapshot(publicSnapshot, ownerSnapshots, r.SpectatorsSeeHands)
+	if h.config.ClubMode && r.ClubLiveDuel() {
+		spectatorSnapshot.Players = liveSpectatorPlayers(spectatorSnapshot.Players, publicView.Players, game)
+	}
 	publicEnvelope, err := protocol.NewEnvelope(protocol.TypeRulesSnapshot, spectatorSnapshot)
 	if err != nil {
 		return nil, err
@@ -180,8 +183,22 @@ func forgeSnapshotBatch(ctx context.Context, roomID string, h *Handler, game for
 	return views, nil
 }
 
-// The room's existing opt-in permits current hands only. The base remains the
-// explicit spectator view, and the unmodified base alone feeds public logs.
+// Join the seat-sorted projection to Forge's registered players without changing the public log baseline.
+func liveSpectatorPlayers(public []protocol.RulesPlayerState, source []forge.PlayerView, game forgeRoomGame) []protocol.RulesPlayerState {
+	result := append([]protocol.RulesPlayerState(nil), public...)
+	for i, player := range result {
+		index, mapped := game.seatToPlayer[player.Seat]
+		if !mapped {
+			continue
+		}
+		if native, found := forgePlayerByID(source, fmt.Sprintf("player-%d", index)); found {
+			result[i].LiveLibraryCounts = native.LiveLibraryCounts
+		}
+	}
+	return result
+}
+
+// The hand opt-in permits copying current hand zones. The unmodified public base feeds the log.
 func rulesSpectatorSnapshot(public protocol.RulesGameSnapshot,
 	owners map[int]protocol.RulesGameSnapshot, showHands bool) protocol.RulesGameSnapshot {
 	if !showHands {
@@ -248,6 +265,11 @@ func normalizeForgeSnapshotForSeat(roomID string, game forgeRoomGame, view forge
 		GameOver:     view.GameOver,
 		PendingCast:  projectedPendingCast(view.PendingCast, viewerSeat, seatForID),
 		CardMoves:    projectedCardMoves(view.CardMoves, viewerSeat, seatForID),
+	}
+	if viewerSeat >= 0 {
+		for _, notice := range view.ViewerNotices {
+			snapshot.ViewerNotices = append(snapshot.ViewerNotices, protocol.RulesViewerNotice(notice))
+		}
 	}
 	for _, player := range view.Players {
 		seat, err := seatForID(player.ID)

@@ -158,7 +158,7 @@ final class NativeGuiGame implements InvocationHandler {
                         choices.size() - min, choices, null, shown, !simultaneousEntry).ordered();
             }
             case "reveal" -> { reveal((String) a[0], (List<?>) a[1]); yield null; }
-            case "message" -> { acknowledge((String) a[0]); yield null; }
+            case "message" -> { session.notice(owner(), (String) a[0]); yield null; }
             case "order" -> NativeOrdering.order(session, owner(), (String) a[0], (Integer) a[2], (Integer) a[3], (List<?>) a[4], (List<?>) a[5]);
             case "insertInList" -> NativeOrdering.insertInList(session, owner(), (String) a[0], a[1], (List<?>) a[2]);
             case "assignCombatDamage" -> {
@@ -637,7 +637,7 @@ final class NativeGuiGame implements InvocationHandler {
         JsonObject in = input("chooseBlockers", "Declare blockers");
         JsonArray attackers = new JsonArray();
         Map<String, Card> cards = new HashMap<>();
-        Map<String, GameEntity> defenders = new HashMap<>();
+        Map<String, Card> attackingCards = new HashMap<>();
         Map<String, Integer> assignmentLimits = new HashMap<>();
         Map<String, Set<String>> validAssignments = new HashMap<>();
         JsonArray blockers = new JsonArray(), limits = new JsonArray();
@@ -661,31 +661,53 @@ final class NativeGuiGame implements InvocationHandler {
             }
             entry.add("validBlockerIds", valid);
             entry.addProperty("minBlockers", CombatUtil.getMinNumBlockersForAttacker(attacker, owner()));
-            attackers.add(entry); defenders.put(cardId(attacker), attacker);
+            attackers.add(entry); attackingCards.put(cardId(attacker), attacker);
         }
         in.add("attackers", attackers);
         session.publish(owner(), in, guarded(current, raw -> {
             requireType(raw, "declareBlockers");
-            List<Runnable> actions = new ArrayList<>();
+            List<BlockAssignment> assignments = new ArrayList<>();
             Map<String, Set<String>> chosen = new HashMap<>();
             for (JsonElement element : raw.getAsJsonArray("assignments")) {
                 JsonObject assignment = element.getAsJsonObject();
                 String sourceId = text(assignment, "blockerId", "");
                 String targetId = text(assignment, "attackerId", "");
                 Card source = cards.get(sourceId);
-                GameEntity target = defenders.get(targetId);
+                Card target = attackingCards.get(targetId);
                 if (source == null || target == null) throw new IllegalArgumentException("Invalid combat assignment");
                 Set<String> destinations = chosen.computeIfAbsent(sourceId, ignored -> new HashSet<>());
                 if (!validAssignments.get(sourceId).contains(targetId) || !destinations.add(targetId)
                         || destinations.size() > assignmentLimits.get(sourceId))
                     throw new IllegalArgumentException("Invalid combat assignment combination");
-                actions.add(() -> {
-                    if (target instanceof Player p) human.selectPlayer(p.getView(), null); else select((Card) target);
-                    select(source);
-                });
+                assignments.add(new BlockAssignment(source, target));
             }
-            return () -> { for (Runnable action : actions) action.run(); button(true); };
+            return () -> declareBlockers(combat, assignments);
         }), true);
+    }
+    private record BlockAssignment(Card blocker, Card attacker) {}
+    private void declareBlockers(Combat combat, List<BlockAssignment> assignments) {
+        List<BlockAssignment> added = new ArrayList<>();
+        String error = null;
+        for (BlockAssignment block : assignments) {
+            if (combat.isBlocking(block.blocker(), block.attacker())) continue;
+            if (!CombatUtil.canBlock(block.attacker(), block.blocker(), combat)) {
+                error = block.blocker() + " cannot block " + block.attacker() + " in this declaration.";
+                break;
+            }
+            select(block.attacker());
+            select(block.blocker());
+            added.add(block);
+        }
+        if (error == null) error = CombatUtil.validateBlocks(combat, owner());
+        if (error == null) {
+            button(true);
+            return;
+        }
+        // The browser submits a whole declaration. Undo just its tentative
+        // assignments before the input is offered again, including empty drafts.
+        for (BlockAssignment block : added) combat.removeBlockAssignment(block.attacker(), block.blocker());
+        message = error;
+        session.notice(owner(), error);
     }
     private void renderAttackers(Input current, Combat combat) {
         JsonObject input = input("chooseAttackers", "Declare attackers");
@@ -899,8 +921,11 @@ final class NativeGuiGame implements InvocationHandler {
         } else {
             boolean aiAdvisory = title.startsWith(Localizer.getInstance().getMessage("lblAICantPlayCards"));
             String detail = title + "\n" + String.join("\n", cards.stream().map(Object::toString).toList());
-            if (aiAdvisory) detail += "\nYou can continue this game. These cards will remain in the deck.";
-            acknowledge(aiAdvisory ? "AI deck advisory" : "Game notice", detail);
+            if (aiAdvisory) {
+                acknowledge("AI deck advisory", detail + "\nYou can continue this game. These cards will remain in the deck.");
+            } else {
+                session.notice(owner(), detail);
+            }
         }
     }
     private List<CardView> delayedReveal(DelayedReveal delayed) {
@@ -908,7 +933,6 @@ final class NativeGuiGame implements InvocationHandler {
         reveal(delayed.getMessagePrefix(), shown);
         return shown;
     }
-    private void acknowledge(String message) { acknowledge("Game notice", message); }
     private void acknowledge(String title, String message) {
         JsonObject in = callbackInput("acknowledge", title);
         in.getAsJsonObject("presentation").addProperty("description", message);

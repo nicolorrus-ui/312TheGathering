@@ -16,7 +16,7 @@ export type Card = {
   annotations?: { kind: string; value: string }[];
 };
 export type Counter = { name: string; value: number };
-export type Player = { seat: number; name: string; life: number; manaPool: Counter[]; status: string };
+export type Player = { liveLibraryCounts?: Record<string, number>; seat: number; name: string; life: number; manaPool: Counter[]; status: string };
 export type Zone = { zone: string; ownerSeat: number; count: number; cards: Card[] };
 export type MoveEndpoint = { zone: string; seat: number; objectId?: string };
 export type CardMove = { id: number; castId?: string; from: MoveEndpoint; to: MoveEndpoint };
@@ -26,6 +26,7 @@ export type Snapshot = {
   roomId: string; gameId: string; turn: number; step: string; activeSeat: number; prioritySeat: number;
   players: Player[]; zones: Zone[]; stack: StackObject[]; gameOver: boolean; winnerSeat?: number;
   promptFollows?: boolean; cardMoves?: CardMove[]; pendingCast?: PendingCast;
+  viewerNotices?: { id: number; turn: number; text: string }[];
 };
 export type Option = { responseId: string; kind: string; label: string; cardId?: string };
 export type Target = Option & Partial<Identity> & { objectId?: string; seat?: number; selected?: boolean };
@@ -58,6 +59,7 @@ export type Response = {
 export type LiveDeckList = { seat: number; name: string; mainboard: DeckCard[]; sideboard: DeckCard[] };
 export type Room = {
   liveDeckLists?: LiveDeckList[];
+  loadId?: number;
   tournamentId?: string;
   aiSource?: string;
   allowSpectators?: boolean;

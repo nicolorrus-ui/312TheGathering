@@ -22,9 +22,10 @@ try {
     const page = await browser.newPage();
     let socket;
     const send = (type, payload) => socket.send(JSON.stringify({ type, payload }));
-    function snapshot(hand, library, marked = true) {
+    function snapshot(hand, library, marked = true, remaining = 2) {
       send("rules.snapshot", { roomId, gameId, activeSeat: 0, prioritySeat: 0, turn: 3, step: "main1",
-        players, gameOver: false, stack: [
+        players: watch ? [{ ...players[0], liveLibraryCounts: { "Lightning Bolt": remaining } }, players[1]] : players,
+        gameOver: false, stack: [
           { id: "stack-copy", copy: true, controllerSeat: 1, identity: { name: "Counterspell" }, text: "Counterspell" },
           { id: "stack-original", controllerSeat: 1, identity: { name: "Counterspell" }, text: "Counterspell" },
         ], zones: [
@@ -64,7 +65,7 @@ try {
       const rail = page.getByRole("complementary", { name: "Registered decklists" });
       const preview = page.locator(".card-hover-preview img");
       for (const [player, section, total, expected] of [
-        ["Alice", "Main deck", 2, [["M11", "149", "3"], ["A25", "141", "1"]]],
+        ["Alice", "Main deck", 1, [["M11", "149", "2/4"]]],
         ["Bob", "Sideboard", 1, [["A25", "141", "1"]]],
       ]) {
         await rail.getByRole("tab", { name: player }).click();
@@ -79,6 +80,12 @@ try {
           const query = new URL(await preview.getAttribute("src"), base).searchParams;
           assert.deepEqual([query.get("set"), query.get("number"), query.get("size")], [set.toLowerCase(), number, "normal"]);
         }
+      }
+      await rail.getByRole("tab", { name: "Alice" }).click();
+      const main = rail.getByRole("region", { name: "Main deck" });
+      for (const remaining of [0, 1, 4]) {
+        snapshot([bolt], [island], true, remaining);
+        await main.getByText(`${remaining}/4`, { exact: true }).waitFor();
       }
     }
     const clone = page.locator('[data-card-id="clone"]');

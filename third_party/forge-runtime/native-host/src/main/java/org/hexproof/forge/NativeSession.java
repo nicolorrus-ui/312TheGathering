@@ -31,8 +31,10 @@ final class NativeSession implements AutoCloseable {
     final NativeHandKnowledge knowledge;
     final NativeCardMoves cardMoves;
     final NativePublicChoices publicChoices;
+    private final NativeLiveLibraries liveLibraries;
     final List<NativeGuiGame> guis = new java.util.concurrent.CopyOnWriteArrayList<>();
     private final Map<Integer, String> snapshots = new HashMap<>();
+    private final Map<Integer, Deque<JsonObject>> viewerNotices = new HashMap<>();
     private final Set<SynchronousAnswer<?>> answers = new HashSet<>();
     private final ThreadLocal<SpellAbility> decisionAbility = new ThreadLocal<>();
     private long serial;
@@ -129,6 +131,8 @@ final class NativeSession implements AutoCloseable {
             replay = new NativeReplay(game, id, recordReplay);
             cardMoves = new NativeCardMoves(game, knowledge);
             publicChoices = new NativePublicChoices(game);
+            liveLibraries = request.has("liveLibraryCounts") && request.get("liveLibraryCounts").getAsBoolean()
+                    ? new NativeLiveLibraries(configured) : null;
             for (Player p : game.getRegisteredPlayers()) {
                 if (p.getController() instanceof PlayerControllerHuman human) {
                     NativeGuiGame gui = new NativeGuiGame(this, human);
@@ -313,6 +317,24 @@ final class NativeSession implements AutoCloseable {
         if (!id.startsWith("player-")) throw new IllegalArgumentException("Invalid player ID");
         return game.getRegisteredPlayers().get(Integer.parseInt(id.substring(7)));
     }
+    synchronized void notice(Player recipient, String text) {
+        if (text == null || text.isBlank()) return;
+        int seat = index(decisionOwner(recipient));
+        Deque<JsonObject> recent = viewerNotices.computeIfAbsent(seat, ignored -> new ArrayDeque<>());
+        JsonObject entry = new JsonObject();
+        entry.addProperty("id", recent.isEmpty() ? 1L : recent.getLast().get("id").getAsLong() + 1);
+        entry.addProperty("turn", game.getPhaseHandler().getTurn());
+        entry.addProperty("text", text.substring(0, Math.min(text.length(), 4096)));
+        if (recent.size() == 64) recent.removeFirst();
+        recent.addLast(entry);
+    }
+    private synchronized void projectNotices(JsonObject snapshot, int viewer) {
+        Deque<JsonObject> recent = viewerNotices.get(viewer);
+        if (recent == null) return;
+        JsonArray entries = new JsonArray();
+        recent.forEach(entries::add);
+        snapshot.add("viewerNotices", entries);
+    }
     private void capture(Player priority) {
         replay.record(game.isGameOver() ? "GameFinished" : "Decision", priority == null ? -1 : index(priority),
                 game.isGameOver() ? "Game finished" : "Waiting for a decision");
@@ -321,7 +343,10 @@ final class NativeSession implements AutoCloseable {
         for (int viewer = -1; viewer < game.getRegisteredPlayers().size(); viewer++) {
             JsonObject snapshot = NativeSnapshot.capture(game, id, viewer, priority, knowledge);
             cardMoves.project(snapshot, viewer);
-            if (viewer == -1) publicChoices.project(snapshot);
+            if (viewer == -1) {
+                publicChoices.project(snapshot);
+                if (liveLibraries != null) liveLibraries.project(game, snapshot);
+            } else projectNotices(snapshot, viewer);
             snapshot.addProperty("integrityHash", integrity);
             copies.put(viewer, snapshot.toString());
         }

@@ -10,7 +10,7 @@
     "tools/forge-printings/NativePrintingIndex.java": "34c0d653cb68e3677e9815cf01b966a14fe057d5112b6a210a076ed72319e0bd"
   },
   "resolverSources": {
-    "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeSession.java": "5729fcb6f2e9568c5ce65b1745e40b35f770e3334fb6da49017e16c78a540dfe",
+    "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeSession.java": "bc25a86c0567697ecd1f3534337c66d184f6fa6a313b64492ee2405044a7faea",
     "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeCardNames.java": "e216b7ff1e0b2c79907bbf58e48101add9217fbace58eeffeba0cb0bb9ced291",
     "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativePrintingAliases.java": "c7464cc4b09422d1682e494a4621231d071eeeb079ce918f89e810efec093a1a"
   },

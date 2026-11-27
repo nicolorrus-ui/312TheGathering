@@ -252,12 +252,6 @@ async function dragToBattlefield(page, card) {
   stats.drag += 1;
 }
 
-async function verifyInertHandClick(peer, card) {
-  const responses = peer.responseCount;
-  await card.click();
-  assert.equal(peer.responseCount, responses, "clicking a hand card must not play it");
-}
-
 async function verifyCardInteraction(peer, card) {
   const { page } = peer;
   const preview = page.locator(".card-hover-preview");
@@ -271,7 +265,6 @@ async function verifyCardInteraction(peer, card) {
   assert.ok(Math.abs(previewBox.y + previewBox.height / 2 - viewport.height / 2) <= 2, "hover art is vertically centered");
   if (verifyImages) await verifyImage(preview.locator("img"));
 
-  await verifyInertHandClick(peer, card);
   const responses = peer.responseCount;
 
   const battlefield = await ownBattlefield(page).boundingBox();
@@ -297,7 +290,7 @@ async function verifyCardInteraction(peer, card) {
   await floating.waitFor({ state: "hidden", timeout: 4500 });
   assert.equal(peer.responseCount, responses, "returning a dragged card to the hand must cancel the gesture");
   assert.equal(await card.getAttribute("data-actionable"), "true", "the canceled card remains playable");
-  console.log("Verified centered hover art, floating drag, drag cancellation and inert hand clicks");
+  console.log("Verified centered hover art, floating drag, and drag cancellation");
 }
 
 async function act(peer, opponent) {
@@ -342,13 +335,10 @@ async function act(peer, opponent) {
         const manaLand = ownBattlefield(page)
           .locator('[data-actionable="true"][data-tapped="false"][aria-label="Mountain"]');
         if (!stats.floatingMana && await manaLand.count()) await clickFirst(manaLand);
-        else {
-          if (!verifiedSpellClick) {
-            await verifyInertHandClick(peer, bolt.first());
-            verifiedSpellClick = true;
-          }
-          await dragToBattlefield(page, bolt);
-        }
+        else if (!verifiedSpellClick) {
+          await clickFirst(bolt);
+          verifiedSpellClick = true;
+        } else await dragToBattlefield(page, bolt);
       } else {
         await page.getByRole("button", { name: "Pass priority", exact: true }).click({ timeout: 4500 });
       }

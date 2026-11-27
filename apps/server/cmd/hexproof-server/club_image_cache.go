@@ -24,7 +24,8 @@ const maxClubJPEG = 2 << 20
 
 type clubImageID struct {
 	artKey
-	token bool
+	token   bool
+	english bool
 }
 
 type clubImageDownload struct {
@@ -47,6 +48,9 @@ func newClubImageCache(directory string) *clubImageCache {
 
 func (c *clubImageCache) path(id clubImageID) string {
 	identity := fmt.Sprintf("%t\x00%s\x00%s\x00%s", id.token, id.name, id.set, id.number)
+	if id.english {
+		identity = "en\x00" + identity
+	}
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
 	return filepath.Join(c.directory, digest[:2], digest+".jpg")
 }
@@ -158,11 +162,20 @@ func storeClubFile(path string, data []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-func (c *clubImageCache) fetch(ctx context.Context, id clubImageID) ([]byte, int) {
+func (c *clubImageCache) printingImages(ctx context.Context, id clubImageID) (artURLs, int) {
+	if id.english {
+		// An English-only broadcast preview can use a different English printing when
+		// the deck's collector number exists exclusively in another language.
+		urls := c.source.resolve(ctx, id)
+		if urls.Normal == "" {
+			return artURLs{}, 0
+		}
+		return urls, http.StatusOK
+	}
 	params := url.Values{"exact": {id.name}}
 	if id.set != "" {
 		if !cardArtSet.MatchString(id.set) {
-			return nil, http.StatusNotFound
+			return artURLs{}, http.StatusNotFound
 		}
 		params.Set("set", id.set)
 	}
@@ -170,38 +183,32 @@ func (c *clubImageCache) fetch(ctx context.Context, id clubImageID) ([]byte, int
 	if id.number != "" {
 		// Collector numbers may include Unicode. Never interpret them as a URL path.
 		if id.set == "" || id.number == "." || id.number == ".." || strings.ContainsAny(id.number, "/\\") {
-			return nil, http.StatusNotFound
+			return artURLs{}, http.StatusNotFound
 		}
 		address = "https://api.scryfall.com/cards/" + id.set + "/" + url.PathEscape(id.number)
 	}
 	var card scryfallCard
 	status := c.source.requestJSON(ctx, address, 128<<10, &card)
 	if status != http.StatusOK {
-		return nil, status
+		return artURLs{}, status
 	}
 	token := card.Layout == "token" || card.Layout == "double_faced_token" || card.Layout == "emblem"
 	if token != id.token || (id.set != "" && !strings.EqualFold(card.Set, id.set)) ||
 		(id.number != "" && !strings.EqualFold(card.CollectorNumber, id.number)) {
-		return nil, http.StatusNotFound
+		return artURLs{}, http.StatusNotFound
 	}
-	matches := func(name, printed, flavor string) bool {
-		return strings.EqualFold(name, id.name) || strings.EqualFold(printed, id.name) || strings.EqualFold(flavor, id.name)
-	}
-	face := ""
-	if matches(card.Name, card.PrintedName, card.FlavorName) {
-		face = card.Name
-	} else {
-		for _, part := range card.Faces {
-			if matches(part.Name, part.PrintedName, part.FlavorName) {
-				face = part.Name
-				break
-			}
-		}
-	}
+	face := card.matchFace(id.name)
 	if face == "" {
-		return nil, http.StatusNotFound
+		return artURLs{}, http.StatusNotFound
 	}
-	images := card.images(face)
+	return card.images(face), status
+}
+
+func (c *clubImageCache) fetch(ctx context.Context, id clubImageID) ([]byte, int) {
+	images, status := c.printingImages(ctx, id)
+	if status != http.StatusOK {
+		return nil, status
+	}
 	imageURL := images.Normal
 	if imageURL == "" {
 		imageURL = images.Small

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Hexproof contributors
 
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from "react";
-import { CardImage, cardArtURL, type CardHover } from "./CardImages";
+import { CardImage, cardArtURL, imageIdentity, type CardHover } from "./CardImages";
 import type { StackObject, Target } from "./protocol";
 
 export type StackEntry = StackObject & { pending?: boolean; renderKey?: string };
@@ -47,7 +47,7 @@ export function SpellStack({ objects, targets, targetIds, hoverCard, toggleTarge
       }}>
       {objects.map((object, depth) => {
         const target = !object.pending && targets?.find((choice) => choice.objectId === object.id && !choice.selected);
-        const face = object.identity?.name ? object.identity : undefined;
+        const face = object.identity?.name ? imageIdentity(object.identity, object.copy) : undefined;
         const label = face?.name || object.text;
         // Forge sends the next object to resolve first. Keep this order for keyboard navigation,
         // and paint each older card underneath it with a visible, clickable edge.

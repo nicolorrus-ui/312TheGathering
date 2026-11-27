@@ -70,7 +70,9 @@ func newClubOfflineArt(files fs.FS, lookup func(string) *offlineCardInfo, artwor
 				image = version.Front
 			}
 		}
-		if packJPEG.MatchString(image) {
+		english := query.Get("lang") == "en"
+		// Older imported packs do not record the printing language.
+		if !english && packJPEG.MatchString(image) {
 			if file, err := files.Open("assets/cards/" + image); err == nil {
 				data := readClubJPEG(file)
 				file.Close()
@@ -81,13 +83,17 @@ func newClubOfflineArt(files fs.FS, lookup func(string) *offlineCardInfo, artwor
 			}
 		}
 		if artwork != nil {
-			id := clubImageID{artKey{key, set, strings.ToLower(number)}, prefix != ""}
+			id := clubImageID{artKey: artKey{key, set, strings.ToLower(number)}, token: prefix != "", english: english}
 			if data := artwork.image(r.Context(), id); data != nil {
 				serveClubJPEG(w, r, data)
 				return
 			}
 		}
 
+		if english {
+			http.NotFound(w, r)
+			return
+		}
 		info := offlineCardInfo{Name: name}
 		if lookup != nil {
 			if match := lookup(name); match != nil {

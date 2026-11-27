@@ -80,6 +80,15 @@
           }
         },
         {
+          "name": "viewerNotices",
+          "type": "array",
+          "required": false,
+          "items": {
+            "type": "object",
+            "ref": "RulesViewerNotice"
+          }
+        },
+        {
           "name": "gameOver",
           "type": "boolean",
           "required": true

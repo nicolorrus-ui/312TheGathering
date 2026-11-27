@@ -12,14 +12,18 @@ The server **may store and manipulate** hidden card identities (hand, library or
 **Opponent clients** may receive a hidden card’s identity when the rules
 disclose it to that viewer or to the whole table. Spectators follow the same rule unless the host
 explicitly creates the room with the immutable `spectatorsSeeHands` policy;
-that policy grants every spectator live access to current hand identities only.
+that policy grants every spectator live access to current hand identities.
 
 In 312TheGathering, choosing Live mode when creating a duel enables this policy
 and lists the room under **Watch live**. Viewers can enter from the list or a shared watch link. After the
 duel starts, their role-specific `room.snapshot.liveDeckLists` also includes
-both registered deck names, card quantities, printings and the original main
-and sideboard sections. These match registrations stay fixed across games.
-Shuffled library order and in-progress sideboard changes stay private. A player seat
+both deck names and the main and sideboard sections committed for the current
+game, including their quantities and printings. The live spectator's
+`rules.snapshot.players[].liveLibraryCounts` gives the number of copies of each
+registered main-deck title currently in that library. Library order, object
+identifiers and unregistered hidden titles are excluded from this summary.
+Both decklists change together when sideboarding commits. In-progress
+sideboard changes stay private. A player seat
 still requires the room password. Club spectators can leave the room or keep
 their connection alive. The server rejects their gameplay and other
 state-changing commands.
@@ -280,6 +284,11 @@ collector number from the public stack and casting preview. Private prompts
 and raw engine diagnostic text are never replay inputs. An interrupted rules
 session may retain already-public journal entries without fetching or copying
 the engine's hidden state into a manual game object.
+
+Each Forge player has a separate **Your notices** list in the web game log.
+The engine keeps the latest 64 messages addressed to that player's controller
+for the current game. It sends this list only in that seat's live snapshot.
+Spectator hand sharing, the public journal, and replay exports all omit it.
 
 The separate [private visual Forge replay](forge-replays.md) feature records
 current hands and board observations for the original two participants. It

@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
-import { dismissOpenDetails, dismissPanel, prepareHandReturn } from "./boardMotion";
-import { cardArtURL, CardImage, useCardHover, type CardHover } from "./CardImages";
+import { useEffect, useRef, useState, type CSSProperties, type ButtonHTMLAttributes } from "react";
+import { dismissOpenDetails, dismissPanel } from "./boardMotion";
+import { cardArtURL, CardImage, imageIdentity, useCardHover, type CardHover } from "./CardImages";
+import { BroadcastOracle } from "./BroadcastOracle";
 import { CardMovements } from "./CardMovements";
 import { battlefieldChoice, BattlefieldActions } from "./BattlefieldChoice";
-import { SpellStack } from "./SpellStack";
+import { SpellStack, type StackEntry } from "./SpellStack";
 import { DecisionCard } from "./DecisionCard";
 import { isManaChoice, ManaChoiceMenu, type ManaAnchor } from "./ManaChoiceMenu";
 import { ConfirmationActions, Decision, DecisionPanel, Options, simpleConfirmation } from "./Decisions";
 import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
+import { useCardDrag } from "./useCardDrag";
 import { useDuelShortcuts } from "./useDuelShortcuts";
 import { phaseControlStep, PhaseControls, usePriorityStops } from "./PhaseControls";
 import type { Card, GameMetadata, Option, Player, Prompt, Response, RulesPriority, Snapshot, Zone } from "./protocol";
 
 const manaColor: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green", C: "colorless" };
-const cardDragType = "application/x-hexproof-card";
 const undoAction = (option: Option) => option.kind === "undoLand" || option.kind === "undoMana";
 
 function fanPosition(index: number, count: number): CSSProperties {
@@ -24,21 +25,14 @@ function fanPosition(index: number, count: number): CSSProperties {
     "--fan-offset": `${position ** 2 * Math.min(12, (count - 1) * 2.5)}px` } as CSSProperties;
 }
 
-type TouchDragHandlers = {
-  onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
-  onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
-  onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
-  onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void;
-};
-
 const visibleFace = (card: Card) => card.visible && !card.faceDown && card.identity?.name ? card.identity : undefined;
 
-function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd, dragging, inspect, hover, style, attack, inZoneViewer }: {
+function TableCard({ card, actionable, selected, activate, drag, dragging, inspect, hover, style, attack, inZoneViewer }: {
   card: Card; actionable?: boolean; selected?: boolean; activate?: () => void;
-  drag?: (event: DragEvent) => void; touch?: TouchDragHandlers; inspect?: () => void; hover: CardHover; style?: CSSProperties;
-  dragEnd?: (event: DragEvent) => void; dragging?: boolean; attack?: AttackControl; inZoneViewer?: boolean;
+  drag?: ButtonHTMLAttributes<HTMLButtonElement>; inspect?: () => void; hover: CardHover; style?: CSSProperties;
+  dragging?: boolean; attack?: AttackControl; inZoneViewer?: boolean;
 }) {
-  const face = visibleFace(card);
+  const face = imageIdentity(visibleFace(card), card.copy);
   const declaration = face && !inZoneViewer ? card.annotations?.filter((item) =>
     item.kind === "namedCard" || item.kind === "chosenType").map((item) =>
     (item.kind === "namedCard" ? "Named: " : "Type: ") + item.value).join(" · ") : undefined;
@@ -49,7 +43,7 @@ function TableCard({ card, actionable, selected, activate, drag, touch, dragEnd,
       aria-label={name} aria-description={[declaration, card.copy && "Copy", card.summoningSick && "Summoning sickness", attack?.label ? `Attacking ${attack.label}` : attack?.state === "target" && "Attack target"].filter(Boolean).join(". ") || undefined}
       aria-pressed={selected || undefined}
       aria-disabled={!activate && !drag || undefined} tabIndex={!activate && !drag ? -1 : undefined}
-      draggable={Boolean(drag)} onDragStart={drag} onDragEnd={dragEnd} onClick={activate} {...touch}
+      onClick={activate} {...drag}
       onMouseEnter={(event) => hover(face, event.currentTarget)} onMouseLeave={() => hover()}
       onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) hover(face, event.currentTarget); }}
       onBlur={() => hover()} onContextMenu={inspect && ((event) => { event.preventDefault(); inspect(); })}>
@@ -90,9 +84,6 @@ type Props = { game: Snapshot; seat: number; prompt?: Prompt; locked: boolean; m
   online: boolean; sendPriority: (preference: RulesPriority) => void; spectating?: boolean };
 type AutoPass = { until: "step" | "turn"; turn: number; step: string }
   | { until: "end"; turn: number; activeSeat: number };
-type CardDrag = { cardId: string; zone: string; promptId: number; x: number; y: number; origin: Element | null; leftHand: boolean };
-type TouchDrag = { pointerId: number; drag: CardDrag; active: boolean };
-
 export function Board({ game, seat, prompt, locked, metadata, answer, back, tournamentTable, online, sendPriority, spectating = false }: Props) {
   const [reviewId, setReviewId] = useState<string>();
   const showHover = useCardHover();
@@ -100,17 +91,15 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const [actionMenu, setActionMenu] = useState<{ promptId: number; options: Option[] }>();
   const [targetSelection, setTargetSelection] = useState<{ gameId: string; promptId: number; ids: string[] }>();
   const [autoPass, setAutoPass] = useState<AutoPass>();
-  const [dragging, setDragging] = useState<CardDrag>();
-  const floatingCard = useRef<HTMLDivElement>(null);
-  const returnHandCard = useRef<() => void>(undefined);
-  const touchDrag = useRef<TouchDrag>(undefined);
   const manaAnchor = useRef<ManaAnchor>(undefined);
   const targetIds = targetSelection?.gameId === game.gameId && targetSelection.promptId === prompt?.promptId ? targetSelection.ids : [];
   const isCurrent = prompt?.gameId === game.gameId;
   const decision = !spectating && isCurrent && prompt?.pending ? prompt : undefined;
+  const cardDrag = useCardDrag(game.gameId, online && !locked && !game.gameOver && decision?.supported ? decision.promptId : undefined);
+  const dragging = cardDrag.dragging;
   const dragView = dragging && game.zones.filter((zone) => zone.zone === dragging.zone)
     .flatMap((zone) => zone.cards).find((card) => card.id === dragging.cardId);
-  const activeDrag = online && !locked && dragView && dragging?.promptId === decision?.promptId ? dragging : undefined;
+  const activeDrag = online && !locked && !game.gameOver && dragView && dragging?.gameId === game.gameId && dragging.promptId === decision?.promptId ? dragging : undefined;
   const cardInMotion = Boolean(activeDrag);
   const boardRef = useDuelShortcuts(!spectating && online && !locked && !game.gameOver && !cardInMotion && (!decision || decision.supported));
   const priority = decision?.kind === "chooseAction";
@@ -137,15 +126,6 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   useEffect(() => {
     if (autoPass && !autoPassCurrent) setAutoPass(undefined);
   }, [autoPass, autoPassCurrent]);
-  useEffect(() => {
-    if (dragging && !activeDrag) setDragging(undefined);
-  }, [activeDrag, dragging]);
-  useLayoutEffect(() => {
-    if (!dragging) {
-      returnHandCard.current?.();
-      returnHandCard.current = undefined;
-    }
-  }, [dragging]);
   useEffect(() => {
     if (openedZone && !game.zones.some((zone) => zone.ownerSeat === openedZone.ownerSeat &&
       zone.zone === openedZone.zone && zone.cards.some(visibleFace))) setOpenedZone(undefined);
@@ -175,15 +155,16 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   // A real stack instance inherits the announcement's render key. Abilities of
   // the same card keep their distinct stack IDs.
   const visibleStack = game.stack.map((object) => ({ ...object, renderKey: object.castId }));
-  const stack = pendingCast ? [{ ...pendingCast, pending: true, renderKey: pendingCast.id,
+  const stack: StackEntry[] = pendingCast ? [{ ...pendingCast, pending: true, renderKey: pendingCast.id,
     text: pendingCast.identity.name || "Face-down spell" }, ...visibleStack] : visibleStack;
   const reviewedStackObject = reviewId ? stack.find((object) => object.id === reviewId || object.renderKey === reviewId) : undefined;
   const review: Card | undefined = libraryTop ?? (reviewedStackObject ? { id: reviewedStackObject.id, identity: reviewedStackObject.identity,
-    visible: true, oracle: reviewedStackObject.text, ownerSeat: -1, controllerSeat: -1 }
+    visible: true, copy: reviewedStackObject.copy, oracle: reviewedStackObject.text, ownerSeat: -1, controllerSeat: -1 }
     : reviewId ? game.zones.flatMap((zone) => zone.cards ?? []).find((card) => card.id === reviewId && visibleFace(card)) : undefined);
   const hand = zoneFor(seat, "hand");
   const opponentHand = zoneFor(opponent.seat, "hand");
   const opponentHandCount = opponentHand?.count ?? 0;
+  const notices = spectating ? undefined : game.viewerNotices;
   const currentMenu = actionMenu?.promptId === decision?.promptId ? actionMenu?.options : undefined;
   const actionSource = currentMenu?.[0]?.cardId;
   const actionCard = actionSource && currentMenu?.every((option) => option.cardId === actionSource)
@@ -223,76 +204,6 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     return option.kind === "cast" || option.kind === "playLand" || (priority && zone !== "battlefield");
   }
 
-  function dragCard(event: DragEvent, card: Card, zone: string) {
-    if (!decision) return;
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(cardDragType, card.id);
-    const transparent = document.createElement("canvas");
-    transparent.width = transparent.height = 1;
-    transparent.style.cssText = "position:fixed;left:0;top:0;pointer-events:none";
-    document.body.append(transparent);
-    event.dataTransfer.setDragImage(transparent, 0, 0);
-    requestAnimationFrame(() => transparent.remove());
-    showHover();
-    setDragging({ cardId: card.id, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
-      origin: event.currentTarget.closest(".hand"), leftHand: false });
-  }
-
-  function trackCard(drag: CardDrag, target: Node | null, x: number, y: number) {
-    const inOrigin = drag.origin?.contains(target);
-    if (inOrigin && drag.leftHand) {
-      cancelDrag(drag);
-      return;
-    }
-    const next = { ...drag, x, y, leftHand: !inOrigin };
-    setDragging(next);
-    return next;
-  }
-
-  function cancelDrag(drag?: CardDrag) {
-    if (drag?.origin && floatingCard.current) {
-      returnHandCard.current = prepareHandReturn(floatingCard.current, drag.origin, drag.cardId);
-    }
-    setDragging(undefined);
-  }
-
-  function touchHandlers(card: Card, zone: string): TouchDragHandlers {
-    return {
-      onPointerDown(event) {
-        if (event.pointerType !== "touch" || !event.isPrimary || !decision) return;
-        event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        touchDrag.current = { pointerId: event.pointerId, active: false,
-          drag: { cardId: card.id, zone, promptId: decision.promptId, x: event.clientX, y: event.clientY,
-            origin: event.currentTarget.closest(".hand"), leftHand: false } };
-      },
-      onPointerMove(event) {
-        const touch = touchDrag.current;
-        if (!touch || touch.pointerId !== event.pointerId || touch.drag.promptId !== decision?.promptId || locked) return;
-        if (!touch.active && Math.hypot(event.clientX - touch.drag.x, event.clientY - touch.drag.y) < 8) return;
-        showHover();
-        const target = document.elementFromPoint(event.clientX, event.clientY);
-        const drag = trackCard(touch.drag, target, event.clientX, event.clientY);
-        touchDrag.current = drag ? { ...touch, active: true, drag } : undefined;
-      },
-      onPointerUp(event) {
-        const touch = touchDrag.current;
-        if (!touch || touch.pointerId !== event.pointerId) return;
-        touchDrag.current = undefined;
-        const target = document.elementFromPoint(event.clientX, event.clientY);
-        if (touch.active && target?.closest(".battlefield.home")) {
-          setDragging(undefined);
-          playDraggedCard(touch.drag);
-        } else cancelDrag(touch.drag);
-      },
-      onLostPointerCapture(event) {
-        if (touchDrag.current?.pointerId !== event.pointerId) return;
-        cancelDrag(touchDrag.current.drag);
-        touchDrag.current = undefined;
-      },
-    };
-  }
-
   function showCard(card: Card, zone: string, fan?: { index: number; count: number }, inZoneViewer = false) {
     const targets = decision?.targets.filter((target) => target.objectId === card.id && !target.selected) ?? [];
     const boardId = zone === "battlefield" ? boardChoice?.candidates.get(card.id) : undefined;
@@ -302,14 +213,15 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     const options = decision?.options.filter((option) => option.cardId === card.id && !undoAction(option)) ?? [];
     const dragOptions = options.filter((option) => playsCard(option, zone));
     const clickOptions = options.filter((option) => !playsCard(option, zone));
-    const canDrag = !locked && dragOptions.length > 0;
+    const canDrag = online && !locked && !game.gameOver && decision?.supported && dragOptions.length > 0;
     const inspect = spectating || !visibleFace(card) ? undefined : () => setReviewId(card.id);
     const combat = !locked && attackPrompt && zone === "battlefield" ? attacks.cardControl(card.id) : undefined;
     const activate = boardChoice && zone === "battlefield" ? chooseOnTable
       : attackPrompt && zone === "battlefield" ? combat?.activate
-      : spectating || canDrag && !targets.length && !clickOptions.length ? undefined : () => {
+      : spectating || canDrag && zone !== "hand" && !targets.length && !clickOptions.length ? undefined : () => {
       if (!locked && targets.length === 1) toggleTarget(targets[0].responseId);
-      else if (!locked && !targets.length && clickOptions.length) chooseAction(clickOptions);
+      else if (online && !locked && !targets.length && clickOptions.length) chooseAction(clickOptions);
+      else if (!targets.length && canDrag && zone === "hand") chooseAction(dragOptions);
       else if (!targets.length) inspect?.();
     };
     const actionable = !locked && Boolean(boardChoice ? chooseOnTable : combat?.activate || options.length || targets.length);
@@ -318,8 +230,8 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       activate={activate} inspect={inspect} hover={hoverCard}
       style={fan ? fanPosition(fan.index, fan.count) : undefined}
       dragging={activeDrag?.cardId === card.id}
-      dragEnd={(event) => event.dataTransfer.dropEffect === "none" ? cancelDrag(activeDrag) : setDragging(undefined)}
-      drag={canDrag ? (event) => dragCard(event, card, zone) : undefined} touch={canDrag ? touchHandlers(card, zone) : undefined} />;
+      drag={canDrag ? cardDrag.handlers({ cardId: card.id, zone, gameId: game.gameId, promptId: decision.promptId },
+        () => showHover(), () => chooseAction(dragOptions)) : undefined} />;
   }
 
   function showHand(zone: Zone | undefined, away: boolean) {
@@ -333,31 +245,6 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
           : <span key={i} aria-hidden="true" className="card-slot" style={style}><span className="table-card card-back" /></span>;
       })}
     </div>;
-  }
-
-  function moveCard(event: DragEvent) {
-    if (!activeDrag) return;
-    trackCard(activeDrag, event.target as Node, event.clientX, event.clientY);
-  }
-
-  function allowCardDrop(event: DragEvent) {
-    if (activeDrag && event.dataTransfer.types.includes(cardDragType)) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-    }
-  }
-
-  function drop(event: DragEvent) {
-    event.preventDefault();
-    setDragging(undefined);
-    const id = event.dataTransfer.getData(cardDragType);
-    if (activeDrag?.cardId === id) playDraggedCard(activeDrag);
-  }
-
-  function playDraggedCard(drag: CardDrag) {
-    if (locked || !decision || decision.promptId !== drag.promptId) return;
-    chooseAction(decision.options.filter((option) =>
-      option.cardId === drag.cardId && !undoAction(option) && playsCard(option, drag.zone)));
   }
 
   const showPlayer = (player: Player, own: boolean) => {
@@ -384,7 +271,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const priorityOptions = priority ? decision.options.filter((option) =>
     undoAction(option) || !option.cardId && option.kind !== "pass" && option.responseId !== "$pass-stack") : [];
 
-  return <main ref={boardRef} className="duel" onDragOverCapture={moveCard}>
+  return <main ref={boardRef} className="duel" {...cardDrag.clickGuard}>
     <section className="table" aria-label="Duel table" data-drag-active={Boolean(activeDrag)}>
       <div className="player-info opponent-info">{showPlayer(opponent, false)}</div>
       <section data-motion-zone="hand" data-seat={opponent.seat} className="hand opponent-hand revealed-hand"
@@ -393,9 +280,17 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       </section>
       <aside className="duel-tools">
         {metadata && <p className="score">Game {metadata.gameNumber} · {metadata.score[seat] ?? 0}–{metadata.score[opponent.seat] ?? 0}</p>}
-        {metadata && <details className="log"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Game log</summary><ol aria-label="Game log">
-          {metadata?.log.map((entry) => <li key={`server-${entry.id}`}>{entry.text}</li>)}
-        </ol></details>}
+        {(metadata || Boolean(notices?.length)) && <details className="log"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Game log</summary>
+          <div className="log-content">
+            {notices && notices.length > 0 && <>
+              <h3>Your notices</h3>
+              <ol aria-label="Your notices" reversed>{notices.slice().reverse().map((notice) =>
+                <li key={notice.id}>{notice.turn > 0 ? `Turn ${notice.turn}` : "Pregame"} · {notice.text}</li>)}</ol>
+              {metadata && <h3>Table history</h3>}
+            </>}
+            {metadata && <ol aria-label="Game log">{metadata.log.map((entry) => <li key={entry.id}>{entry.text}</li>)}</ol>}
+          </div>
+        </details>}
       </aside>
       <section className="battlefield away" data-motion-zone="battlefield" data-seat={opponent.seat} aria-label={spectating ? `${opponent.name}'s battlefield` : "Opponent battlefield"}>
         <div className="permanents lands">{showPermanents(opponent.seat, true)}</div>
@@ -410,8 +305,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
             : decision ? "Your decision" : "Waiting for opponent"
         }</span>
       </div>
-      <section className="battlefield home" data-motion-zone="battlefield" data-seat={seat} aria-label={spectating ? `${owner.name}'s battlefield` : "Your battlefield"}
-        onDragOver={spectating ? undefined : allowCardDrop} onDrop={spectating ? undefined : drop}>
+      <section className="battlefield home" data-motion-zone="battlefield" data-seat={seat} aria-label={spectating ? `${owner.name}'s battlefield` : "Your battlefield"}>
         <div className="permanents">{showPermanents(seat, false)}</div>
         <div className="permanents lands">{showPermanents(seat, true)}</div>
       </section>
@@ -482,7 +376,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
       anchor={manaAnchor.current} locked={locked} submit={respond} />}
     <PhaseControls game={game} turnLabel={turnLabel} myTurn={myTurn} {...priorityStops}
       spectatorNames={spectating ? [owner.name, opponent.name] : undefined} />
-    {activeDrag && dragView && <div ref={floatingCard} className="floating-hand-card" aria-hidden="true" style={{ left: activeDrag.x, top: activeDrag.y }}>
+    {activeDrag && dragView && <div ref={cardDrag.floating} className="floating-hand-card" aria-hidden="true">
       {visibleFace(dragView) ? <>
         <CardImage identity={dragView.identity} className="table-card-image" decorative eager compact fallbackName />
       </> : <div className="floating-card-back card-back" />}
@@ -493,7 +387,10 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
         setReviewId(undefined);
         if (libraryTop) setOpenedZone(undefined);
       }}>Close</button></header>
-      {review.identity?.name && !review.faceDown ? <CardImage identity={review.identity} className="preview-card-image" eager fallbackName />
+      {review.identity?.name && !review.faceDown ? <>
+        <CardImage identity={imageIdentity(review.identity, review.copy)} className="preview-card-image" eager fallbackName english={spectating} />
+        {spectating && <BroadcastOracle key={cardArtURL(review.identity)} card={review.identity} />}
+      </>
         : <span className="preview-card-image choice-card-back card-back" role="img" aria-label="Face-down card" />}
       {reviewedStackObject && reviewedStackObject.text && reviewedStackObject.text !== review.identity?.name && <p>{reviewedStackObject.text}</p>}
       {review.counters?.map((counter) => <p key={counter.name}>{counter.name} × {counter.value}</p>)}
