@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-FROM golang:1.26-bookworm AS go
-FROM node:22-bookworm-slim AS node
+ARG CLUB_IMAGE_REGISTRY_PREFIX=public.ecr.aws/docker/library/
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}golang:1.26-bookworm AS go
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}node:22-bookworm-slim AS node
 
-FROM eclipse-temurin:21-jdk-noble AS build
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}eclipse-temurin:21-jdk-noble AS build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git python3 \
     && rm -rf /var/lib/apt/lists/*
@@ -24,7 +25,7 @@ RUN bash deploy/club/build.sh /tmp/bundles \
     && mv /tmp/bundles/*/* /release/ \
     && sed -i 's/-bind 127[.]0[.]0[.]1 /-bind 0.0.0.0 /' /release/run.sh
 
-FROM eclipse-temurin:21-jre-noble
+FROM ${CLUB_IMAGE_REGISTRY_PREFIX}eclipse-temurin:21-jre-noble
 RUN useradd --system --user-group --uid 10001 --home-dir /var/lib/hexproof-club --shell /usr/sbin/nologin club \
     && install -d -o club -g club -m 0700 /var/lib/hexproof-club
 WORKDIR /opt/hexproof-club

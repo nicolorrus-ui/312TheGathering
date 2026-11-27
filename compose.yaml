@@ -1,0 +1,20 @@
+name: hexproof-club
+services:
+  club:
+    image: hexproof-club:local
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.txt
+    environment:
+      CLUB_LOCAL_CATALOG: "1"
+    ports:
+      - "127.0.0.1:57320:10000"
+    volumes:
+      - state:/var/lib/hexproof-club
+    restart: unless-stopped
+
+volumes:
+  state:
+    name: hexproof-club-state
+    external: true
