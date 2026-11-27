@@ -70,7 +70,7 @@ public final class NativeIsolationRegressionTest {
             List<Card> original = new ArrayList<>(owner.getCardsIn(ZoneType.Library));
             first.context.andWait(() -> { MyRandom.setRandom(new Random(987)); owner.shuffle(null); });
             var control = library(first);
-            Random random = new Random(987);
+            Random random = MyRandom.counting(new Random(987));
             first.context.andWait(() -> {
                 owner.getZone(ZoneType.Library).setCards(original); MyRandom.setRandom(random);
                 CounterCustomType.get("Isolation-A");

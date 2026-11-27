@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 import { ManaPip } from "./ManaSymbols";
 import { useCardHover } from "./CardImages";
-import { printingKey } from "./decks";
+import { normalizeCardName, printingKey } from "./decks";
 import type { DeckCard } from "./protocol";
 
 type CardIndex = Record<string, [cost: string, frame: string]>;
-const normalize = (name: string) => name.trim().normalize("NFC").toLowerCase();
 const sum = (cards: DeckCard[]) => cards.reduce((count, card) => count + card.count, 0);
 
 function manaValue(cost: string) {
@@ -40,7 +39,7 @@ export function DeckSection({ name, cards, index, remove, disabled }: {
     const existing = rows.get(key);
     if (existing) existing.count += card.count;
     else {
-      const name = normalize(card.name);
+      const name = normalizeCardName(card.name);
       const face = name.split(/\s*\/\/\s*/)[0];
       const info = Object.hasOwn(index, name) ? index[name] : Object.hasOwn(index, face) ? index[face] : undefined;
       const [cost, frame] = info ?? ["", "neutral"];

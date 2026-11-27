@@ -8,7 +8,11 @@ export const deckStorage = "hexproof-club.decks.v1";
 export type DeckZone = "mainboard" | "sideboard";
 export type DeckList = Pick<Deck, DeckZone>;
 
-const normalizedName = (name: string) => name.trim().normalize("NFC").toLowerCase();
+function catalogCardName(name: string) {
+  return name.toLowerCase() === "all good things . . ." ? "All Good Things..." : name;
+}
+
+export const normalizeCardName = (name: string) => catalogCardName(name.trim().normalize("NFC")).toLowerCase();
 const multifaceNames = new Map<string, { club: string; mtgo: string }>();
 for (const [group, names] of Object.entries(mtgoFaces)) {
   for (const full of names) {
@@ -16,13 +20,13 @@ for (const [group, names] of Object.entries(mtgoFaces)) {
     const front = faces[0];
     const joined = faces.join("/");
     const entry = { club: group === "meldOrSpecialize" ? front : full, mtgo: group === "split" ? joined : front };
-    multifaceNames.set(normalizedName(front), entry);
-    multifaceNames.set(normalizedName(joined), entry);
+    multifaceNames.set(normalizeCardName(front), entry);
+    multifaceNames.set(normalizeCardName(joined), entry);
   }
 }
 
 function knownFaceNames(name: string) {
-  const key = normalizedName(name);
+  const key = normalizeCardName(name);
   const exact = multifaceNames.get(key);
   if (exact || !key.includes("/")) return exact;
   // A slash is also literal in ordinary names such as Summon: Choco/Mog.
@@ -31,7 +35,7 @@ function knownFaceNames(name: string) {
 }
 
 export function cardNameKey(name: string): string {
-  return normalizedName(knownFaceNames(name)?.club ?? name);
+  return normalizeCardName(knownFaceNames(name)?.club ?? name);
 }
 
 export function printingKey(card: Identity): string {
@@ -76,7 +80,7 @@ export function parseCardLine(line: string, lineNumber: number, options?: { allo
   }
   const printing = (match?.[2] ?? line).match(/^(.+?)(?:\s+\(([a-z0-9]+)\)\s+(\S+))?$/i);
   if (!printing) throw new Error(`Line ${lineNumber} needs a card name.`);
-  return { name: knownFaceNames(printing[1])?.club ?? printing[1], setCode: printing[2]?.toUpperCase() ?? "",
+  return { name: knownFaceNames(printing[1])?.club ?? catalogCardName(printing[1]), setCode: printing[2]?.toUpperCase() ?? "",
     collectorNumber: printing[3] ?? "", count };
 }
 

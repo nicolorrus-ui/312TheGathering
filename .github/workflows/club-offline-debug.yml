@@ -102,8 +102,20 @@ jobs:
             if (!$ready) { throw 'Club never reported ready' }
             $homePage = Invoke-WebRequest "$url/"
             if ($homePage.StatusCode -ne 200 -or !$homePage.Content.Contains('<title>312TheGathering</title>')) { throw '312TheGathering UI unavailable' }
-            if ((Invoke-RestMethod "$url/card-search?name=Lightning%20Bolt").cards.name -notcontains 'Lightning Bolt') {
-              throw 'Offline card catalog unavailable'
+            $printings = @(
+              @{ name='Boarding Action'; setCode='TRK'; collectorNumber='139' }
+              @{ name='All Good Things...'; setCode='TRK'; collectorNumber='226' }
+              @{ name='Gwyndala, the Progeny'; setCode='TRK'; collectorNumber='450†' }
+              @{ name='Borg Queen, Perfection Manifest'; setCode='TRC'; collectorNumber='197' }
+              @{ name='Hull Breach'; setCode='SDS'; collectorNumber='18' }
+              @{ name='Abyssal Lotus'; setCode='NAU'; collectorNumber='234' }
+            )
+            foreach ($card in $printings) {
+              $name = [Uri]::EscapeDataString($card.name)
+              $printing = (Invoke-RestMethod "$url/card-search?name=$name").cards | Where-Object {
+                $_.name -eq $card.name -and $_.setCode -eq $card.setCode -and $_.collectorNumber -eq $card.collectorNumber
+              }
+              if (!$printing) { throw "Offline catalog missing $($card.name) ($($card.setCode)) $($card.collectorNumber)" }
             }
 
             foreach ($slug in @('modovintage', '100-ornithopters')) {
@@ -126,11 +138,14 @@ jobs:
             $players = @(1,2 | ForEach-Object { @{ name="Seat $_"; deck=$deck; sideboard=$sideboard } })
             $game = @{ gameId='windows-smoke'; variant='constructed'; deckFormat='modern'; seed=42; startingLife=20; startingPlayerIndex=0; players=$players }
             $start = @{ command='startGame'; payload=($game | ConvertTo-Json -Depth 8 -Compress) } | ConvertTo-Json -Compress
-            $commands = @($start, '{"command":"awaitPrompt","sessionId":"windows-smoke","timeoutMs":30000}', '{"command":"quit"}')
+            $checkDeck = @{ deckFormat='custom'; players=@(@{ name='Printing check'; deck=$printings }) }
+            $validate = @{ command='validateDecks'; payload=($checkDeck | ConvertTo-Json -Depth 8 -Compress) } | ConvertTo-Json -Compress
+            $commands = @($validate, $start, '{"command":"awaitPrompt","sessionId":"windows-smoke","timeoutMs":30000}', '{"command":"quit"}')
             $runtime = "$club/hexproof-forge-runtime"
             $lines = $commands | & "$club/jre/bin/java.exe" -Xmx1g '-Djava.awt.headless=true' -cp "$club/forge-overlay.jar;$runtime/forge-harness.jar" org.hexproof.forge.NativeHost --interactive-server --forge-home "$runtime/forge-gui"
-            if ($LASTEXITCODE -or $lines.Count -ne 2) { throw 'Forge worker could not open a game' }
-            $reply = $lines[1] | ConvertFrom-Json
+            if ($LASTEXITCODE -or $lines.Count -ne 3) { throw 'Forge worker could not open a game' }
+            if (!($lines[0] | ConvertFrom-Json).ok) { throw "Forge rejected new printings: $($lines[0])" }
+            $reply = $lines[2] | ConvertFrom-Json
             if (!$reply.ok -or ($reply.result | ConvertFrom-Json).input.type -ne 'mulligan') { throw 'Demo match failed to start' }
           } finally {
             if (!$launcher.HasExited) { taskkill.exe /PID $launcher.Id /T /F | Out-Null }

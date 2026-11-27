@@ -6,10 +6,13 @@
 import unicodedata
 
 COLOR_NAMES = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
+# Most cards printed with a spaced ellipsis retain it in their catalog name.
+CATALOG_NAMES = {"all good things . . .": "All Good Things..."}
 
 
 def normalize(name):
-    return unicodedata.normalize("NFC", name).lower()
+    key = unicodedata.normalize("NFC", name).lower()
+    return CATALOG_NAMES.get(key, key).lower()
 
 
 def card_scripts(directory):
@@ -19,7 +22,8 @@ def card_scripts(directory):
         for line in path.read_text(encoding="utf-8-sig").splitlines():
             key, _, value = line.partition(":")
             if key == "Name":
-                faces.append({"Name": value.strip()})
+                name = value.strip()
+                faces.append({"Name": CATALOG_NAMES.get(name.lower(), name)})
             elif key == "AlternateMode":
                 mode = value.strip()
             elif faces and key in ("ManaCost", "Types", "Colors", "Oracle", "PT"):

@@ -40,8 +40,8 @@ specific compiler with `--javac` or CMake's `HEXPROOF_FORGE_JAVAC`; an incompati
 explicit compiler fails before downloading or compiling anything.
 `java-toolchain.py` shares this selection with the complete native runtime
 builder and accompanies both corresponding-source bundles.
-There is no Maven resolution. Initial build inputs total about 446 MiB; the
-content-addressed cache is `build/forge-overlay/downloads`. `--base-archive` and
+Initial build inputs total about 458 MiB. The builder caches them in
+`build/forge-overlay/downloads`. `--base-archive` and
 `--source-archive` accept predownloaded files, with the same mandatory checksums.
 CI and release jobs share these platform-independent downloads through
 `.github/actions/cache-forge-downloads`; the cache key covers both pinned

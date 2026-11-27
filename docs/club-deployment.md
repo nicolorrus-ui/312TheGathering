@@ -4,6 +4,14 @@ The club build serves the React client and private 1v1 rooms from one Go
 process. A separate headless Forge JVM owns each live game. You can run the
 same deployment on Linux x86-64 and ARM64.
 
+Club uses the November 27, 2026 Forge rules and edition files for both play
+and the portable card catalog. Star Trek (TRK) includes 311 names and 586
+native printings. Decks can also register Gwyndala, the Progeny as TRK
+450† through its verified printing alias. The update also includes 557 Star
+Trek Commander (TRC) printings, 30 Stardates (SDS) printings, and 38 preview
+printings across NAU, NAC, MDD and MDC. Forge lists the 20 Prismatic Pride
+(PUNK) cards in its edition data but has no playable scripts for them yet.
+
 ## Build
 
 Use Git, Python 3.12 or later, Go 1.26, Node 22.12 or later, and a Java 21 JDK.
@@ -18,7 +26,7 @@ javac -version
 The build checks the pinned Forge base and matching source archives, compiles
 the current adapter, builds the browser client and Go binary, and stages a
 self-contained application directory under `build/club-deploy/`. Java remains
-a system dependency. The first build downloads approximately 449 MiB of Forge
+a system dependency. The first build downloads approximately 458 MiB of Forge
 inputs. Later builds reuse the verified archives. Set `CLUB_GOARCH=arm64`
 to build an ARM64 bundle on x86-64. Use `CLUB_FORGE_CACHE` to point to a
 prepared download cache.

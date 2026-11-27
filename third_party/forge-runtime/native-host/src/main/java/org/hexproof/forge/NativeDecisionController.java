@@ -368,17 +368,16 @@ final class NativeDecisionController extends PlayerControllerHuman implements Re
     @Override public void revealForDiscard(forge.game.card.CardCollectionView cards, Player owner) {
         session.knowledge.sawHand(cards, getPlayer());
         // DiscardEffect calls this only when a choice follows immediately. Its
-        // exact authorized disclosure is supplied again as visibleToChooser.
+        // exact authorized disclosure is supplied again as a DelayedReveal.
     }
     @Override public forge.game.card.CardCollectionView chooseCardsToDiscardFrom(Player player, SpellAbility ability,
-            CardCollection valid, int min, int max, forge.game.card.CardCollectionView visibleToChooser) {
-        if (player == getPlayer()) return super.chooseCardsToDiscardFrom(player, ability, valid, min, max, visibleToChooser);
+            CardCollection valid, int min, int max, DelayedReveal reveal) {
+        if (player == getPlayer()) return super.chooseCardsToDiscardFrom(player, ability, valid, min, max, reveal);
         return deciding(ability, () -> {
-            tempShowCards(visibleToChooser);
+            tempShowCards(valid);
+            if (reveal != null) tempShow(reveal.getCards());
             try {
                 var candidates = forge.game.GameEntityView.getMap(valid);
-                var reveal = new forge.game.player.DelayedReveal(visibleToChooser,
-                        forge.game.zone.ZoneType.Hand, player.getView());
                 var chosen = getGui().chooseEntitiesForEffect(
                         String.format(forge.util.Localizer.getInstance().getMessage("lblChooseMinCardToDiscard"), min == 0 ? max : min),
                         candidates.getTrackableKeys(), min, max, reveal);

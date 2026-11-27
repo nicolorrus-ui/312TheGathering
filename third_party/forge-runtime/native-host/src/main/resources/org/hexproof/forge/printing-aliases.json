@@ -1,35 +1,29 @@
 {
   "schema": 2,
-  "catalogSha256": "cf8ac2be6a4bf1e050b2cd59b3a9b5178832c25146a4829e6e904fa2dfb5af0b",
-  "catalogGeneratedAt": "2026-09-20T08:44:33Z",
-  "forgeRevision": "0485ad49fb10c8ef5b3eda2a002c963d59be71dc",
-  "indexSha256": "2ca7e1105d4056973a4312f21fe7367aaba6ec59bfcc914e7e655b06219a8a19",
-  "unavailableSha256": "bf5d09f4d2e889e3cab00fcb674601f860c49483e1fce54ac4e5501653cc2770",
+  "catalogSha256": "23e85907e93280e65be47ed8f264b2d057a4cb7f01b79f49252ef740f07042a4",
+  "catalogGeneratedAt": "2026-11-22T11:44:05Z",
+  "forgeRevision": "230914a40a9e1e767391c3be990a349015b35761",
+  "indexSha256": "989b0410c4fda5e8618447a5b508d35e2f333160d798b126ca99d17bc8585209",
+  "unavailableSha256": "9858fb525c85305e4a2bc3e70ef0ee4afc9c0f3671ab6e77b91fc745906add2a",
   "generatorSources": {
     "tools/forge-printings/generate.py": "830602138244af808c3a2f613c4835119634fa7cfc6aeb0f3ca05963a1a10d00",
     "tools/forge-printings/NativePrintingIndex.java": "34c0d653cb68e3677e9815cf01b966a14fe057d5112b6a210a076ed72319e0bd"
   },
   "resolverSources": {
     "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeSession.java": "5729fcb6f2e9568c5ce65b1745e40b35f770e3334fb6da49017e16c78a540dfe",
-    "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeCardNames.java": "7301876e4bc02a61332cb59a121f1c888dd9770169167a30a78f1bbcc556940d",
+    "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeCardNames.java": "e216b7ff1e0b2c79907bbf58e48101add9217fbace58eeffeba0cb0bb9ced291",
     "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativePrintingAliases.java": "c7464cc4b09422d1682e494a4621231d071eeeb079ce918f89e810efec093a1a"
   },
-  "exactPrintings": 87646,
-  "aliasedPrintings": 12988,
-  "unresolvedPrintings": 2591,
+  "exactPrintings": 89090,
+  "aliasedPrintings": 13103,
+  "unresolvedPrintings": 2622,
   "unresolvedReasons": {
     "different_rules_same_name": 9,
     "meld_result": 21,
-    "native_rules_missing": 1637,
+    "native_rules_missing": 1551,
     "native_variant_missing": 13,
     "not_a_playing_card": 315,
-    "unsupported_game_piece": 596
+    "unsupported_game_piece": 713
   },
-  "actionableUnresolvedPrintings": 0,
-  "resolverSourcePreservation": {
-    "third_party/forge-runtime/native-host/src/main/java/org/hexproof/forge/NativeSession.java": {
-      "censusCommit": "76cc3374a9e020e814ee6308e396c9b32646167e",
-      "registrationRegionSha256": "10890281b0d41700c969d3177b014017ece5f461e2b20bd6a9746f1e3d289dbc"
-    }
-  }
+  "actionableUnresolvedPrintings": 0
 }

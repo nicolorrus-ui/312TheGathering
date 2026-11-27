@@ -29,11 +29,12 @@ class ClubOfflineCatalogTest(unittest.TestCase):
                 "Name:Left\nManaCost:R\nTypes:Instant\nAlternateMode:Split\n"
                 "ALTERNATE\nName:Right\nManaCost:1 G\nTypes:Instant\n")
             (scripts / "unlisted.txt").write_text("Name:Unlisted\nManaCost:no cost\nTypes:Basic Land Island\n")
+            (scripts / "ellipsis.txt").write_text("Name:All Good Things . . .\nManaCost:10 G G\nTypes:Sorcery\n")
             (editions / "old.txt").write_text(
                 "[metadata]\nName=Old Set\nCode=OLD\nDate=1993-11-01\n[cards]\n9 R First Face @First artist\n")
             (editions / "new.txt").write_text(
                 "[metadata]\nName=New Set\nCode=NEW\nDate=2017-01-20\n[cards]\n"
-                "11 C First Face @Painter\n2 C First Face @Painter\n18 R Left // Right @Artist\n"
+                "11 C First Face @Painter\n2 C First Face @Painter\n18 R Left // Right @Artist\n226 R All Good Things . . . @Artist\n"
                 "[alternate art]\n2 C First Face @Duplicate\n13a R First Face @Artist ${\"flavorName\":\"Nickname\"}\n"
                 "[tokens]\n22 R First Face @Token artist\n[Draft Slot]\n18 R Unlisted\n[other]\n23a First Face\n")
             (res / "printing-aliases.tsv").write_text("First Face\tPNEW\t2s\tNEW\t2\n")
@@ -42,6 +43,7 @@ class ClubOfflineCatalogTest(unittest.TestCase):
             data = catalog.generate(res, res)
             cards = {card["name"]: card for card in data["cards"]}
             self.assertEqual(data["sets"]["NEW"], "New Set")
+            self.assertEqual(cards["All Good Things..."]["printings"], [{"setCode": "NEW", "collectorNumber": "226"}])
             front = cards["First Face // Other Face"]
             self.assertEqual((front["manaCost"], front["typeLine"]), ("2 U", "Creature Wizard"))
             self.assertEqual((front["power"], front["toughness"]), ("*", "1+*"))

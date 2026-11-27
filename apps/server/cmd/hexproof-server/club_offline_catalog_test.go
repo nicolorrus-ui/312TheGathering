@@ -16,7 +16,7 @@ import (
 func TestClubOfflineCatalogRoutes(t *testing.T) {
 	fixture := offlineCatalog{
 		Version: 1,
-		Sets:    map[string]string{"M11": "Magic 2011"},
+		Sets:    map[string]string{"M11": "Magic 2011", "TRK": "Star Trek"},
 		Cards: []offlineCard{
 			{offlineCardInfo: offlineCardInfo{Name: "Fire // Ice", TypeLine: "Instant", ManaCost: "1 R // 1 U"}, Faces: []offlineCardInfo{{Name: "Fire", Oracle: "Front text."}, {Name: "Ice", Oracle: "Tap target permanent."}}, Printings: []offlinePrinting{{"M11", "12"}}},
 			{offlineCardInfo: offlineCardInfo{Name: "Unprinted"}},
@@ -27,6 +27,10 @@ func TestClubOfflineCatalogRoutes(t *testing.T) {
 		fixture.Cards[1].Printings = append(fixture.Cards[1].Printings, offlinePrinting{"M11", fmt.Sprint(i)})
 	}
 	fixture.Cards = append(fixture.Cards, offlineCard{offlineCardInfo: offlineCardInfo{Name: "No editions"}})
+	fixture.Cards = append(fixture.Cards, offlineCard{offlineCardInfo: offlineCardInfo{Name: "All Good Things..."},
+		Printings: []offlinePrinting{{"TRK", "226"}}})
+	fixture.Cards = append(fixture.Cards, offlineCard{offlineCardInfo: offlineCardInfo{Name: "Set Phasers to . . ."},
+		Printings: []offlinePrinting{{"TRK", "34"}}})
 	data, err := json.Marshal(fixture)
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +59,9 @@ func TestClubOfflineCatalogRoutes(t *testing.T) {
 		{"q=no+editions", "No editions", "", 1, false},
 		{"name=no+editions", "", "", 0, false},
 		{"q=test&page=3", "", "", 0, false},
+		{"name=All+Good+Things+.+.+.", "All Good Things...", "226", 1, false},
+		{"q=things...", "All Good Things...", "226", 1, false},
+		{"name=Set+Phasers+to...", "", "", 0, false},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -68,7 +75,7 @@ func TestClubOfflineCatalogRoutes(t *testing.T) {
 			}
 			if len(page.Cards) > 0 {
 				card := page.Cards[0]
-				if card.Name != tc.firstName || card.CollectorNumber != tc.firstNumber || (card.SetCode != "" && card.SetName != "Magic 2011") {
+				if card.Name != tc.firstName || card.CollectorNumber != tc.firstNumber || card.SetName != fixture.Sets[card.SetCode] {
 					t.Errorf("unexpected printing: %+v", card)
 				}
 			}

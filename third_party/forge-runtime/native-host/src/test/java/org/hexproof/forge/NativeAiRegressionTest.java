@@ -14,6 +14,7 @@ import forge.gui.GuiBase;
 import forge.localinstance.properties.ForgePreferences.FPref;
 import forge.model.FModel;
 import forge.util.MyRandom;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -150,11 +151,10 @@ public final class NativeAiRegressionTest {
             // Exercise Forge's actual two-spell planner with every percentage
             // roll, holding the same board and resource availability constant.
             int chained = 0;
-            for (int roll = 0; roll < 100; roll++) {
-                final int percentRoll = roll;
-                MyRandom.setRandom(new Random(42) {
-                    @Override public int nextInt(int bound) { return bound == 100 ? percentRoll : super.nextInt(bound); }
-                });
+            var rolls = new HashSet<Integer>();
+            for (long seed = 0; rolls.size() < 100; seed++) {
+                if (!rolls.add(new Random(seed).nextInt(100))) continue;
+                MyRandom.setRandom(new Random(seed));
                 var result = DamageDealAi.getDamagingSAToChain(ai, first.getSpellAbilities().get(0), "3");
                 if (result != null) {
                     require(result.getLeft().getHostCard() == second && result.getRight() == 3,

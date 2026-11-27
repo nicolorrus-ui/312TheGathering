@@ -26,7 +26,7 @@ Logs, elapsed times and the exact runtime/JAR identity are written to
 for a task-specific evidence directory. The content-addressed base/source cache
 is shared with `build-overlay.py`; cached and explicitly supplied base archives
 still receive the mandatory size/checksum checks. The first uncached run needs
-the approximately 446 MiB pinned inputs, JDK 21 and Go, without Maven or an
+the approximately 458 MiB pinned inputs, JDK 21 and Go, without Maven or an
 upstream source rebuild. The runner requires a POSIX workstation for bounded
 process-group cleanup; CI executes it on Linux.
 The runner discovers the same JDK 21 compiler as the overlay builder and uses

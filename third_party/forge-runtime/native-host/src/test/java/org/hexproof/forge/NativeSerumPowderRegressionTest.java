@@ -193,7 +193,7 @@ public final class NativeSerumPowderRegressionTest {
                     && visible.equals(ids(owner.getCardsIn(ZoneType.Hand))), "Powder returned an intermediate replacement hand snapshot");
         }
         for (int viewer = -1; viewer < players; viewer++) {
-            String snapshot = session.snapshot(viewer);
+            String snapshot = NativeMulliganRegressionTest.openingSnapshot(session, viewer);
             for (Card card : owner.getCardsIn(ZoneType.Library))
                 require(!snapshot.contains("\"" + NativeSession.cardId(card) + "\""), "Powder leaked a library identity");
             if (viewer == 0) continue;

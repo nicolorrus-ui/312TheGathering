@@ -69,6 +69,8 @@ public final class NativePromptPrintingRegressionTest {
         List<CardView> views = List.of(first.getView(), second.getView());
         Map<String, JsonObject> expected = Map.of(NativeSession.cardId(first), NativeSnapshot.identity(first),
                 NativeSession.cardId(second), NativeSnapshot.identity(second));
+        Map<String, JsonObject> expectedOrder = Map.of("order-0", expected.get(NativeSession.cardId(first)),
+                "order-1", expected.get(NativeSession.cardId(second)));
         AtomicInteger decisions = new AtomicInteger();
         drive(session, owner, () -> {
             require(gui.one("Choose printing", views) == second.getView(), "Selection changed physical candidate");
@@ -94,9 +96,10 @@ public final class NativePromptPrintingRegressionTest {
             require(cards.size() == 2, "Missing same-name printing candidate");
             for (JsonElement entry : cards) {
                 JsonObject value = entry.getAsJsonObject();
+                String id = value.get("id").getAsString();
                 if (type.equals("reorder")) value = value.getAsJsonObject("card");
                 JsonObject identity = value.getAsJsonObject("identity");
-                require(identity.equals(expected.get(value.get("id").getAsString())),
+                require(identity.equals((type.equals("reorder") ? expectedOrder : expected).get(id)),
                         "Prompt lost exact printing in " + type + ": " + value);
             }
             if (index == 0 || index == 2) {

@@ -26,7 +26,7 @@ commit and auto-deploy settings in Render before changing the release branch.
 ## Reproduce the current baseline
 
 Use Linux, Go 1.26, Node 22.12 or later, Python 3.12 or later, and JDK 21.
-The first bundle build downloads about 449 MiB of pinned Forge inputs.
+The first bundle build downloads about 458 MiB of pinned Forge inputs.
 Use Chromium or a Playwright Chromium Headless Shell for browser checks.
 
 ```sh

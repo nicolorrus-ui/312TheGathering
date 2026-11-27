@@ -11,6 +11,8 @@ final class NativeCardNames {
     private NativeCardNames() {}
 
     static String lookup(String name) {
+        // TRK 226 uses an unspaced ellipsis in the catalog and spaced periods in Forge.
+        if (name.equalsIgnoreCase("All Good Things...")) return "All Good Things . . .";
         // Scryfall uses MODIFIER LETTER COLON in Ratonhnhaké꞉ton; Forge uses ':'.
         return Normalizer.normalize(name, Normalizer.Form.NFC).replace('\ua789', ':');
     }

@@ -44,7 +44,7 @@ var cubeColorNames = map[string]string{"W": "White", "U": "Blue", "B": "Black", 
 var basicLandTypes = []string{"Plains", "Island", "Swamp", "Mountain", "Forest"}
 
 func cubePrinting(catalog *offlineCatalog, entry cubeEntry, allowAlternate bool) (*offlineCard, offlinePrinting, error) {
-	card := catalog.byName[strings.ToLower(strings.TrimSpace(entry.Name))]
+	card := catalog.byName[offlineCardNameKey(entry.Name)]
 	if card == nil || len(card.Printings) == 0 {
 		return nil, offlinePrinting{}, fmt.Errorf("%q has no playable printing in this Forge catalog", entry.Name)
 	}

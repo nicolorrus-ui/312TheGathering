@@ -49,6 +49,14 @@ type offlineCatalog struct {
 	faces  map[string]*offlineCardInfo
 }
 
+func offlineCardNameKey(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "all good things . . ." {
+		return "all good things..."
+	}
+	return key
+}
+
 func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool, artwork *clubImageCache, cubeDir string) error {
 	getCatalog := sync.OnceValues(func() (*offlineCatalog, error) { return loadOfflineCatalog(files) })
 	newClubCubes(cubeDir, getCatalog).register(mux)
@@ -86,7 +94,7 @@ func loadOfflineCatalog(files fs.FS) (*offlineCatalog, error) {
 	}
 	for i := range catalog.Cards {
 		card := &catalog.Cards[i]
-		card.key = strings.ToLower(card.Name)
+		card.key = offlineCardNameKey(card.Name)
 		if strings.TrimSpace(card.key) == "" {
 			return nil, fmt.Errorf("%s: missing card name at index %d", offlineCatalogPath, i)
 		}
@@ -99,7 +107,7 @@ func loadOfflineCatalog(files fs.FS) (*offlineCatalog, error) {
 		catalog.byName[card.key] = card
 		for j := range card.Faces {
 			face := &card.Faces[j]
-			catalog.faces[strings.ToLower(face.Name)] = face
+			catalog.faces[offlineCardNameKey(face.Name)] = face
 		}
 		// An imported list can use just the front face of a double-faced card.
 		if front, _, multi := strings.Cut(card.key, " // "); multi && catalog.byName[front] == nil {
@@ -110,7 +118,7 @@ func loadOfflineCatalog(files fs.FS) (*offlineCatalog, error) {
 }
 
 func (c *offlineCatalog) cardInfo(name string) *offlineCardInfo {
-	key := strings.ToLower(name)
+	key := offlineCardNameKey(name)
 	card := c.byName[key]
 	if card != nil && card.key == key {
 		return &card.offlineCardInfo
@@ -136,7 +144,7 @@ func (c *offlineCatalog) printing(card *offlineCard, index int) cardSearchPrinti
 }
 
 func (c *offlineCatalog) search(_ context.Context, text string, exact bool, page int) (cardSearchPage, bool) {
-	key := strings.ToLower(text)
+	key := offlineCardNameKey(text)
 	skip := (page - 1) * offlinePageSize
 	result := cardSearchPage{Cards: []cardSearchPrinting{}}
 	if exact {

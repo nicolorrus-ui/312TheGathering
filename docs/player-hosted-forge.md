@@ -59,8 +59,8 @@ Only the engine host needs this payload. Server-side runtime availability,
 permission to relay player hosting, and local runtime readiness are separate.
 
 The base archive is an immutable complete engine/resource/dependency bundle,
-pinned by the runtime download manifest. The current base is adapter 25 at
-official revision `0485ad49fb10c8ef5b3eda2a002c963d59be71dc`. An upstream upgrade
+pinned by the runtime download manifest. The current base is adapter 43 at
+official revision `230914a40a9e1e767391c3be990a349015b35761`. An upstream upgrade
 requires a new complete base and matching source archive; the overlay and base
 must use the same official revision. Its adapter classes are superseded by the
 packaged overlay, compiled from the current reviewed source. The helper embeds
