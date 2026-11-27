@@ -42,7 +42,7 @@ export function BattlefieldActions({ choice, ids, submit }: {
       {max > 1 && <span>{ids.length} selected</span>}
     </div>
     {prompt.cancellable && <button type="button" className="quiet" onClick={() => submit({ responseId: "$cancel" })}>Cancel</button>}
-    {(max !== 1 || min === 0) && <button className="primary" type="button" disabled={ids.length < min || ids.length > max}
+    {(max !== 1 || min === 0) && <button className="primary" type="button" aria-keyshortcuts="Space" disabled={ids.length < min || ids.length > max}
       onClick={() => submit(response(ids))}>{max === 1 && min === 0 && !choice.selected.size ? "Skip" : "Confirm"}</button>}
   </>;
 }

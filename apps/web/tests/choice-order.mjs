@@ -110,7 +110,8 @@ async function checkChoices(viewport, touch) {
   assert.equal(await opt.getAttribute("aria-pressed"), "true");
   assert.deepEqual(await names(), ["Opt", "Island", "Ponder", "Grizzly Bears"]);
   assert.equal(await grid.and(panel.locator(":enabled")).count(), 1);
-  await opt.press("Space");
+  if (touch) await opt.tap();
+  else await opt.press("Space");
   assert.ok(await button("Confirm").isDisabled());
   assert.deepEqual(await names(), ["Ponder", "Opt", "Island", "Grizzly Bears"]);
   await button("Ponder").press("Enter");

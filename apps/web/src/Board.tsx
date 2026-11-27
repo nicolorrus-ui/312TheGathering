@@ -10,7 +10,8 @@ import { DecisionCard } from "./DecisionCard";
 import { isManaChoice, ManaChoiceMenu, type ManaAnchor } from "./ManaChoiceMenu";
 import { ConfirmationActions, Decision, DecisionPanel, Options, simpleConfirmation } from "./Decisions";
 import { useAttackDeclaration, type AttackControl } from "./useAttackDeclaration";
-import { PhaseControls, usePriorityStops } from "./PhaseControls";
+import { useDuelShortcuts } from "./useDuelShortcuts";
+import { phaseControlStep, PhaseControls, usePriorityStops } from "./PhaseControls";
 import type { Card, GameMetadata, Option, Player, Prompt, Response, RulesPriority, Snapshot, Zone } from "./protocol";
 
 const manaColor: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green", C: "colorless" };
@@ -87,7 +88,8 @@ function PlayerChip({ player, zone, zones, active, target, selected, selectTarge
 type Props = { game: Snapshot; seat: number; prompt?: Prompt; locked: boolean; metadata?: GameMetadata;
   answer: (prompt: Prompt, response: Response) => void; back: () => void; tournamentTable?: boolean;
   online: boolean; sendPriority: (preference: RulesPriority) => void; spectating?: boolean };
-type AutoPass = { until: "step" | "turn"; turn: number; step: string };
+type AutoPass = { until: "step" | "turn"; turn: number; step: string }
+  | { until: "end"; turn: number; activeSeat: number };
 type CardDrag = { cardId: string; zone: string; promptId: number; x: number; y: number; origin: Element | null; leftHand: boolean };
 type TouchDrag = { pointerId: number; drag: CardDrag; active: boolean };
 
@@ -110,16 +112,27 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     .flatMap((zone) => zone.cards).find((card) => card.id === dragging.cardId);
   const activeDrag = online && !locked && dragView && dragging?.promptId === decision?.promptId ? dragging : undefined;
   const cardInMotion = Boolean(activeDrag);
+  const boardRef = useDuelShortcuts(!spectating && online && !locked && !game.gameOver && !cardInMotion && (!decision || decision.supported));
   const priority = decision?.kind === "chooseAction";
+  const pass = decision?.options.find((option) => option.responseId === "$pass");
+  const hasPriority = priority && decision.supported && Boolean(pass) && game.prioritySeat === seat;
   const myTurn = game.activeSeat === seat;
-  const priorityStops = usePriorityStops(game.roomId, online && !game.gameOver, sendPriority, !spectating);
-  const stopped = priorityStops.stops.has(`${myTurn ? "own" : "other"}:${game.step}`);
+  const turnSide = myTurn ? "own" : "other";
+  const phase = phaseControlStep(game.step);
+  const beforeEnd = phase !== "endOfTurn" && phase !== "cleanup";
+  // The opponent or a mandatory trigger choice can be first in the end step.
+  // Keep the hub stop until this seat actually receives end-step priority.
+  const yieldingToEnd = autoPass?.until === "end" && autoPass.turn === game.turn && autoPass.activeSeat === game.activeSeat &&
+    online && !game.gameOver && (beforeEnd || (phase === "endOfTurn" && (!hasPriority || locked)));
+  const priorityStops = usePriorityStops(game.roomId, online && !game.gameOver, sendPriority, !spectating,
+    yieldingToEnd ? `${turnSide}:end` : undefined);
+  const stopped = priorityStops.stops.has(`${turnSide}:${phase}`);
   const owner = game.players.find((player) => player.seat === seat);
   const opponent = game.players.find((player) => player.seat !== seat);
   const attackPrompt = !game.gameOver && decision?.supported && decision.kind === "chooseAttackers" ? decision : undefined;
   const attacks = useAttackDeclaration(attackPrompt, opponent?.seat);
-  const autoPassCurrent = !priorityStops.hold && autoPass?.turn === game.turn &&
-    (autoPass.step === game.step || (autoPass.until === "turn" && !stopped));
+  const autoPassCurrent = online && !game.gameOver && !priorityStops.hold && autoPass?.turn === game.turn &&
+    (autoPass.until === "end" ? yieldingToEnd : autoPass.step === game.step || (autoPass.until === "turn" && !stopped));
 
   useEffect(() => {
     if (autoPass && !autoPassCurrent) setAutoPass(undefined);
@@ -137,20 +150,20 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
     if (openedZone && !game.zones.some((zone) => zone.ownerSeat === openedZone.ownerSeat &&
       zone.zone === openedZone.zone && zone.cards.some(visibleFace))) setOpenedZone(undefined);
   }, [game.zones, openedZone]);
-  const pass = decision?.options.find((option) => option.responseId === "$pass");
   const payment = decision?.supported && decision.kind === "payManaCost" ? decision : undefined;
   const manaPrompt = !game.gameOver && isManaChoice(decision) ? decision : undefined;
   const confirmation = !game.gameOver && !manaPrompt && simpleConfirmation(decision);
   const autoPay = !game.gameOver && payment?.options.find((option) => option.responseId === "$auto-pay");
+  const canAutoPass = autoPass?.until === "end" ? beforeEnd && hasPriority : !game.stack.length;
 
   useEffect(() => {
     // Only send a currently published ordinary-priority response. Every
     // mandatory or specialized decision remains with the player.
-    if (!locked && !cardInMotion && autoPassCurrent && decision?.kind === "chooseAction" && pass && !game.stack.length) {
+    if (!locked && !cardInMotion && autoPassCurrent && canAutoPass && decision?.supported && decision.kind === "chooseAction" && pass) {
       const timer = setTimeout(() => answer(decision, { responseId: pass.responseId }), 220);
       return () => clearTimeout(timer);
     }
-  }, [answer, cardInMotion, autoPassCurrent, decision, game.stack.length, locked, pass]);
+  }, [answer, cardInMotion, autoPassCurrent, canAutoPass, decision, locked, pass]);
 
   if (!owner || !opponent) return <main className="shell"><p>Waiting for both seats.</p></main>;
   const allPermanents = game.zones.filter((zone) => zone.zone === "battlefield").flatMap((zone) => zone.cards ?? []);
@@ -366,10 +379,12 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
   const turnLabel = game.gameOver ? "Game over" : myTurn && !spectating ? "Your turn"
     : `${(myTurn ? owner : opponent).name}'s turn`;
   const stackPass = Boolean(game.stack.length && decision?.options.some((option) => option.responseId === "$pass-stack"));
+  const canYieldToEnd = game.turn > 0 && beforeEnd &&
+    (decision ? hasPriority : game.prioritySeat === opponent.seat);
   const priorityOptions = priority ? decision.options.filter((option) =>
     undoAction(option) || !option.cardId && option.kind !== "pass" && option.responseId !== "$pass-stack") : [];
 
-  return <main className="duel" onDragOverCapture={moveCard}>
+  return <main ref={boardRef} className="duel" onDragOverCapture={moveCard}>
     <section className="table" aria-label="Duel table" data-drag-active={Boolean(activeDrag)}>
       <div className="player-info opponent-info">{showPlayer(opponent, false)}</div>
       <section data-motion-zone="hand" data-seat={opponent.seat} className="hand opponent-hand revealed-hand"
@@ -432,7 +447,7 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
               <button type="button" onClick={() => respond({ responseId: "$submit", assignments: [] })}>No Attack</button>
             </div>
             {attacks.hasDraft && <button className="quiet" type="button" onClick={attacks.clear}>Cancel</button>}
-            <button className="primary" type="button" disabled={Boolean(attacks.choosing)}
+            <button className="primary" type="button" aria-keyshortcuts="Space" disabled={Boolean(attacks.choosing)}
               onClick={() => respond({ responseId: "$submit", assignments: attacks.assignments })}>Confirm</button>
           </> : <>
             {payment && <section className="mana-payment" aria-label="Mana payment">
@@ -443,17 +458,21 @@ export function Board({ game, seat, prompt, locked, metadata, answer, back, tour
                 <button type="button" className="quiet" onClick={() => respond({ responseId: "$cancel" })}>Cancel action</button>}
             </section>}
             {priorityOptions.length > 0 && <Options options={priorityOptions} submit={respond} />}
-            {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : priority && !game.gameOver && !priorityStops.hold &&
+            {autoPassCurrent ? <button type="button" onClick={() => setAutoPass(undefined)}>Cancel auto-pass</button> : (priority || canYieldToEnd) && !game.gameOver && !priorityStops.hold &&
               <details className="auto-pass"><summary onClick={(event) => dismissOpenDetails(event.currentTarget)}>Auto-pass</summary><div className="choices">
-                <button type="button" onClick={() => setAutoPass({ until: "step", step: game.step, turn: game.turn })}>This step</button>
-                <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
+                {priority && <>
+                  <button type="button" onClick={() => setAutoPass({ until: "step", step: game.step, turn: game.turn })}>This step</button>
+                  <button type="button" onClick={() => setAutoPass({ until: "turn", step: game.step, turn: game.turn })}>This turn</button>
+                </>}
+                <button type="button" aria-keyshortcuts="E" title="Until end step (E)" disabled={!canYieldToEnd}
+                  onClick={() => setAutoPass({ until: "end", turn: game.turn, activeSeat: game.activeSeat })}>Until end step</button>
               </div></details>}
             {stackPass && <button type="button" onClick={() => respond({ responseId: "$pass-stack" })}>Pass until stack resolves</button>}
             {game.gameOver && metadata?.result?.matchFinished ? <button className="primary" type="button" onClick={back}>
               {tournamentTable ? "Return to tournament" : "Return to room"}
-            </button> : autoPay ? <button type="button" className="primary"
+            </button> : autoPay ? <button type="button" className="primary" aria-keyshortcuts="Space"
               onClick={() => respond({ responseId: autoPay.responseId })}>Auto Pay</button> :
-              !payment && <button type="button" className="primary" disabled={!priority || !pass}
+              !payment && <button type="button" className="primary" aria-keyshortcuts="Space" title="Pass priority (Space)" disabled={!priority || !pass}
                 onClick={() => pass && respond({ responseId: pass.responseId })}>Pass priority</button>}
           </>}
         </fieldset>
