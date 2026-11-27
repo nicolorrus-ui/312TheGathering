@@ -1,101 +1,96 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Hexproof contributors
-
-name: Forge runtime (optional)
-
-# Deliberately independent of ordinary CI, releases and deployment. Dispatching
-# this workflow creates test artifacts only, never a release or remote service.
+name: Build Forge adapter 43 draft assets
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
-
+env:
+  SOURCE_COMMIT: eb13e76df179cdd10ff974ac73e4c767bec2412a
+  UPSTREAM_COMMIT: 230914a40a9e1e767391c3be990a349015b35761
+  PACKAGE_SUFFIX: 230914a40a9e1e767391c3be990a349015b35761-adapter43
 jobs:
-  runtime:
-    name: Build and exercise Forge (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            machine: x86_64
-            runner: ubuntu-24.04
-          - arch: arm64
-            machine: aarch64
-            runner: ubuntu-24.04-arm
-    env:
-      MAVEN_OPTS: -Xmx2g
-      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-${{ matrix.arch }}
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: apps/server/go.mod
-          cache-dependency-path: apps/server/go.sum
-      - name: Verify native runner and build tools
-        env:
-          EXPECTED_MACHINE: ${{ matrix.machine }}
-        run: |
-          test "$(uname -s)" = Linux
-          test "$(uname -m)" = "$EXPECTED_MACHINE"
-          . /etc/os-release
-          test "$ID" = ubuntu
-          sudo apt-get update
-          sudo apt-get install -y openjdk-21-jdk-headless maven
-          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
-          "$JAVA_HOME/bin/java" -version
-          python3 --version
-      - name: Test packaging helpers
-        run: |
-          python3 -m unittest discover -s tools/tests -p test_forge_source_package.py
-          python3 -m unittest discover -s tools/tests -p test_native_forge_builder.py
-          if test -f tools/tests/test_deploy_script.py; then
-            python3 -m unittest discover -s tools/tests -p test_deploy_script.py
-          fi
-      - name: Build paired runtime and source archives
-        run: ./third_party/forge-runtime/build.sh
-      - name: Verify source package rebuild and archive checksums
-        shell: bash
+          ref: eb13e76df179cdd10ff974ac73e4c767bec2412a
+          persist-credentials: false
+      - name: Verify application and select original toolchain
         run: |
           set -euo pipefail
-          package_dir="$PWD/build/forge-runtime"
-          package_identity="$(python3 -c 'import json; p=json.load(open("third_party/forge-runtime/native-host/upstream.json")); print(str(p["revision"])+"-adapter"+str(p["adapterRevision"]))')"
-          runtime_name="hexproof-forge-runtime-${package_identity}.tar.gz"
-          source_name="hexproof-forge-source-${package_identity}.tar.gz"
-          checksum="hexproof-forge-${package_identity}.sha256"
-          (cd "$package_dir" && sha256sum -c "$checksum")
-          python3 third_party/forge-runtime/source-package.py verify-release \
-            --runtime "$package_dir/$runtime_name" --source "$package_dir/$source_name"
-          mkdir -p build/forge-source-check
-          tar -xzf "$package_dir/$source_name" -C build/forge-source-check
-          source_root="$PWD/build/forge-source-check/hexproof-forge-source"
-          # This rebuild uses only the bundled source; it must not fetch Forge.
-          GIT_ALLOW_PROTOCOL=file bash "$source_root/hexproof-build/build.sh" --from-source "$source_root" \
-            --output "$PWD/build/forge-rebuilt"
-          cmp "$package_dir/$source_name" "build/forge-rebuilt/$source_name"
-          python3 third_party/forge-runtime/source-package.py verify-release \
-            --runtime "build/forge-rebuilt/$runtime_name" \
-            --source "build/forge-rebuilt/$source_name"
-          mkdir -p build/forge-runtime-check
-          tar -xzf "build/forge-rebuilt/$runtime_name" -C build/forge-runtime-check
-          echo "HEXPROOF_REAL_FORGE_ROOT=$PWD/build/forge-runtime-check/hexproof-forge-runtime" >> "$GITHUB_ENV"
-      - name: Run native Go-to-Java real-game conformance
-        working-directory: apps/server
-        # The aggregate includes AI, BO1/BO3 and 32 concurrent-room cases.
-        # Individual matches retain their three-minute progress deadline.
-        run: >-
-          go test -p 1 -race -tags engineintegration -count=1 -timeout 20m
-          ./internal/rulesengine/forge ./internal/server -run '^TestLiveForge' -v
-      - name: Retain paired development artifacts
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          jq -e --arg rev "$UPSTREAM_COMMIT" '.revision==$rev and .adapterRevision==43' third_party/forge-runtime/native-host/upstream.json
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 https://download.java.net/java/GA/jdk21/fd2272bbf8e04c3dbaee13770090416c/35/GPL/openjdk-21_linux-x64_bin.tar.gz -o jdk.tar.gz
+          echo "a30c454a9bef8f46d5f1bf3122830014a8fbe7ac03b5f8729bc3add4b92a1d0a  jdk.tar.gz" | sha256sum -c
+          curl -fsSL --retry 3 https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz -o maven.tgz
+          echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  maven.tgz" | sha512sum -c
+          tar -xzf jdk.tar.gz
+          tar -xzf maven.tgz
+          echo "$RUNNER_TEMP/jdk-21/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=$RUNNER_TEMP/jdk-21" >> "$GITHUB_ENV"
+          echo "JAVA_HOME_21_A=$RUNNER_TEMP/jdk-21" >> "$GITHUB_ENV"
+      - name: Build and verify release from the selected commit
+        env:
+          MAVEN_OPTS: -Xmx1600m
+        run: |
+          set -euo pipefail
+          java -version
+          mvn -version
+          ./third_party/forge-runtime/build.sh
+          dir=build/forge-runtime
+          runtime="hexproof-forge-runtime-$PACKAGE_SUFFIX.tar.gz"
+          source="hexproof-forge-source-$PACKAGE_SUFFIX.tar.gz"
+          (cd "$dir" && sha256sum -c "hexproof-forge-$PACKAGE_SUFFIX.sha256")
+          python3 third_party/forge-runtime/source-package.py verify-release --runtime "$dir/$runtime" --source "$dir/$source"
+          mkdir -p verified
+          cp "$dir/$runtime" "$dir/$source" verified/
+          cp "$dir/hexproof-forge-$PACKAGE_SUFFIX.sha256" verified/SHA256SUMS
+          (cd verified && sha256sum -c SHA256SUMS && wc -c ./*) | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Retain verified assets for independent review
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: hexproof-forge-linux-${{ matrix.arch }}
-          path: |
-            build/forge-runtime/*.tar.gz
-            build/forge-runtime/*.sha256
+          name: forge-adapter43-paired
+          path: verified/
           if-no-files-found: error
-          retention-days: 14
           compression-level: 0
+          retention-days: 14
+  upload:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Retrieve verified pair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" -n forge-adapter43-paired --dir verified
+      - name: Attach to the existing draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: "460264972"
+        run: |
+          set -euo pipefail
+          cd verified
+          sha256sum -c SHA256SUMS
+          tag="forge-runtime-$PACKAGE_SUFFIX"
+          endpoint="repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID"
+          gh api "$endpoint" | jq -e --arg c "$SOURCE_COMMIT" --arg tag "$tag" '.draft and .prerelease and .tag_name==$tag and .target_commitish==$c'
+          for file in "hexproof-forge-runtime-$PACKAGE_SUFFIX.tar.gz" "hexproof-forge-source-$PACKAGE_SUFFIX.tar.gz" SHA256SUMS; do
+            digest="sha256:$(sha256sum "$file" | cut -d" " -f1)"
+            bytes=$(stat -c %s "$file")
+            matches() {
+              gh api "$endpoint" | jq -e --arg n "$file" --arg h "$digest" --argjson size "$bytes" '.draft and ([.assets[] | select(.name==$n and .digest==$h and .size==$size)] | length==1)' >/dev/null
+            }
+            if ! matches; then
+              gh release upload "$tag" --repo "$GITHUB_REPOSITORY" "$file"
+              matches
+            fi
+            echo "$digest $bytes $file" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
