@@ -28,6 +28,7 @@ export function DecisionPanel({ title, children, compactActions, hideTitle = fal
 export function Options({ options, submit }: { options: Option[]; submit: (response: Response) => void }) {
   return <div className="choices">{options.map((option) => <button type="button" key={option.responseId}
     className={option.kind === "keep" || option.kind === "acknowledge" ? "primary" : undefined}
+    aria-keyshortcuts={option.kind === "keep" || option.kind === "acknowledge" ? "Space" : undefined}
     aria-label={option.kind === "spendFloatingMana" ? `Spend floating ${option.label} mana` : undefined}
     onClick={() => submit({ responseId: option.responseId })}>
     {option.kind === "spendFloatingMana" ? <ManaPip symbol={option.label} /> : option.label}
@@ -85,7 +86,7 @@ export function ConfirmationActions({ confirmation, submit }: {
       <PromptContext prompt={prompt} />
     </div>
     <button type="button" onClick={() => submit({ responseId: "$submit", choiceIds: [no.responseId] })}>{no.label}</button>
-    <button type="button" className="primary" onClick={() => submit({ responseId: "$submit", choiceIds: [yes.responseId] })}>{yes.label}</button>
+    <button type="button" className="primary" aria-keyshortcuts="Space" onClick={() => submit({ responseId: "$submit", choiceIds: [yes.responseId] })}>{yes.label}</button>
   </>;
 }
 
@@ -252,7 +253,7 @@ export function Decision({ prompt, targetIds, toggleTarget, submit, disabled }: 
     "chooseNumber", "chooseCardName", "reorder", "chooseDamageAssignmentOrder", "scry",
     "chooseBlockers", "chooseCombatDamageAssignment"];
   const confirmButton = prompt.supported && submitKinds.includes(prompt.kind) &&
-    <button className="primary" type="button" disabled={disabled || !enabled} onClick={() => confirm(response)}>{prompt.replacementOrder ? "OK" : "Confirm"}</button>;
+    <button className="primary" type="button" aria-keyshortcuts="Space" disabled={disabled || !enabled} onClick={() => confirm(response)}>{prompt.replacementOrder ? "OK" : "Confirm"}</button>;
   return <DecisionPanel title={prompt.title || "Forge decision"} hideTitle={Boolean(namesDisplayedCard(prompt, prompt.title))}
     compactActions={prompt.kind === "chooseBoardTargets" && confirmButton ? <footer>{confirmButton}</footer> : undefined}>
     <fieldset disabled={disabled}>

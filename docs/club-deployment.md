@@ -100,6 +100,19 @@ visible to you. The preview follows the current top and closes when it becomes h
 The phase track on the right highlights the current Forge step. Priority
 controls sit at the bottom right. **Concede game** is in the upper-right
 corner of the game page and asks for confirmation.
+
+Press **Space** to use the current confirmation, such as **Pass priority**,
+**Confirm**, **Yes**, or **Auto Pay**. After selecting cards or attackers with
+the mouse, Space confirms that selection. If you Tab to a different button,
+Space activates the focused button. You can type normally in search fields.
+
+Press **E** or choose **Auto-pass → Until end step** to pass priority through
+the rest of the current turn up to the end step. This works on either player's
+turn, including while waiting for the opponent. You still make required
+decisions, such as declaring blockers. At the end step you get priority again,
+even if your usual end-step stop is off. **Cancel auto-pass** ends the shortcut
+early. **Hold priority** takes precedence.
+
 After dragging a spell onto the battlefield, choose its targets and modes
 if prompted. During payment, you can see the spell in the stack at the
 right of the battlefield. **Auto Pay** appears in the usual **Pass priority**

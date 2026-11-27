@@ -17,6 +17,11 @@ const stopKeys = phases.flatMap(([phase]) => sides.map(([side]) => `${side}:${ph
 const defaultStops = stopKeys.filter((key) => !/:(untap|draw|cleanup)$/.test(key));
 const storageKey = "hexproof-club.priority.v1";
 
+// The hub publishes "end"; the phase rail and existing browser preferences use Forge's "endOfTurn".
+export function phaseControlStep(step: string) {
+  return step === "end" ? "endOfTurn" : step;
+}
+
 function readStops() {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? "null");
@@ -27,7 +32,8 @@ function readStops() {
   return new Set(defaultStops);
 }
 
-export function usePriorityStops(roomId: string, online: boolean, sendPriority: (preference: RulesPriority) => void, enabled = true) {
+export function usePriorityStops(roomId: string, online: boolean, sendPriority: (preference: RulesPriority) => void,
+  enabled: boolean, temporaryEndStop?: string) {
   const [stops, setStops] = useState(readStops);
   const holdKey = `${storageKey}.hold:${roomId}`;
   const [hold, setHold] = useState(() => {
@@ -46,8 +52,11 @@ export function usePriorityStops(roomId: string, online: boolean, sendPriority: 
     } catch { /* Storage can be disabled. */ }
   }, [enabled, holdKey, hold]);
   useEffect(() => {
-    if (enabled && online) sendPriority({ roomId, hold, stops: [...stops] });
-  }, [enabled, roomId, online, hold, stops, sendPriority]);
+    if (!enabled || !online) return;
+    const published = new Set([...stops].map((key) => key.replace(/:endOfTurn$/, ":end")));
+    if (temporaryEndStop && !hold) published.add(temporaryEndStop);
+    sendPriority({ roomId, hold, stops: [...published] });
+  }, [enabled, roomId, online, hold, stops, temporaryEndStop, sendPriority]);
 
   function toggleStop(key: string) {
     setStops((old) => {
@@ -66,17 +75,18 @@ export function PhaseControls({ game, turnLabel, myTurn, stops, hold, toggleStop
   toggleStop: (key: string) => void; setHold: (enabled: boolean) => void;
   spectatorNames?: [string, string];
 }) {
+  const step = phaseControlStep(game.step);
   return <aside className="phase-rail" aria-label="Turn phases">
     <header className="turn-widget"><strong>Turn {game.turn || "—"}</strong><small>{turnLabel}</small></header>
     <div className="phase-sides" aria-hidden="true">{sides.map(([side, , short], index) =>
       <span key={side} title={spectatorNames?.[index]}>{spectatorNames?.[index] ?? short}</span>)}</div>
     <ol className="phase-track">{phases.map(([id, label, short]) => <li key={id} data-phase={id}
-      aria-current={game.step === id && !game.gameOver ? "step" : undefined}>
+      aria-current={step === id && !game.gameOver ? "step" : undefined}>
       {sides.map(([side, description], index) => {
         const key = `${side}:${id}`;
         const name = spectatorNames ? `${spectatorNames[index]} · ${label}` : `${description} · ${label} stop`;
         return <button key={side} type="button" className="phase-stop" aria-label={name} title={name}
-          data-side={side} data-active={!game.gameOver && game.step === id && (side === "own") === myTurn}
+          data-side={side} data-active={!game.gameOver && step === id && (side === "own") === myTurn}
           aria-pressed={spectatorNames ? undefined : stops.has(key)} disabled={Boolean(spectatorNames)}
           onClick={() => toggleStop(key)} />;
       })}
