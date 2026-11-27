@@ -20,7 +20,8 @@ COPY apps/client-qt/qml/assets/mana/ apps/client-qt/qml/assets/mana/
 COPY deploy/club/ deploy/club/
 COPY third_party/forge-runtime/ third_party/forge-runtime/
 COPY LICENSE THIRD-PARTY-NOTICES.md ./
-RUN bash deploy/club/build.sh /tmp/bundles \
+RUN --mount=type=cache,target=/forge-downloads,sharing=locked \
+    CLUB_FORGE_CACHE=/forge-downloads bash deploy/club/build.sh /tmp/bundles \
     && mkdir /release \
     && mv /tmp/bundles/*/* /release/ \
     && sed -i 's/-bind 127[.]0[.]0[.]1 /-bind 0.0.0.0 /' /release/run.sh
