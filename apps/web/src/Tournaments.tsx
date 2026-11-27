@@ -20,7 +20,7 @@ export function Tournaments({ session, decks }: { session: Session; decks: Deck[
 
   if (event) return <TournamentPanel key={event.tournamentId} session={session} decks={decks} />;
 
-  return <section className="panel">
+  return <section className="panel tournament-lobby">
     <div className="tabs">
       <button type="button" aria-pressed={intent === "create"} onClick={() => setIntent("create")}>Create tournament</button>
       <button type="button" aria-pressed={intent === "join"} onClick={() => setIntent("join")}>Join tournament</button>
@@ -77,7 +77,7 @@ function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }
   const invitation = new URL(location.pathname, location.origin);
   invitation.searchParams.set("tournament", event.tournamentId);
 
-  return <section className="panel tournament">
+  return <section className={`panel tournament event-${event.status}`}>
     <header><div><h2>{event.name}</h2><small>{formatLabel(event.format)} · {conquest ? "Conquest" : event.topEight ? "Swiss + Top 8" : "Swiss"}</small></div>
       <button className="quiet" type="button" disabled={!online} onClick={() => session.send("tournament.leave")}>Leave tournament view</button></header>
     <div className="room-code"><span>Tournament code</span><strong>{event.tournamentId}</strong>
@@ -91,7 +91,7 @@ function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }
     {registration && <section>
       <h3>Registration</h3>
       <p>{event.checkedIn} checked in · {event.minimumPlayers} needed to start</p>
-      <ul>{event.participants.map((player) => <li key={player.participantId}>{player.displayName} {player.checkedIn ? "· Checked in" : ""}</li>)}</ul>
+      <ul>{event.participants.map((player) => <li key={player.participantId} className={player.participantId === event.participantId ? "own-seat" : undefined}>{player.displayName} {player.checkedIn ? "· Checked in" : ""}</li>)}</ul>
       {event.canRegister && <form onSubmit={(e) => {
         e.preventDefault();
         session.send("tournament.register", { tournamentId: event.tournamentId, lineup: conquest ? lineup.map((id) => {
@@ -109,7 +109,7 @@ function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }
           {conquest ? "Validate and register lineup" : "Register as player"}
         </button>
       </form>}
-      {registered && <button type="button" disabled={!online} onClick={() => session.send("tournament.check_in", { checkedIn: !registered.checkedIn })}>
+      {registered && <button type="button" className={registered.checkedIn ? undefined : "check-in-action"} disabled={!online} onClick={() => session.send("tournament.check_in", { checkedIn: !registered.checkedIn })}>
         {registered.checkedIn ? "Cancel check-in" : "Check in"}
       </button>}
       {organizer && <button className="primary" type="button" disabled={!online || event.checkedIn < event.minimumPlayers}
@@ -147,7 +147,7 @@ export function TournamentTables({ session }: { session: Session }) {
       {event.pairings.map((pairing) => {
         const ownTable = [pairing.playerAId, pairing.playerBId].includes(event.participantId);
         const open = active && pairing.status === "open" && ownTable && !pairing.bye;
-        return <div className="pairing" key={pairing.pairingId}>
+        return <div className={`pairing pairing-${pairing.status}${event.participantId && ownTable ? " own-pairing" : ""}`} key={pairing.pairingId}>
           <strong>{pairing.playerAName} {pairing.bye ? "· Bye" : `vs ${pairing.playerBName}`}</strong>
           {pairing.status === "confirmed" && !pairing.bye && <span>{pairing.playerAWins}–{pairing.playerBWins}
             {pairing.drawnGames ? ` · ${pairing.drawnGames} drawn` : ""}</span>}
@@ -171,7 +171,7 @@ export function TournamentTables({ session }: { session: Session }) {
     {event.standings.length > 0 && <section>
       <h3>{roundRobin ? "Round-robin standings" : "Swiss standings"}</h3>
       <div className="standings-scroll"><table><thead><tr><th>#</th><th>Player</th><th>W–L–D</th><th>Pts</th><th>OMW</th><th>GW</th><th>OGW</th></tr></thead>
-        <tbody>{event.standings.map((row) => <tr key={row.participantId}>
+        <tbody>{event.standings.map((row) => <tr key={row.participantId} className={row.participantId === event.participantId ? "own-standing" : undefined}>
           <td>{row.rank}</td><td>{row.displayName}</td><td>{row.wins}–{row.losses}–{row.draws}</td><td>{row.matchPoints}</td>
           <td>{(100 * row.oppMatchWin).toFixed(1)}%</td><td>{(100 * row.gameWin).toFixed(1)}%</td><td>{(100 * row.oppGameWin).toFixed(1)}%</td>
         </tr>)}</tbody></table></div>
