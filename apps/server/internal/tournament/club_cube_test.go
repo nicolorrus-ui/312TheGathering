@@ -119,7 +119,7 @@ func TestClubCubeTimeoutAndPrivateDrafts(t *testing.T) {
 }
 
 func TestClubCubeAutoPairings(t *testing.T) {
-	for _, seats := range []int{4, 5, 6, 8} {
+	for _, seats := range []int{4, 5, 6, 7, 8} {
 		t.Run(fmt.Sprint(seats), func(t *testing.T) {
 			event := newClubCubeDraft(t, seats, protocol.LimitedDraftModeBooster)
 			for event.Stage == protocol.LimitedStageDraft {
