@@ -3,6 +3,15 @@
   "protocol": "hexproof.v3",
   "definitions": [
     {
+      "name": "RulesViewerNotice",
+      "goType": "RulesViewerNotice",
+      "fields": [
+        {"name": "id", "type": "integer", "required": true, "goType": "int64"},
+        {"name": "turn", "type": "integer", "required": true},
+        {"name": "text", "type": "string", "required": true}
+      ]
+    },
+    {
       "name": "RulesCounter",
       "goType": "RulesCounter",
       "fields": [
@@ -29,6 +38,7 @@
         {"name": "name", "type": "string", "required": true},
         {"name": "status", "type": "string", "required": true},
         {"name": "life", "type": "integer", "required": true},
+        {"name": "liveLibraryCounts", "type": "object", "required": false, "goType": "map[string]int"},
         {"name": "counters", "type": "array", "required": true, "items": {"type": "object", "ref": "RulesCounter"}},
         {"name": "manaPool", "type": "array", "required": true, "items": {"type": "object", "ref": "RulesCounter"}},
         {"name": "commanders", "type": "array", "required": true, "items": {"type": "object", "ref": "RulesCommanderState"}}
@@ -317,6 +327,7 @@
         {"name": "stack", "type": "array", "required": true, "items": {"type": "object", "ref": "RulesStackObject"}},
         {"name": "pendingCast", "type": "object", "required": false, "ref": "RulesPendingCast", "nullable": true},
         {"name": "cardMoves", "type": "array", "required": false, "items": {"type": "object", "ref": "RulesCardMove"}},
+        {"name": "viewerNotices", "type": "array", "required": false, "items": {"type": "object", "ref": "RulesViewerNotice"}},
         {"name": "gameOver", "type": "boolean", "required": true},
         {"name": "winnerSeat", "type": "integer", "required": false, "nullable": true},
         {"name": "promptFollows", "type": "boolean", "required": false}

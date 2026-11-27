@@ -87,6 +87,7 @@ WebSocket. The decision fixture includes only the model seat's private hand.
 | `game-snapshot-owner.json` | S -> C | Owner sees their seven private hand identities and only opponent counts |
 | `game-snapshot-opponent.json` | S -> C | Opponent gets their own hand while Alice's hand identities remain absent |
 | `rules-snapshot-owner.json` | S -> C | Normalized Forge projection with seat-mapped players and viewer-authorized card identities |
+| `rules-snapshot-live-spectator.json` | S -> C | Club live spectator view with each player's current main-deck library counts, including zero |
 | `rules-snapshot-pending-cast.json` | S -> C | An announced spell during payment, including the hand origin visible to its owner |
 | `rules-snapshot-card-moves.json` | S -> C | Anonymous opponent draw and a physical spell moving from hand through the stack to a public graveyard object |
 | `rules-prompt-sequenced.json` / `rules-prompt-cleared-sequenced.json` | S -> C | A decision paired with `rules-snapshot-owner.json` at sequence 8, and a later empty decision at sequence 9; cleared prompts carry no private choices |

@@ -330,7 +330,7 @@ func (r *Room) ProjectRoomSnapshot(connID string, snapshot protocol.RoomSnapshot
 	if connID != "" && r.ClubLiveDuel() && r.IsSpectator(connID) &&
 		r.Phase == protocol.RoomPhaseStarted && snapshot.Phase == r.Phase && snapshot.LoadID == r.LoadID {
 		for i, player := range r.Seats {
-			deck := player.RegisteredDeck
+			deck := player.Deck
 			if deck != nil && player.Occupied && i < len(snapshot.Seats) && snapshot.Seats[i].DeckSelected {
 				snapshot.LiveDeckLists = append(snapshot.LiveDeckLists, protocol.LiveDeckList{
 					Seat: i, Name: deck.Name,

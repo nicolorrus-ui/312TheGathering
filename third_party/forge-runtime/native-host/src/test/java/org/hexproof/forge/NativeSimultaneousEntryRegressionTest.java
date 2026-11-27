@@ -134,11 +134,6 @@ public final class NativeSimultaneousEntryRegressionTest {
             require(owner.getManaPool().getAmountOfColor(MagicColor.BLUE) == 1 && owner.getCardsIn(ZoneType.Battlefield).size() == 2,
                     "Both real triggers must resolve");
         }, input -> switch (input.get("type").getAsString()) {
-            case "acknowledge" -> {
-                require(input.getAsJsonObject("presentation").get("description").getAsString().contains("{U}"),
-                        "Unexpected game notice: " + input);
-                yield object("type", "acknowledged");
-            }
             case "chooseBoolean" -> {
                 var result = object("type", "decision"); result.addProperty("value", true); yield result;
             }
@@ -177,5 +172,7 @@ public final class NativeSimultaneousEntryRegressionTest {
             default -> throw new AssertionError("Unexpected Scapeshift decision: " + input);
         });
         require(sacrifices.get() == 2 && searches.get() == 1 && triggers.get() == 1, "Missing real Scapeshift decisions");
+        require(session.snapshot(1).contains("picked {U}") && !session.snapshot(0).contains("picked {U}")
+                && !session.snapshot(-1).contains("picked {U}"), "Vestige's color announcement reached the wrong audience");
     }
 }

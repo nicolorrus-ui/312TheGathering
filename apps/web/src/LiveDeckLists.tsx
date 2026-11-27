@@ -2,9 +2,9 @@
 
 import { useState, type KeyboardEvent } from "react";
 import { DeckSection, useDeckCardIndex } from "./DeckSection";
-import type { LiveDeckList, Room } from "./protocol";
+import type { LiveDeckList, Player, Room } from "./protocol";
 
-export function LiveDeckLists({ lists, seats }: { lists: LiveDeckList[]; seats: Room["seats"] }) {
+export function LiveDeckLists({ lists, seats, players }: { lists: LiveDeckList[]; seats: Room["seats"]; players?: Player[] }) {
   const [seat, setSeat] = useState(lists[0].seat);
   const [expanded, setExpanded] = useState(false);
   const index = useDeckCardIndex();
@@ -38,7 +38,7 @@ export function LiveDeckLists({ lists, seats }: { lists: LiveDeckList[]; seats: 
       </div>
       <div key={deck.seat} id="live-deck-panel" role="tabpanel" aria-labelledby={`deck-tab-${deck.seat}`} tabIndex={0}>
         <h2>{deck.name}</h2>
-        <DeckSection name="Main deck" cards={deck.mainboard} index={index} />
+        <DeckSection name="Main deck" cards={deck.mainboard} index={index} library={{ counts: players?.find((player) => player.seat === deck.seat)?.liveLibraryCounts }} />
         <DeckSection name="Sideboard" cards={deck.sideboard} index={index} />
       </div>
     </div>

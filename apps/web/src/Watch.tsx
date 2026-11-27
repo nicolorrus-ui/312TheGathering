@@ -113,7 +113,8 @@ function useWatch(roomId: string) {
           case "room.snapshot": {
             const room = payload as Room;
             setState((previous) => ({ ...previous, room,
-              ...(room.phase === "waiting" ? { game: undefined, metadata: undefined } : {}) }));
+              ...(room.phase === "waiting" || (previous.room && previous.room.loadId !== room.loadId)
+                ? { game: undefined, metadata: undefined } : {}) }));
             break;
           }
           case "rules.snapshot":
@@ -202,7 +203,7 @@ export function Watch({ roomId }: { roomId: string }) {
         <LiveRoomList />
       </section>
     </main> : <div className="watch-layout" data-decks={Boolean(room?.liveDeckLists?.length)}>
-      {room?.liveDeckLists?.length ? <LiveDeckLists lists={room.liveDeckLists} seats={room.seats} /> : null}
+      {room?.liveDeckLists?.length ? <LiveDeckLists lists={room.liveDeckLists} seats={room.seats} players={game?.players} /> : null}
       {game && !betweenGames ? <Board key={game.gameId} game={game} seat={game.players[0]?.seat ?? 0}
         spectating locked online={online} metadata={metadata} answer={ignore} back={ignore} sendPriority={ignore} />
         : <main className="shell"><p role="status">{!online ? "Connecting to the live room…" : betweenGames

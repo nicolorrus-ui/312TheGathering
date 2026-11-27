@@ -60,6 +60,7 @@ func offlineCardNameKey(name string) string {
 func registerClubCardRoutes(mux *http.ServeMux, files fs.FS, offline bool, artwork *clubImageCache, cubeDir string) error {
 	getCatalog := sync.OnceValues(func() (*offlineCatalog, error) { return loadOfflineCatalog(files) })
 	newClubCubes(cubeDir, getCatalog).register(mux)
+	mux.Handle("GET /card-oracle-zh", newClubOracleZH())
 	if !offline {
 		cards := newClubCardArt()
 		mux.Handle("GET /card-search", clubSearchFunc(cards.search))

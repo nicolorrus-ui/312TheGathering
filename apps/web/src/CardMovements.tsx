@@ -53,7 +53,7 @@ function scene(table: HTMLElement, game: Snapshot, pending?: PendingCast): Scene
       if (!id) continue;
       const center = point(rect, true);
       const clip = element.closest(".hand, .stack")?.getBoundingClientRect();
-      if (clip) {
+      if (clip && !element.hasAttribute("data-landing") && !element.hasAttribute("data-returning")) {
         center.x = Math.max(clip.left, Math.min(center.x, clip.right));
         center.y = Math.max(clip.top, Math.min(center.y, clip.bottom));
       }

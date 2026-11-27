@@ -102,7 +102,9 @@ Forge's informational AI deck-quality advisory is not shown to the player.
 The client silently acknowledges that specific single-action startup notice
 and proceeds to opening hands, including with existing runtimes. It sends at
 most one acknowledgement per game/prompt and does not act for spectators or
-replays. Other notices and game decisions still require their normal input.
+replays. During play, Forge's informational messages go to the recipient's
+game log without pausing the game. Choices such as picking a mana color and
+assigning legal blockers still require the deciding player's input.
 The advisory does not invalidate the deck or remove any cards.
 
 AI seats have no player connection and cannot become host. They never preserve

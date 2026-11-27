@@ -15,6 +15,7 @@ import (
 // that Hexproof currently projects. Unknown upstream fields are deliberately
 // ignored so harness additions do not change the public wire contract.
 type GameView struct {
+	ViewerNotices    []ViewerNoticeView `json:"viewerNotices,omitempty"`
 	PublicChoices    []PublicChoiceView `json:"publicChoices,omitempty"`
 	GameID           string             `json:"gameId"`
 	IntegrityHash    string             `json:"integrityHash,omitempty"`
@@ -32,6 +33,12 @@ type GameView struct {
 	WinnerID         string             `json:"winnerId,omitempty"`
 }
 
+type ViewerNoticeView struct {
+	ID   int64  `json:"id"`
+	Turn int    `json:"turn"`
+	Text string `json:"text"`
+}
+
 // Published only in the engine's spectator view, for the public game log.
 type PublicChoiceView struct {
 	ID       int64  `json:"id"`
@@ -42,6 +49,7 @@ type PublicChoiceView struct {
 }
 
 type PlayerView struct {
+	LiveLibraryCounts   map[string]int  `json:"liveLibraryCounts,omitempty"`
 	ControllingPlayerID string          `json:"controllingPlayerId,omitempty"`
 	ID                  string          `json:"id"`
 	Name                string          `json:"name"`

@@ -99,12 +99,15 @@ the deck available for room selection and tournament registration in this browse
 ## Duel controls
 
 Your hand fans out across the bottom of the table. Scroll horizontally if it
-does not fit. To play a land or cast a spell, drag the card onto your
-battlefield and release it. Moving the card back over your hand before
-release cancels the drag. Hover over a visible card to see its larger art
+does not fit. To play a land or cast a spell, click the card or drag it onto
+your battlefield and release it. The card stays under the point where you
+picked it up. Returning it to your hand or releasing it outside your own
+battlefield cancels the drag. Forge presents any required target, mode or
+payment choices after you play the card. Hover over a visible card to see its larger art
 on the left. The opponent's hand shows the cards revealed to you and a card
 back for each remaining card. Click a player's library when its top card is
 visible to you. The preview follows the current top and closes when it becomes hidden.
+
 The phase track on the right highlights the current Forge step. Priority
 controls sit at the bottom right. **Concede game** is in the upper-right
 corner of the game page and asks for confirmation.
@@ -165,6 +168,13 @@ plan, **Cancel** clears it, and **No Attack** submits an empty declaration.
 Selected attackers tilt 30 degrees while you edit the plan. After confirmation,
 Forge determines which attackers tap, including the exception for vigilance.
 Forge enforces attack requirements when you submit the declaration.
+
+During **Declare blockers**, an illegal combination returns you to the blocker
+selection with Forge's explanation. For example, Loyal Pegasus needs another
+creature to block alongside it. Open **Game log → Your notices** to review
+Forge messages addressed to you. When Crumbling Vestige enters, its controller
+chooses a mana color and each opponent can read the result there. Play continues
+as soon as the controller chooses.
 
 Selection windows show each card as a card image, with available choices
 first. Hover or focus a card to inspect the image. With Collected Company, the
@@ -227,12 +237,17 @@ and [100 Ornithopters](https://cubecobra.com/cube/list/100-ornithopters).
 Enable **Live mode** when creating a two-player duel. Spectators can select the
 room under **Watch live** or open its shared watch link. They can see
 both hands and both registered decklists without a password. Viewers can
-switch between players in the decklist panel and see the quantities in each
-registered main deck and sideboard. Hover over a card in either list to preview
-that printing just as you would a card on the board. The lists stay fixed through sideboarding.
+switch between players in the decklist panel. Each main-deck row shows the
+copies currently in that player's library divided by the copies in their
+starting deck for this game. For example, `2/4` means two of the four starting
+copies remain in the library. Sideboard rows show the starting quantity for
+this game. Both lists reflect the players' submitted decks after sideboarding.
+Hover over a visible card on the board or in either list to see the English
+card image and current Chinese Oracle text when available from
+[MTGCH](https://mtgch.com/api/v1/docs#/).
 Library order and private decisions are hidden. Players use the regular invite
-and room password to take a seat. Viewers can hover over visible cards for a
-close-up and follow the active phase in the read-only phase track.
+and room password to take a seat. Viewers can follow the active phase in the
+read-only phase track.
 
 Run `node apps/web/tests/live-interactions.mjs` against the local bundle
 to check spectator visibility, reload, and repeated Forge undo in Chromium.

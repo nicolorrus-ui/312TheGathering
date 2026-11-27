@@ -317,7 +317,10 @@ current battlefield summaries. This is a bounded synthetic interaction check.
 application with a shared blocker, then with Zilortha's power-based lethal
 threshold. Those damage boards are separate from declaration coverage.
 `NativeMultiBlockRegressionTest` operates actual `InputBlock` with Watcher in
-the Web blocking eight attackers and an ordinary creature blocking a ninth.
+the Web blocking eight attackers and Loyal Pegasus blocking a ninth.
+A first attempt to block with only Loyal Pegasus must reopen the declaration
+with the rules error and restore every candidate. Only the defender receives
+the message in their live snapshot.
 Duplicate pairs and per-blocker capacity overflow must be rejected before
 combat mutation while retaining the prompt. The regression checks the exact
 native assignments and private-hand redaction. Go protocol and Qt model/QML

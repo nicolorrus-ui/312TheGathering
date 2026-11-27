@@ -20,6 +20,7 @@ export default defineConfig({
       "/live-rooms": "http://127.0.0.1:57320",
       "/assets/deck-cards.json": "http://127.0.0.1:57320",
       "/card-search": "http://127.0.0.1:57320",
+      "/card-oracle-zh": "http://127.0.0.1:57320",
       "/card-art": "http://127.0.0.1:57320",
     },
   },

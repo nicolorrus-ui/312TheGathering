@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ManaPip } from "./ManaSymbols";
 import { useCardHover } from "./CardImages";
-import { normalizeCardName, printingKey } from "./decks";
+import { cardNameKey, normalizeCardName, printingKey } from "./decks";
 import type { DeckCard } from "./protocol";
 
 type CardIndex = Record<string, [cost: string, frame: string]>;
@@ -29,13 +29,14 @@ export function useDeckCardIndex() {
   return index;
 }
 
-export function DeckSection({ name, cards, index, remove, disabled }: {
+export function DeckSection({ name, cards, index, remove, disabled, library }: {
+  library?: { counts?: Record<string, number> };
   name: string; cards: DeckCard[]; index: CardIndex; remove?: (card: DeckCard) => void; disabled?: boolean;
 }) {
   const hover = useCardHover();
   const rows = new Map<string, { card: DeckCard; count: number; cost: string; frame: string }>();
   for (const card of cards) {
-    const key = printingKey(card);
+    const key = library ? cardNameKey(card.name) : printingKey(card);
     const existing = rows.get(key);
     if (existing) existing.count += card.count;
     else {
@@ -46,13 +47,18 @@ export function DeckSection({ name, cards, index, remove, disabled }: {
       rows.set(key, { card, count: card.count, cost, frame });
     }
   }
+  const remaining = new Map<string, number>();
+  for (const [name, count] of Object.entries(library?.counts ?? {})) {
+    const key = cardNameKey(name);
+    remaining.set(key, (remaining.get(key) ?? 0) + count);
+  }
   const sorted = [...rows.values()].sort((a, b) => Number(a.frame === "land") - Number(b.frame === "land")
     || manaValue(a.cost) - manaValue(b.cost) || a.card.name.localeCompare(b.card.name));
   return <section className="live-deck-section" aria-label={name}>
     <h3>{name}<span>{sum(cards)}</span></h3>
     <ul>{sorted.map((row) => {
       const content = <>
-        <b className="deck-quantity">{row.count}</b>
+        <b className="deck-quantity">{library && `${remaining.get(cardNameKey(row.card.name)) ?? "—"}/`}{row.count}</b>
         <span className="live-card-name">{row.card.name}
           {row.card.setCode && <small>{row.card.setCode.toUpperCase()} {row.card.collectorNumber}</small>}
         </span>

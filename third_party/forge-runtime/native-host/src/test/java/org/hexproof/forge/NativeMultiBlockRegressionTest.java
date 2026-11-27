@@ -41,7 +41,7 @@ public final class NativeMultiBlockRegressionTest {
                 session.game.setStartingPlayer(attacker);
                 session.game.getPhaseHandler().devModeSet(PhaseType.COMBAT_DECLARE_BLOCKERS, attacker, false, 1);
                 Card watcher = card(session.game, defender, "Watcher in the Web", ZoneType.Battlefield);
-                Card ordinary = card(session.game, defender, "Grizzly Bears", ZoneType.Battlefield);
+                Card ordinary = card(session.game, defender, "Loyal Pegasus", ZoneType.Battlefield);
                 card(session.game, defender, "Black Lotus", ZoneType.Hand);
                 List<Card> attackers = new ArrayList<>();
                 for (int i = 0; i < 9; i++) attackers.add(card(session.game, attacker, "Grizzly Bears", ZoneType.Battlefield));
@@ -59,10 +59,17 @@ public final class NativeMultiBlockRegressionTest {
                     require(CombatUtil.validateBlocks(combat, defender) == null, "Native engine rejected the completed declaration");
                 }, input -> {
                     require(input.get("type").getAsString().equals("chooseBlockers"), "Unexpected declaration prompt: " + input);
-                    require(decisions.incrementAndGet() == 1, "Declaration failed to leave InputBlock after a valid response");
+                    int attempt = decisions.incrementAndGet();
+                    require(attempt <= 2, "Declaration failed to leave InputBlock after a valid response");
                     require(!input.toString().contains("Black Lotus"), "Combat prompt disclosed a hidden noncandidate");
                     require(!session.snapshot(1).contains("Black Lotus") && !session.snapshot(-1).contains("Black Lotus"), "Block declaration leaked the defender's hand");
                     require(limit(input, watcher) == 8 && limit(input, ordinary) == 1, "Native blocker capacities missing or inferred incorrectly");
+                    if (attempt == 1) return response(ordinary, attackers.subList(0, 1));
+                    require(combat.getAllBlockers().isEmpty(), "An invalid complete declaration left a blocker assigned");
+                    require(input.getAsJsonObject("presentation").get("description").getAsString().contains("can't block alone"),
+                            "The repeated declaration omitted Forge's explanation");
+                    require(session.snapshot(0).contains("can't block alone") && !session.snapshot(1).contains("viewerNotices")
+                            && !session.snapshot(-1).contains("viewerNotices"), "Block validation notice reached the wrong viewer");
                     reject(session, combat, response(watcher, List.of(attackers.get(0), attackers.get(0))));
                     reject(session, combat, response(watcher, attackers));
                     reject(session, combat, response(ordinary, attackers.subList(0, 2)));
@@ -70,7 +77,7 @@ public final class NativeMultiBlockRegressionTest {
                     add(answer.getAsJsonArray("assignments"), ordinary, attackers.get(8));
                     return answer;
                 });
-                require(decisions.get() == 1, "Native block declaration was bypassed");
+                require(decisions.get() == 2, "Expected one rejected and one legal declaration");
                 for (int viewer : List.of(0, 1, -1)) {
                     var snapshot = NativeSnapshot.capture(session.game, session.id, viewer, attacker);
                     JsonObject projected = null;

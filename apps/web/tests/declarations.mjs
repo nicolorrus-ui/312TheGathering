@@ -11,6 +11,7 @@ const named = "Asmoranomardicadaistinaculdacar";
 const players = ["Alice", "Bob"].map((name, seat) => ({ name, seat, life: 20, manaPool: [], status: "playing" }));
 const room = { roomId, phase: "started", seats: players.map(({ name }) => ({ occupied: true, displayName: name })) };
 const announcements = [`Alice named ${named}.`, "Bob chose Wizard."];
+const personal = { id: 1, turn: 3, text: "Crumbling Vestige picked {W}" };
 const metadata = { roomId, gameNumber: 1, score: [0, 0],
   log: announcements.map((text, id) => ({ id, kind: "declaration", text })) };
 function permanent(id, name, seat, annotation, tapped = false) {
@@ -34,7 +35,8 @@ async function verify(seat, width) {
   const send = (type, payload) => socket.send(JSON.stringify({ type, payload }));
   const gameState = () => {
     send("room.snapshot", room);
-    send("rules.snapshot", game);
+    // Also exercise the read-only board's defense against an unredacted snapshot.
+    send("rules.snapshot", seat === 1 || spectator ? { ...game, viewerNotices: [personal] } : game);
     send("game.snapshot", metadata);
   };
   page.on("pageerror", (error) => errors.push(error.message));
@@ -81,6 +83,8 @@ async function verify(seat, width) {
   }
   await page.getByText("Game log", { exact: true }).click();
   assert.deepEqual(await page.getByRole("list", { name: "Game log" }).getByRole("listitem").allTextContents(), announcements);
+  assert.deepEqual(await page.getByRole("list", { name: "Your notices" }).getByRole("listitem").allTextContents(),
+    seat === 1 ? [`Turn 3 · ${personal.text}`] : []);
   await page.getByText("Game log", { exact: true }).click();
   assert.equal(await panel.count(), 0);
 

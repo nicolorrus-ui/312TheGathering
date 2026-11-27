@@ -49,6 +49,35 @@ func TestForgeStartRequestPreservesPrintingsAndCommanderVariant(t *testing.T) {
 	}
 }
 
+func TestForgeStartRequestsLibraryCountsOnlyInLiveClubDuels(t *testing.T) {
+	live := room.Room{ID: "ABCDEF", AllowSpectators: true, SpectatorsSeeHands: true, ClubDuel: true}
+	players := []room.RulesStartPlayer{{Seat: 0, DisplayName: "Alice"}, {Seat: 1, DisplayName: "Bob"}}
+	for _, test := range []struct {
+		name           string
+		clubMode, want bool
+		configure      func(*room.Room)
+	}{
+		{"live duel", true, true, nil},
+		{"outside Club", false, false, nil},
+		{"other room", true, false, func(r *room.Room) { r.ClubDuel = false }},
+		{"no spectators", true, false, func(r *room.Room) { r.AllowSpectators = false }},
+		{"hands private", true, false, func(r *room.Room) { r.SpectatorsSeeHands = false }},
+		{"practice", true, false, func(r *room.Room) { r.Practice = true }},
+		{"tournament", true, false, func(r *room.Room) { r.TournamentID = "SWISS" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r := live
+			if test.configure != nil {
+				test.configure(&r)
+			}
+			request, _, err := forgeStartRequest(&r, players, test.clubMode)
+			if err != nil || request.LiveLibraryCounts != test.want {
+				t.Fatalf("liveLibraryCounts = %v, want %v (err=%v)", request.LiveLibraryCounts, test.want, err)
+			}
+		})
+	}
+}
+
 func TestForgeRoomLifecycleProjectsViewerPrivateState(t *testing.T) {
 	if os.Getenv(forgeLifecycleHelperEnvironment) == "1" {
 		runForgeLifecycleHelper(t)

@@ -53,3 +53,46 @@ func TestScryfallImageURLRejectsOtherOrigins(t *testing.T) {
 		}
 	}
 }
+
+func TestClubBroadcastEnglishArtwork(t *testing.T) {
+	art := newClubCardArt()
+	var requests []string
+	art.client.Transport = cardArtTransport(func(r *http.Request) (*http.Response, error) {
+		requests = append(requests, r.URL.RequestURI())
+		status, body := http.StatusOK, ""
+		switch r.URL.Path {
+		case "/cards/sta/90":
+			body = `{"name":"Demonic Tutor","lang":"ja","image_uris":{"normal":"https://cards.scryfall.io/ja.jpg"}}`
+		case "/cards/sta/90/en":
+			status = http.StatusNotFound
+		case "/cards/named":
+			if r.URL.Query().Get("set") != "sta" || r.URL.Query().Get("exact") != "demonic tutor" {
+				t.Fatalf("unexpected lookup %s", r.URL)
+			}
+			body = `{"name":"Demonic Tutor","lang":"en","image_uris":{"normal":"https://cards.scryfall.io/en.jpg"}}`
+		case "/cards/neo/9∞/en":
+			body = `{"name":"Front // Back","lang":"en","card_faces":[
+				{"name":"Front","image_uris":{"normal":"https://cards.scryfall.io/front.jpg"}},
+				{"name":"Back","image_uris":{"normal":"https://cards.scryfall.io/back.jpg"}}]}`
+		default:
+			t.Fatalf("unexpected URL %s", r.URL)
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	for _, tt := range []struct{ query, want string }{
+		{"name=Demonic+Tutor&set=sta&number=90", "ja.jpg"},
+		{"name=Demonic+Tutor&set=sta&number=90&lang=en", "en.jpg"},
+		{"name=Demonic+Tutor&set=sta&number=90&lang=en", "en.jpg"},
+		{"name=Demonic+Tutor&set=STA&lang=en", "en.jpg"},
+		{"name=Back&set=neo&number=9%E2%88%9E&lang=en", "back.jpg"},
+	} {
+		w := httptest.NewRecorder()
+		art.ServeHTTP(w, httptest.NewRequest("GET", "/card-art?"+tt.query, nil))
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "https://cards.scryfall.io/"+tt.want {
+			t.Fatalf("%s got %d %s", tt.query, w.Code, w.Header().Get("Location"))
+		}
+	}
+	if len(requests) != 5 {
+		t.Fatalf("unexpected requests %v", requests)
+	}
+}

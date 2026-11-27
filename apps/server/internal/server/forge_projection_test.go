@@ -253,6 +253,26 @@ func TestForgeStackTargetsJoinOnlyViewerObjects(t *testing.T) {
 	}
 }
 
+func TestForgeViewerNoticesStayWithRecipient(t *testing.T) {
+	game := forgeRoomGame{gameID: "game", playerToSeat: map[int]int{0: 1, 1: 0}}
+	view := forge.GameView{GameID: "game", ActivePlayerID: "player-0", PriorityPlayerID: "player-1",
+		ViewerNotices: []forge.ViewerNoticeView{{ID: 2, Turn: 1, Text: "Crumbling Vestige picked {W}"}}}
+	recipient, err := normalizeForgeSnapshotForSeat("ROOM", game, view, 1)
+	if err != nil || len(recipient.ViewerNotices) != 1 || recipient.ViewerNotices[0] != protocol.RulesViewerNotice(view.ViewerNotices[0]) {
+		t.Fatalf("recipient missing Forge notice: %+v, %v", recipient.ViewerNotices, err)
+	}
+	public, err := normalizeForgeSnapshot("ROOM", game, view)
+	if err != nil || len(public.ViewerNotices) != 0 {
+		t.Fatalf("private text in public journal/replay base: %+v, %v", public.ViewerNotices, err)
+	}
+	for _, showHands := range []bool{false, true} {
+		watch := rulesSpectatorSnapshot(public, map[int]protocol.RulesGameSnapshot{1: recipient}, showHands)
+		if len(watch.ViewerNotices) != 0 {
+			t.Fatalf("spectator saw another seat's notices (showHands=%v)", showHands)
+		}
+	}
+}
+
 func TestForgeSpectatorHandPermissionDoesNotExtendOtherPrivateZones(t *testing.T) {
 	card := func(name string) protocol.RulesCardState {
 		return protocol.RulesCardState{ID: name, Visible: true, Identity: &protocol.RulesCardIdentity{Name: name}}
@@ -284,6 +304,38 @@ func TestForgeSpectatorHandPermissionDoesNotExtendOtherPrivateZones(t *testing.T
 	result := rulesSpectatorSnapshot(public, map[int]protocol.RulesGameSnapshot{0: owner}, true)
 	if !reflect.DeepEqual(result.Zones[0].Cards, public.Zones[0].Cards) {
 		t.Fatal("hand permission copied an old game's identity")
+	}
+}
+
+func TestLiveLibraryCountsFollowSeatsAndStayOutOfThePublicProjection(t *testing.T) {
+	game := forgeRoomGame{gameID: "live", playerToSeat: map[int]int{0: 3, 1: 1}, seatToPlayer: map[int]int{3: 0, 1: 1}}
+	input := forge.GameView{GameID: "live", ActivePlayerID: "player-1", PriorityPlayerID: "player-0",
+		Players: []forge.PlayerView{
+			{ID: "player-0", LiveLibraryCounts: map[string]int{"Forest": 5}},
+			{ID: "player-1", LiveLibraryCounts: map[string]int{"Island": 0}},
+		}}
+	public, err := normalizeForgeSnapshot("ROOM", game, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := liveSpectatorPlayers(public.Players, input.Players, game)
+	if live[0].Seat != 1 || !reflect.DeepEqual(live[0].LiveLibraryCounts, input.Players[1].LiveLibraryCounts) ||
+		live[1].Seat != 3 || !reflect.DeepEqual(live[1].LiveLibraryCounts, input.Players[0].LiveLibraryCounts) {
+		t.Fatalf("library counts assigned to incorrect seat: %+v", live)
+	}
+	for _, viewer := range []int{-1, 1, 3} {
+		projection := public
+		if viewer >= 0 {
+			projection, err = normalizeForgeSnapshotForSeat("ROOM", game, input, viewer)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, player := range projection.Players {
+			if player.LiveLibraryCounts != nil {
+				t.Fatalf("viewer %d received seat %d's library counts", viewer, player.Seat)
+			}
+		}
 	}
 }
 

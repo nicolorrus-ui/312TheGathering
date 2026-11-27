@@ -20,7 +20,7 @@ const cardArtSpacing = 150 * time.Millisecond
 
 var (
 	cardArtSet    = regexp.MustCompile(`^[a-z0-9]{2,12}$`)
-	cardArtNumber = regexp.MustCompile(`^[[:alnum:]★†*.-]{1,24}$`)
+	cardArtNumber = regexp.MustCompile(`^[[:alnum:]★†∞*.-]{1,24}$`)
 )
 
 type artKey struct{ name, set, number string }
@@ -39,8 +39,8 @@ type artLookup struct {
 type clubCardArt struct {
 	client   *http.Client
 	mu       sync.Mutex
-	cache    map[artKey]artEntry
-	pending  map[artKey]*artLookup
+	cache    map[clubImageID]artEntry
+	pending  map[clubImageID]*artLookup
 	searches map[string]cardSearchEntry
 	next     time.Time
 	cooldown time.Time
@@ -51,7 +51,7 @@ func newClubCardArt() *clubCardArt {
 		client: &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
-		cache: make(map[artKey]artEntry), pending: make(map[artKey]*artLookup),
+		cache: make(map[clubImageID]artEntry), pending: make(map[clubImageID]*artLookup),
 		searches: make(map[string]cardSearchEntry),
 	}
 }
@@ -63,13 +63,16 @@ func (a *clubCardArt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid card name", http.StatusBadRequest)
 		return
 	}
-	set, number := query.Get("set"), query.Get("number")
-	if !cardArtSet.MatchString(set) || !cardArtNumber.MatchString(number) {
-		set, number = "", ""
+	set, number := strings.ToLower(strings.TrimSpace(query.Get("set"))), strings.TrimSpace(query.Get("number"))
+	if !cardArtSet.MatchString(set) {
+		set = ""
+	}
+	if !cardArtNumber.MatchString(number) {
+		number = ""
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	urls := a.resolve(ctx, artKey{name, set, number})
+	urls := a.resolve(ctx, clubImageID{artKey: artKey{name, set, number}, english: query.Get("lang") == "en", token: query.Get("token") == "1"})
 	image := urls.Normal
 	if query.Get("size") == "small" && urls.Small != "" {
 		image = urls.Small
@@ -84,7 +87,7 @@ func (a *clubCardArt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, image, http.StatusFound)
 }
 
-func (a *clubCardArt) resolve(ctx context.Context, key artKey) artURLs {
+func (a *clubCardArt) resolve(ctx context.Context, key clubImageID) artURLs {
 	a.mu.Lock()
 	if hit, ok := a.cache[key]; ok && time.Now().Before(hit.expires) {
 		a.mu.Unlock()
@@ -108,13 +111,28 @@ func (a *clubCardArt) resolve(ctx context.Context, key artKey) artURLs {
 	a.mu.Unlock()
 
 	lookup := "https://api.scryfall.com/cards/named?" + url.Values{"exact": {key.name}}.Encode()
-	address := lookup
-	if key.set != "" {
-		address = "https://api.scryfall.com/cards/" + key.set + "/" + url.PathEscape(key.number)
+	var addresses []string
+	if cardArtSet.MatchString(key.set) {
+		if key.number != "" && key.number != "." && key.number != ".." && !strings.ContainsAny(key.number, "/\\") {
+			address := "https://api.scryfall.com/cards/" + key.set + "/" + url.PathEscape(key.number)
+			if key.english {
+				address += "/en"
+			}
+			addresses = append(addresses, address)
+		}
+		// Some collector numbers are exclusive to a language. Prefer English art
+		// in the same set before widening to the exact card name.
+		if key.english {
+			addresses = append(addresses, lookup+"&set="+key.set)
+		}
 	}
-	images, status := a.fetch(ctx, address, key.name)
-	if status == http.StatusNotFound && address != lookup {
-		images, status = a.fetch(ctx, lookup, key.name)
+	var images artURLs
+	var status int
+	for _, address := range append(addresses, lookup) {
+		images, status = a.fetch(ctx, address, key)
+		if status != http.StatusNotFound {
+			break
+		}
 	}
 	a.mu.Lock()
 	call.urls = images
@@ -185,6 +203,7 @@ func (a *clubCardArt) requestJSON(ctx context.Context, address string, limit int
 }
 
 type scryfallCard struct {
+	Language        string  `json:"lang"`
 	Layout          string  `json:"layout"`
 	FlavorName      string  `json:"flavor_name"`
 	PrintedName     string  `json:"printed_name"`
@@ -201,13 +220,40 @@ type scryfallCard struct {
 	} `json:"card_faces"`
 }
 
-func (a *clubCardArt) fetch(ctx context.Context, address, face string) (artURLs, int) {
+func (a *clubCardArt) fetch(ctx context.Context, address string, key clubImageID) (artURLs, int) {
 	var card scryfallCard
 	status := a.requestJSON(ctx, address, 128<<10, &card)
 	if status != http.StatusOK {
 		return artURLs{}, status
 	}
-	return card.images(face), status
+	face := key.name
+	if key.english {
+		token := card.Layout == "token" || card.Layout == "double_faced_token" || card.Layout == "emblem"
+		face = card.matchFace(key.name)
+		if card.Language != "en" || token != key.token || face == "" {
+			return artURLs{}, http.StatusNotFound
+		}
+	}
+	images := card.images(face)
+	if key.english && images.Normal == "" {
+		return artURLs{}, http.StatusNotFound
+	}
+	return images, status
+}
+
+func (card *scryfallCard) matchFace(name string) string {
+	matches := func(english, printed, flavor string) bool {
+		return strings.EqualFold(english, name) || strings.EqualFold(printed, name) || strings.EqualFold(flavor, name)
+	}
+	if matches(card.Name, card.PrintedName, card.FlavorName) {
+		return card.Name
+	}
+	for _, part := range card.Faces {
+		if matches(part.Name, part.PrintedName, part.FlavorName) {
+			return part.Name
+		}
+	}
+	return ""
 }
 
 func (card *scryfallCard) images(face string) artURLs {

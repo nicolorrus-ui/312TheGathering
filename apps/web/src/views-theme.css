@@ -316,7 +316,6 @@
 .waiting { border-color: var(--line-bright); background: var(--ink); }
 .waiting[data-decision="true"] { border-color: var(--amber); color: var(--text); }
 .center-line::before, .center-line::after { background: var(--line-bright); }
-.duel-tools .log ol { background: var(--surface); }
 .duel .mana-payment { scrollbar-color: var(--line-bright) var(--surface); }
 .duel .phase-stop:disabled, .live-deck-tabs button[aria-selected="false"] { color: var(--muted); }
 .live-decks, .live-deck-toggle { color: var(--text); background: var(--surface); border-color: var(--line); }

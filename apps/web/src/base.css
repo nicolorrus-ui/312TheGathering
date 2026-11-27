@@ -212,26 +212,14 @@ label { display: grid; gap: .35rem; color: var(--muted); font-size: .875rem; }
 .own-hand .table-card {
   transform: translateY(var(--fan-offset, 0px)) rotate(var(--fan-angle, 0deg));
 }
-.own-hand .card-slot:is(:hover, :focus-within) { z-index: 1; }
-.own-hand .card-slot:is(:hover, :focus-within) .table-card { transform: translateY(-.8rem) scale(1.055); }
+.own-hand .card-slot:is(:hover, :has(:focus-visible)) { z-index: 1; }
+.own-hand .card-slot:is(:hover, :has(:focus-visible)) .table-card { transform: translateY(-.8rem) scale(1.055); }
 .table-card[draggable="true"] { cursor: grab; touch-action: pan-x; }
-.card-slot[data-dragging] .table-card {
-  transform: translateY(.35rem) rotate(var(--fan-angle, 0deg)) scale(.96);
-  opacity: .26;
-  cursor: grabbing;
-}
+.card-slot[data-dragging] .table-card { opacity: 0; pointer-events: none; }
 .floating-hand-card {
-  position: fixed;
-  z-index: 7;
-  width: clamp(78px, min(10vw, 15dvh), 144px);
-  aspect-ratio: 1 / 1.39;
-  padding: .4rem;
-  border: 1px solid var(--teal);
-  border-radius: 7px;
-  background: var(--raised);
-  overflow: hidden;
-  pointer-events: none;
-  transform: translate(-48%, -37%) rotate(-6deg) scale(1.06);
+  position: fixed; top: 0; left: 0; z-index: 7; will-change: transform;
+  border: 1px solid var(--teal); border-radius: 6px; padding: .35rem;
+  background: var(--raised); overflow: hidden; pointer-events: none;
 }
 .floating-card-back { position: absolute; inset: 0; }
 .lobby-nav { margin-bottom: 1rem; }
@@ -248,9 +236,6 @@ label { display: grid; gap: .35rem; color: var(--muted); font-size: .875rem; }
   outline: 1px dashed var(--teal);
   outline-offset: -4px;
   background-color: var(--teal)17;
-}
-@media (prefers-reduced-motion: reduce) {
-  .floating-hand-card { transform: translate(-48%, -37%); }
 }
 .opponent-hand .hand-fan { padding-block: .55rem .85rem; }
 .opponent-card-back {
@@ -308,11 +293,14 @@ label { display: grid; gap: .35rem; color: var(--muted); font-size: .875rem; }
 .score { font-size: .76rem; text-align: right; margin: .15rem 0 .45rem; }
 .log { position: relative; padding: .42rem .5rem; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); }
 .log summary, .auto-pass summary { cursor: pointer; font-size: .76rem; color: var(--muted); }
-.log ol {
+.log-content {
   position: absolute; top: 100%; right: 0; z-index: 3; width: min(320px, 72vw); max-height: 42dvh;
   margin: .3rem 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
-  padding: .8rem 1rem .8rem 1.85rem; overflow: auto; color: var(--muted); font-size: .76rem;
+  padding: .8rem 1rem; overflow: auto; color: var(--muted); font-size: .76rem;
 }
+.log-content ol { margin: 0; padding-inline-start: 1.2em; }
+.log-content h3 { margin: 0 0 .4rem; font-size: inherit; color: var(--text); }
+.log-content ol + h3 { margin-top: .8rem; }
 .log li + li { margin-top: .4rem; }
 .phase-rail { min-width: 0; align-self: start; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); padding: .68rem .45rem; }
 .turn-widget { display: grid; gap: .24rem; padding: .32rem .22rem .7rem; border-bottom: 1px solid var(--line); }
@@ -421,14 +409,13 @@ label { display: grid; gap: .35rem; color: var(--muted); font-size: .875rem; }
     transition: transform 190ms cubic-bezier(.22,.68,.26,1), border-color 120ms ease-out, box-shadow 120ms ease-out;
   }
   .own-hand .table-card, .revealed-hand .table-card, .opponent-card-back { transition: transform 170ms ease-out; }
-  .own-hand .card-slot[data-dragging] .table-card { transition: transform 170ms ease-out, opacity 120ms ease-out; }
-  .own-hand .table-card[data-returning] { transition: none; }
+  .table-card:is([data-returning], [data-landing]) { transition: none; }
   .phase-stop, .phase-stop::after, .priority-hold, .priority-hold::before,
   .player-life, .monogram, .battlefield.home, .zone-button {
     transition: background-color 120ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out;
   }
   .waiting, .phase-label { transition: color 120ms ease-out, border-color 120ms ease-out; }
-  .decision.floating, .inspection, .log[open] > ol, .auto-pass[open] > .choices {
+  .decision.floating, .inspection, .log[open] > .log-content, .auto-pass[open] > .choices {
     animation: panel-appear 140ms ease-out;
   }
   .decision.collapsed, .card-hover-preview, .combat-tag, .life-total { animation: detail-appear 130ms ease-out; }
@@ -491,9 +478,6 @@ label { display: grid; gap: .35rem; color: var(--muted); font-size: .875rem; }
   display: grid; grid-template-columns: var(--live-rail-width) minmax(0, 1fr);
   background: var(--ink);
 }
-@media (min-width: 801px) {
-  .watch-layout[data-decks="true"] ~ .card-hover-preview { left: calc(var(--live-rail-width) + .5rem); }
-}
 .live-decks {
   align-self: start; position: sticky; top: .45rem; min-width: 0;
   margin: clamp(.4rem, .9vw, .85rem) 0 clamp(.4rem, .9vw, .85rem) clamp(.4rem, .9vw, .85rem);
@@ -548,9 +532,6 @@ label { display: grid; gap: .35rem; color: var(--muted); font-size: .875rem; }
 .deck-pip[data-color="G"] { background: var(--mana-g); }
 @media (max-width: 800px) {
   .watch-layout[data-decks="true"] { display: block; }
-  .watch-layout:has(.live-deck-section li:is(:hover, :focus-visible)) ~ .card-hover-preview {
-    inset: auto .5rem .5rem auto; transform: none;
-  }
   .live-decks { position: static; margin: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
   .live-deck-toggle { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 0; border-radius: 0; background: var(--surface); color: var(--amber); }
   .live-decks[data-expanded="false"] #live-deck-content { display: none; }

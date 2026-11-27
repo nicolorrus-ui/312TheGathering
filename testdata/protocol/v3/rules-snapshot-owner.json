@@ -62,6 +62,9 @@
       }
     ],
     "stack": [],
+    "viewerNotices": [
+      {"id": 1, "turn": 1, "text": "Crumbling Vestige picked {W}"}
+    ],
     "gameOver": false
   }
 }

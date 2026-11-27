@@ -161,6 +161,7 @@ func forgeStartRequest(r *room.Room, players []room.RulesStartPlayer, clubMode b
 	}
 	if clubMode {
 		request.SkipReplay = true
+		request.LiveLibraryCounts = r.ClubLiveDuel()
 		// The Limited table validates the deck against its locked draft pool.
 		// Forge's deckFormat field selects a constructed format legality check.
 		if !r.LimitedDeckLocked || (r.DeckFormat != protocol.DeckFormatLimited && r.DeckFormat != protocol.DeckFormatCommanderLimited) {

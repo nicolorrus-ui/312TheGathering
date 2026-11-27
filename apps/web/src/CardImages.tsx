@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Identity } from "./protocol";
+import { BroadcastOracle } from "./BroadcastOracle";
 
-export type CardHover = (identity?: Identity, source?: Element, art?: Element) => void;
+type ImageIdentity = Identity & { tokenCopy?: boolean };
+export function imageIdentity(face?: Identity, copy?: boolean): ImageIdentity | undefined {
+  return face?.token && copy ? { ...face, tokenCopy: true } : face;
+}
+export type CardHover = (identity?: ImageIdentity, source?: Element, art?: Element) => void;
 const CardHoverContext = createContext<CardHover>(() => {});
 export const useCardHover = () => useContext(CardHoverContext);
 
@@ -21,12 +26,28 @@ export function cardArtURL(card: Identity, compact = false, revision = 0) {
   return "/card-art?" + query;
 }
 
-export function CardImages({ children }: { children: ReactNode }) {
+export function CardImages({ children, broadcast = false }: { children: ReactNode; broadcast?: boolean }) {
   const [pack, setPack] = useState<ImagePack | null>();
-  const [preview, setPreview] = useState<{ identity: Identity; source: Element; art?: Element }>();
+  const [preview, setPreview] = useState<{ identity: ImageIdentity; source: Element; art?: Element; right: boolean }>();
+  const tooltip = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<number | undefined>(undefined);
   const hoverCard = useCallback<CardHover>((identity, source, art) => {
-    setPreview(identity?.name && source ? { identity, source, art } : undefined);
-  }, []);
+    window.clearTimeout(closeTimer.current);
+    closeTimer.current = undefined;
+    if (identity?.name && source) {
+      const bounds = broadcast ? source.getBoundingClientRect() : undefined;
+      setPreview({ identity, source, art, right: Boolean(bounds && bounds.left + bounds.width / 2 < window.innerWidth / 2) });
+    } else if (broadcast && !source) {
+      // Give a reader time to enter the scrollable rules panel after leaving the card.
+      closeTimer.current = window.setTimeout(() => {
+        closeTimer.current = undefined;
+        if (!tooltip.current?.matches(":hover, :focus-within")) setPreview(undefined);
+      }, 160);
+    } else {
+      setPreview(undefined);
+    }
+  }, [broadcast]);
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
   useEffect(() => {
     // A single listener covers card buttons, read-only gallery cells and
     // controls beside an image (for example sorting arrows and pile selectors).
@@ -53,7 +74,9 @@ export function CardImages({ children }: { children: ReactNode }) {
     // A new seat, zone or prompt can remove the source without a mouseleave.
     const dismiss = () => setPreview((current) => current === preview ? undefined : current);
     const checkSource = () => {
-      if (!preview.source.isConnected || (preview.art && !preview.art.isConnected) || !preview.source.matches(":hover, :focus-visible")) dismiss();
+      if (!preview.source.isConnected || (preview.art && !preview.art.isConnected)) dismiss();
+      else if (!preview.source.matches(":hover, :focus-visible") && closeTimer.current === undefined
+          && !tooltip.current?.matches(":hover, :focus-within")) dismiss();
     };
     checkSource();
     const observer = new MutationObserver(checkSource);
@@ -73,17 +96,23 @@ export function CardImages({ children }: { children: ReactNode }) {
   }, []);
   return <ImagePackContext.Provider value={pack}><CardHoverContext.Provider value={hoverCard}>
     {children}
-    {preview && <CardHoverPreview identity={preview.identity} />}
+    {preview && (broadcast
+      ? <div className="card-hover-preview broadcast-preview" role="tooltip" data-edge={preview.right ? "right" : "left"}
+          ref={tooltip} onMouseLeave={() => hoverCard()} onBlur={() => hoverCard()}>
+          <CardImage identity={preview.identity} className="broadcast-preview-image" eager fallbackName english />
+          <BroadcastOracle key={cardArtURL(preview.identity)} card={preview.identity} />
+        </div>
+      : <CardHoverPreview identity={preview.identity} />)}
   </CardHoverContext.Provider></ImagePackContext.Provider>;
 }
 
-export function CardImage({ identity, className, decorative = false, eager = false, compact = false, revision, fallbackName = false }: {
-  identity?: Identity; className: string; decorative?: boolean; eager?: boolean; compact?: boolean; revision?: number; fallbackName?: boolean;
+export function CardImage({ identity, className, decorative = false, eager = false, compact = false, revision, fallbackName = false, english = false }: {
+  identity?: ImageIdentity; className: string; decorative?: boolean; eager?: boolean; compact?: boolean; revision?: number; fallbackName?: boolean; english?: boolean;
 }) {
   const pack = useContext(ImagePackContext);
   const [failed, setFailed] = useState<string[]>([]);
   if (!identity?.name) return null;
-  if (pack === undefined) return fallbackName
+  if (pack === undefined && !english) return fallbackName
     ? <span className={`${className} card-image-loading`} aria-hidden="true" /> : null;
 
   const name = identity.name.trim().normalize("NFC").toLowerCase();
@@ -92,12 +121,14 @@ export function CardImage({ identity, className, decorative = false, eager = fal
   const set = identity.setCode?.trim().toLowerCase() ?? "";
   const number = identity.collectorNumber?.trim().toLowerCase() ?? "";
   const printing = pack?.printings[`${prefix}${set}/${number}`];
-  const remote = cardArtURL(identity, compact, revision);
+  const remote = cardArtURL(identity, compact, revision) + (english ? "&lang=en" : "");
   const local = (file?: string) => file && /^[0-9a-f-]{36}(?:-b)?\.jpg$/.test(file) ? directory + file : undefined;
   const named = local(pack?.names[prefix + name]);
   const printedFace = local(printing?.faces?.[name]);
   const printedFront = local(printing?.front);
-  const sources = import.meta.env.MODE === "club-debug" && (set || number)
+  // A token copy of a printed card may have no separate token printing.
+  const copiedOriginal = english && identity.tokenCopy ? cardArtURL({ ...identity, token: false }, compact, revision) + "&lang=en" : undefined;
+  const sources = english ? [remote, copiedOriginal] : import.meta.env.MODE === "club-debug" && (set || number)
     ? [printing?.faces && Object.keys(printing.faces).length ? printedFace : printedFront, remote]
     : [printedFace, printedFront, ...(set && number ? [remote, named] : [named, remote])];
   const src = sources.find((source) => source && !failed.includes(source));

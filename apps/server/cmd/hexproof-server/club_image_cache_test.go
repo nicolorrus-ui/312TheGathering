@@ -25,7 +25,7 @@ const testFaces = `{"name":"Front // Back","set":"neo","collector_number":"9∞"
 
 func TestClubImageCacheImportedPackHasPriority(t *testing.T) {
 	cache := newClubImageCache(t.TempDir())
-	id := clubImageID{artKey{"bolt", "m11", "149"}, false}
+	id := clubImageID{artKey: artKey{"bolt", "m11", "149"}}
 	if err := storeClubFile(cache.path(id), offlineTestJPEG(t, 30)); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +47,16 @@ func TestClubImageCacheImportedPackHasPriority(t *testing.T) {
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-art?name=Bolt&set=M11&number=149", nil))
 	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), packed) {
 		t.Fatal("imported art did not override the downloaded image")
+	}
+	id.english = true
+	english := offlineTestJPEG(t, 70)
+	if err := storeClubFile(cache.path(id), english); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/card-art?name=Bolt&set=M11&number=149&lang=en", nil))
+	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), english) {
+		t.Fatal("broadcast preview used art with an unverified language")
 	}
 }
 
@@ -73,7 +83,7 @@ func TestClubImageCacheExactFaceSharedAcrossSizesAndRestarts(t *testing.T) {
 			return &http.Response{StatusCode: 404, Body: http.NoBody}, nil
 		}
 	})
-	id := clubImageID{artKey{"back", "neo", "9∞"}, false}
+	id := clubImageID{artKey: artKey{"back", "neo", "9∞"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	first := make(chan []byte)
 	go func() { first <- cache.image(ctx, id) }()
@@ -124,11 +134,11 @@ func TestClubImageCacheNeverSubstitutesAnotherPrintingOrFace(t *testing.T) {
 		metadata string
 		status   int
 	}{
-		{"missing printing", clubImageID{artKey{"front", "neo", "99"}, false}, "", 404},
-		{"wrong issue", clubImageID{artKey{"front", "neo", "10"}, false}, testFaces, 200},
-		{"unknown face", clubImageID{artKey{"other", "neo", "9∞"}, false}, testFaces, 200},
-		{"token namespace", clubImageID{artKey{"front", "neo", "9∞"}, true}, testFaces, 200},
-		{"untrusted image", clubImageID{artKey{"back", "neo", "9∞"}, false}, strings.ReplaceAll(testFaces, "cards.scryfall.io", "other.example"), 200},
+		{"missing printing", clubImageID{artKey: artKey{"front", "neo", "99"}}, "", 404},
+		{"wrong issue", clubImageID{artKey: artKey{"front", "neo", "10"}}, testFaces, 200},
+		{"unknown face", clubImageID{artKey: artKey{"other", "neo", "9∞"}}, testFaces, 200},
+		{"token namespace", clubImageID{artKey: artKey{"front", "neo", "9∞"}, token: true}, testFaces, 200},
+		{"untrusted image", clubImageID{artKey: artKey{"back", "neo", "9∞"}}, strings.ReplaceAll(testFaces, "cards.scryfall.io", "other.example"), 200},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := newClubImageCache(t.TempDir())
@@ -149,7 +159,7 @@ func TestClubImageCacheNeverSubstitutesAnotherPrintingOrFace(t *testing.T) {
 
 func TestClubImageCacheRepairsDamagedJPEGAndRetries(t *testing.T) {
 	cache := newClubImageCache(t.TempDir())
-	id := clubImageID{artKey{"front", "neo", "9∞"}, false}
+	id := clubImageID{artKey: artKey{"front", "neo", "9∞"}}
 	portrait := offlineTestJPEG(t, 180)
 	if err := storeClubFile(cache.path(id), []byte("corrupt file")); err != nil {
 		t.Fatal(err)
@@ -178,7 +188,7 @@ func TestClubImageCacheRepairsDamagedJPEGAndRetries(t *testing.T) {
 	cache.mu.Lock()
 	cache.retryAfter[id] = time.Now().Add(-time.Second)
 	cache.mu.Unlock()
-	both := clubImageID{artKey{"front // back", "neo", "9∞"}, false}
+	both := clubImageID{artKey: artKey{"front // back", "neo", "9∞"}}
 	if !bytes.Equal(cache.image(context.Background(), both), portrait) {
 		t.Fatal("did not recover after transient error")
 	}

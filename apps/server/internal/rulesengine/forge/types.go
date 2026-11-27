@@ -50,6 +50,7 @@ type StartGameRequest struct {
 	Players             []PlayerConfig `json:"players"`
 	StartingPlayerIndex *int           `json:"startingPlayerIndex,omitempty"`
 	SkipReplay          bool           `json:"skipReplay,omitempty"`
+	LiveLibraryCounts   bool           `json:"liveLibraryCounts,omitempty"`
 }
 
 func (request StartGameRequest) validate() error {

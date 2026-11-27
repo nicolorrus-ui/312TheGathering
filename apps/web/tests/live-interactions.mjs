@@ -173,7 +173,18 @@ async function checkSpectator(viewer, host) {
     await preview.waitFor({ state: "hidden" });
     await list.getByRole("region", { name: "Main deck" }).getByText("Exploration").hover();
     await preview.locator("img, .card-image-fallback").waitFor();
-    assert.equal(await list.getByRole("region", { name: "Main deck" }).locator("li").count(), 2);
+    const main = list.getByRole("region", { name: "Main deck" });
+    assert.equal(await main.locator("li").count(), 2);
+    const seat = ownSeat(player);
+    const library = viewer.game.zones.find((zone) => zone.zone === "library" && zone.ownerSeat === seat);
+    const remaining = viewer.game.players.find((entry) => entry.seat === seat).liveLibraryCounts;
+    assert.equal(remaining.Forest + remaining.Exploration, library.count);
+    for (const [name, registered] of [["Forest", 34], ["Exploration", 26]]) {
+      const row = main.locator("li").filter({ has: page.getByText(name, { exact: true }) });
+      assert.equal(await row.locator(".deck-quantity").innerText(), `${remaining[name]}/${registered}`);
+    }
+    assert.equal(await sideboard.locator(".deck-quantity").innerText(), "1");
+    assert.ok(player.game.players.every((entry) => !("liveLibraryCounts" in entry)));
     assert.equal(await tab.getAttribute("aria-selected"), "true");
     assert.ok(!player.received.some(({ type, payload }) => type === "room.snapshot" && payload.liveDeckLists));
     const shownHand = page.getByRole("region", { name: new RegExp(`${player.name}.*hand`, "i") });
@@ -214,7 +225,7 @@ try {
   await guest.page.getByLabel("Room code").fill(room);
   await guest.page.getByLabel("Room password").fill(password);
   await button(guest, "Join duel").click();
-  await guest.page.getByText("This room appears in Watch live. Viewers can see both hands and registered decklists.").waitFor();
+  await guest.page.getByText("This room appears in Watch live. Viewers can see both hands, decklists and remaining library counts.").waitFor();
   await Promise.all(peers.map(selectDeck));
   await button(guest, "Ready").click({ timeout: 60000 });
   await button(guest, "Cancel ready").waitFor();

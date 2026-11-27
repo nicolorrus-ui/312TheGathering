@@ -117,7 +117,7 @@ func TestRoomSnapshotDeckNameRequiresCurrentHumanSelectionAndMatchingPublicSeat(
 	}
 }
 
-func TestClubLiveDeckListsFollowRegistrationAndViewerRole(t *testing.T) {
+func TestClubLiveDeckListsFollowCommittedGameDeckAndViewerRole(t *testing.T) {
 	r, err := NewWithRulesMode("LIVE01", "Club", protocol.FormatModern, protocol.MatchBO3,
 		protocol.CardLoadBackground, protocol.RulesModeForge, 2, true, true, "Host", "host", testNow)
 	if err != nil {
@@ -150,13 +150,13 @@ func TestClubLiveDeckListsFollowRegistrationAndViewerRole(t *testing.T) {
 	for seat, conn := range []string{"host", "guest"} {
 		lists := project("watch")
 		if len(lists) != 2 || lists[seat].Seat != seat || lists[seat].Name != conn+"'s deck" ||
-			!reflect.DeepEqual(lists[seat].Mainboard, r.Seats[seat].RegisteredDeck.Mainboard) ||
-			!reflect.DeepEqual(lists[seat].Sideboard, r.Seats[seat].RegisteredDeck.Sideboard) {
-			t.Fatalf("wrong registration: %+v", lists)
+			!reflect.DeepEqual(lists[seat].Mainboard, r.Seats[seat].Deck.Mainboard) ||
+			!reflect.DeepEqual(lists[seat].Sideboard, r.Seats[seat].Deck.Sideboard) {
+			t.Fatalf("wrong game deck: %+v", lists)
 		}
 		lists[seat].Sideboard[0].Name = "mutated"
-		if r.Seats[seat].RegisteredDeck.Sideboard[0].Name != "Island" {
-			t.Fatal("viewer can mutate the registration")
+		if r.Seats[seat].Deck.Sideboard[0].Name == "mutated" {
+			t.Fatal("viewer can mutate the game deck")
 		}
 	}
 	viewerSnapshot := r.ProjectRoomSnapshot("watch", r.Snapshot())
