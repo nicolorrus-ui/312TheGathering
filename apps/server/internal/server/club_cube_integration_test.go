@@ -218,3 +218,31 @@ func TestClubCubeStaleRochesterPickAtDoubleTurn(t *testing.T) {
 		})
 	}
 }
+
+func TestClubCubeConstructionSurvivesUnattendedRetention(t *testing.T) {
+	h := NewHandler()
+	t.Cleanup(func() { _ = h.Close() })
+	event := newClubCubeClockEvent(t, protocol.LimitedDraftModeBooster, time.Now().UTC())
+	entry, err := h.tournaments.create(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event.Stage == protocol.LimitedStageDraft {
+		if changed, err := event.ExpireClubCube(event.ClubCubeDeadline()); err != nil || !changed {
+			t.Fatal("draft timeout", err)
+		}
+	}
+	deadline := event.ClubCubeDeadline()
+	if h.tryEvictTournament(event.ID, entry, deadline.Add(-time.Second)) || h.tournaments.entry(event.ID) != entry {
+		t.Fatal("unattended seats lost their draft before the build deadline")
+	}
+	if changed, err := event.ExpireClubCube(deadline); err != nil || !changed {
+		t.Fatal("build timeout", err)
+	}
+	if h.tryEvictTournament(event.ID, entry, deadline) {
+		t.Fatal("competition evicted immediately")
+	}
+	if !h.tryEvictTournament(event.ID, entry, deadline.Add(h.config.TournamentAbandonedTTL)) {
+		t.Fatal("empty competition failed to expire after the normal grace period")
+	}
+}
