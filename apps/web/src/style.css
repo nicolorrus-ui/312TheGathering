@@ -61,6 +61,8 @@ label { display: grid; gap: .35rem; color: var(--soft); font-size: .87rem; }
 .shell { width: min(1000px, 100% - 2.2rem); margin: 3rem auto; }
 .intro { min-height: min(570px, 78vh); display: grid; align-items: center; grid-template-columns: 1.35fr 1fr; gap: clamp(1rem, 6vw, 7rem); }
 .eyebrow { color: var(--accent); letter-spacing: .17em; font-size: .73rem; margin-bottom: 1rem; }
+.cube-shell { width: min(1560px, calc(100% - 2.2rem)); }
+.cube-content { min-width: 0; }
 .lobby-title { margin-bottom: 1.4rem; }
 .lobby-content { max-width: 42rem; }
 .panel { border: 1px solid var(--line); border-radius: var(--radius); padding: clamp(.95rem, 2.4vw, 1.45rem); background: var(--paper); }

@@ -136,6 +136,8 @@ type Round struct {
 
 // Tournament is mutated only while its registry entry lock is held.
 type Tournament struct {
+	cubeClocks              map[string]cubePickClock
+	buildDeadline           time.Time
 	ClubStyle               string
 	TopEight                bool
 	Champion                string
@@ -228,6 +230,13 @@ func New(id string, config Config, organizerName, organizerConnectionID string,
 	if config.RoundMinutes < MinRoundMinutes || config.RoundMinutes > MaxRoundMinutes {
 		return nil, fail(ErrInvalid, "round time is outside the supported range")
 	}
+	if config.ClubStyle == ClubCube && (config.EventType != protocol.LimitedEventCubeDraft ||
+		config.Coordinator != protocol.LimitedCoordinatorSwiss || config.RulesMode != protocol.RulesModeForge ||
+		config.Format != protocol.DeckFormatLimited || config.MatchMode != protocol.MatchBO3 || config.TopEight ||
+		config.PlannedRounds != 0 || config.MaxPlayers < 4 || config.MaxPlayers > 8 || config.DraftSettings == nil ||
+		(config.DraftSettings.Mode != protocol.LimitedDraftModeBooster && config.DraftSettings.Mode != protocol.LimitedDraftModeRochester)) {
+		return nil, fail(ErrInvalid, "Club Cube requires a four to eight seat Booster or Rochester draft and Forge BO3 matches")
+	}
 	if config.MaxPlayers == 0 {
 		switch config.EventType {
 		case protocol.LimitedEventSetDraft:
@@ -318,7 +327,7 @@ func New(id string, config Config, organizerName, organizerConnectionID string,
 		return nil, fail(ErrInvalid, settingsErr.Error())
 	}
 	var draftSettings *protocol.LimitedDraftSettings
-	if config.EventType == protocol.LimitedEventCommanderCube {
+	if config.EventType == protocol.LimitedEventCommanderCube || (config.EventType == protocol.LimitedEventCubeDraft && config.DraftSettings != nil) {
 		draftSettings = &settings
 	}
 	if config.Product != nil {
@@ -422,6 +431,9 @@ func minimumPlayersFor(eventType, coordinator string) int {
 
 // MinimumPlayers reports the checked-in count this tournament needs to start.
 func (t *Tournament) MinimumPlayers() int {
+	if t.ClubStyle == ClubCube {
+		return t.MaxPlayers
+	}
 	if t.ClubStyle == ClubConquest {
 		return 2
 	}
@@ -552,6 +564,9 @@ func (t *Tournament) ApplyTimeout(pairingID, loserID string, winnerWins, loserWi
 	pairing.Pending = nil
 	pairing.Result = &ConfirmedResult{
 		Score: score, ConfirmedBy: "timeout", ConfirmedAt: now.UTC(),
+	}
+	if t.ClubStyle == ClubCube && t.RoundComplete() {
+		return t.advanceFinishedRound(now.UTC())
 	}
 	return nil
 }
@@ -700,7 +715,7 @@ func (t *Tournament) Start(actor Actor, seed int64, now time.Time) error {
 	if t.Status != StatusRegistration {
 		return fail(ErrInvalid, "tournament has already started")
 	}
-	if t.IsCubeRoom() {
+	if t.IsCubeRoom() || t.ClubStyle == ClubCube {
 		if len(t.Participants) < t.MinimumPlayers() {
 			return failMinimumPlayers(t.MinimumPlayers())
 		}
@@ -766,6 +781,7 @@ func (t *Tournament) Start(actor Actor, seed int64, now time.Time) error {
 	t.Status = StatusRunning
 	if limitedEvent != nil {
 		t.Limited, t.cubeTableSeed, t.Stage = limitedEvent, seed, limitedEvent.Stage
+		t.syncClubCubeClocks(now)
 		return nil
 	}
 	t.Stage = protocol.LimitedStageCompetition
@@ -791,6 +807,12 @@ func (t *Tournament) PickLimited(actor Actor, instanceID string) (int, error) {
 }
 
 func (t *Tournament) PickLimitedCards(actor Actor, instanceIDs []string) (int, error) {
+	return t.PickLimitedOffer(actor, instanceIDs, "")
+}
+
+// A Club Cube seat can take two consecutive Rochester picks from one pack.
+// A click on the old offer must not consume a card after an automatic pick.
+func (t *Tournament) PickLimitedOffer(actor Actor, instanceIDs []string, expectedDeadline string) (int, error) {
 	participant := t.participantByID[actor.ParticipantID]
 	// Organizer authority does not retain a participant seat after its separate
 	// credential has moved to another connection.
@@ -798,11 +820,18 @@ func (t *Tournament) PickLimitedCards(actor Actor, instanceIDs []string) (int, e
 		participant.ConnectionID != actor.ConnectionID || t.Limited == nil {
 		return 0, fail(ErrForbidden, "limited seat is not owned by this session")
 	}
+	if t.ClubStyle == ClubCube && expectedDeadline != "" {
+		clock, ok := t.cubeClocks[actor.ParticipantID]
+		if !ok || expectedDeadline != clock.deadline.UTC().Format(time.RFC3339Nano) {
+			return 0, fail(ErrNotReady, "this pick has expired")
+		}
+	}
 	remaining, err := t.Limited.PickCards(actor.ParticipantID, instanceIDs)
 	if err != nil {
 		return 0, err
 	}
 	t.Stage = t.Limited.Stage
+	t.syncClubCubeClocks(time.Now())
 	return remaining, nil
 }
 
@@ -812,6 +841,12 @@ func (t *Tournament) SubmitLimitedDeck(actor Actor,
 	if !t.actorIsCurrent(actor) || participant == nil ||
 		participant.ConnectionID != actor.ConnectionID || t.Limited == nil {
 		return nil, fail(ErrForbidden, "limited pool is not owned by this session")
+	}
+	if request.DraftOnly && t.ClubStyle != ClubCube {
+		return nil, fail(ErrInvalid, "incremental construction is available only in a Club Cube")
+	}
+	if t.ClubStyle == ClubCube && participant.Deck != nil {
+		return nil, fail(ErrNotReady, "your Cube deck is already ready")
 	}
 	var deck *protocol.DeckSelect
 	var err error
@@ -826,8 +861,16 @@ func (t *Tournament) SubmitLimitedDeck(actor Actor,
 	if err != nil {
 		return nil, err
 	}
+	if request.DraftOnly {
+		return deck, nil
+	}
 	cloned := cloneDeck(*deck)
 	participant.Deck = &cloned
+	if t.ClubStyle == ClubCube && t.Limited.AllDecksSubmitted() {
+		if err := t.beginClubCubeCompetition(time.Now()); err != nil {
+			return nil, err
+		}
+	}
 	if err := t.enterCubeFreePlayIfReady(); err != nil {
 		return nil, err
 	}
@@ -839,6 +882,18 @@ func (t *Tournament) LimitedSnapshot(participantID string) *protocol.LimitedSnap
 		return nil
 	}
 	snapshot := t.Limited.Snapshot(participantID)
+	if t.ClubStyle == ClubCube && t.Stage == protocol.LimitedStageDraft {
+		id := participantID
+		if snapshot.Rochester != nil {
+			id = snapshot.Rochester.ActiveParticipantID
+		}
+		if clock, ok := t.cubeClocks[id]; ok {
+			snapshot.PickDeadline = clock.deadline.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	if t.Stage == protocol.LimitedStageDeckBuilding && !t.buildDeadline.IsZero() {
+		snapshot.BuildDeadline = t.buildDeadline.UTC().Format(time.RFC3339Nano)
+	}
 	return &snapshot
 }
 
@@ -931,11 +986,15 @@ func (t *Tournament) Advance(actor Actor, now time.Time) error {
 	if t.ClubStyle == ClubConquest {
 		return fail(ErrInvalid, "Conquest advances when the Forge match ends")
 	}
+	return t.advanceFinishedRound(now)
+}
+
+func (t *Tournament) advanceFinishedRound(now time.Time) error {
 	if t.TopEight && len(t.Rounds) >= t.PlannedRounds {
 		return t.advanceElimination(now.UTC())
 	}
 	if len(t.Rounds) >= t.PlannedRounds {
-		if t.ClubStyle == ClubSwiss {
+		if t.ClubStyle == ClubSwiss || t.ClubStyle == ClubCube {
 			for _, standing := range t.Standings() {
 				if !standing.Dropped {
 					t.Champion = standing.ParticipantID

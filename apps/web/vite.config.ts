@@ -16,6 +16,7 @@ export default defineConfig({
     proxy: {
       "/ws": { target: "ws://127.0.0.1:57320", ws: true },
       "/forge-ready": "http://127.0.0.1:57320",
+      "/club-cubes": "http://127.0.0.1:57320",
       "/live-rooms": "http://127.0.0.1:57320",
       "/assets/deck-cards.json": "http://127.0.0.1:57320",
       "/card-search": "http://127.0.0.1:57320",

@@ -65,7 +65,6 @@ export function Tournaments({ session, decks }: { session: Session; decks: Deck[
 function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }) {
   const event = session.tournament!;
   const [lineup, setLineup] = useState(["", "", ""]);
-  const [deckIndex, setDeckIndex] = useState("");
   const [copied, setCopied] = useState(false);
   const online = session.connection === "online";
   const registered = event.participants.find((player) => player.participantId === event.participantId);
@@ -75,13 +74,8 @@ function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }
   const registration = event.status === "registration";
   const champion = event.participants.find((player) => player.participantId === event.champion);
   const canSubmitLineup = new Set(lineup).size === 3 && lineup.every((id) => decks.some((deck) => deck.id === id));
-  const selected = event.ownChoice !== undefined ? String(event.ownChoice) : deckIndex;
-  const currentDeck = selected === "" ? undefined : event.ownLineup?.[Number(selected)];
   const invitation = new URL(location.pathname, location.origin);
   invitation.searchParams.set("tournament", event.tournamentId);
-  const swissFinished = event.currentRound >= event.plannedRounds;
-  const roundLabel = conquest ? `Match ${event.currentRound}` : !event.elimination ? `Swiss round ${event.currentRound} of ${event.plannedRounds}`
-    : ["Quarterfinals", "Semifinals", "Final"][event.currentRound - event.plannedRounds - 1] ?? "Playoffs";
 
   return <section className="panel tournament">
     <header><div><h2>{event.name}</h2><small>{formatLabel(event.format)} · {conquest ? "Conquest" : event.topEight ? "Swiss + Top 8" : "Swiss"}</small></div>
@@ -126,6 +120,28 @@ function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }
       <h3>Your lineup</h3>
       <ul>{event.ownLineup?.map((deck, index) => <li key={index}>{deck.name} · {deck.locked ? "Locked by a BO3 win" : "Available"}</li>)}</ul>
     </section>}
+    <TournamentTables session={session} />
+    {organizer && (registration || active) && <button className="quiet" type="button" disabled={!online} onClick={() => {
+      if (window.confirm("Cancel this tournament?")) session.send("tournament.cancel");
+    }}>Cancel tournament</button>}
+  </section>;
+}
+
+export function TournamentTables({ session }: { session: Session }) {
+  const event = session.tournament!;
+  const online = session.connection === "online";
+  const [deckIndex, setDeckIndex] = useState("");
+  const conquest = event.clubStyle === "conquest";
+  const cube = event.clubStyle === "cube";
+  const roundRobin = cube && event.maxPlayers === 4;
+  const organizer = event.role === "organizer";
+  const active = event.status === "running";
+  const selected = event.ownChoice !== undefined ? String(event.ownChoice) : deckIndex;
+  const currentDeck = selected === "" ? undefined : event.ownLineup?.[Number(selected)];
+  const swissFinished = event.currentRound >= event.plannedRounds;
+  const roundLabel = conquest ? `Match ${event.currentRound}` : !event.elimination ? `${roundRobin ? "Round robin · Round" : "Swiss round"} ${event.currentRound} of ${event.plannedRounds}`
+    : ["Quarterfinals", "Semifinals", "Final"][event.currentRound - event.plannedRounds - 1] ?? "Playoffs";
+  return <>
     {event.currentRound > 0 && <section>
       <h3>{roundLabel}</h3>
       {event.pairings.map((pairing) => {
@@ -146,22 +162,19 @@ function TournamentPanel({ session, decks }: { session: Session; decks: Deck[] }
           </>}
         </div>;
       })}
-      {organizer && active && !conquest && <button className="primary" type="button" disabled={!online || !event.roundComplete}
+      {organizer && active && !conquest && !cube && <button className="primary" type="button" disabled={!online || !event.roundComplete}
         onClick={() => session.send("tournament.next_round")}>
         {event.elimination ? (event.currentRound === event.plannedRounds + 3 ? "Finish tournament" : "Advance playoff") :
           (swissFinished ? (event.topEight ? "Start Top 8" : "Finish tournament") : "Start next Swiss round")}
       </button>}
     </section>}
     {event.standings.length > 0 && <section>
-      <h3>Swiss standings</h3>
+      <h3>{roundRobin ? "Round-robin standings" : "Swiss standings"}</h3>
       <div className="standings-scroll"><table><thead><tr><th>#</th><th>Player</th><th>W–L–D</th><th>Pts</th><th>OMW</th><th>GW</th><th>OGW</th></tr></thead>
         <tbody>{event.standings.map((row) => <tr key={row.participantId}>
           <td>{row.rank}</td><td>{row.displayName}</td><td>{row.wins}–{row.losses}–{row.draws}</td><td>{row.matchPoints}</td>
           <td>{(100 * row.oppMatchWin).toFixed(1)}%</td><td>{(100 * row.gameWin).toFixed(1)}%</td><td>{(100 * row.oppGameWin).toFixed(1)}%</td>
         </tr>)}</tbody></table></div>
     </section>}
-    {organizer && (registration || active) && <button className="quiet" type="button" disabled={!online} onClick={() => {
-      if (window.confirm("Cancel this tournament?")) session.send("tournament.cancel");
-    }}>Cancel tournament</button>}
-  </section>;
+  </>;
 }

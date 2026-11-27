@@ -65,14 +65,29 @@ export type Room = {
   roomId: string; name: string; deckFormat: DeckFormat; matchMode: string; phase: string; ownDeckName?: string;
   seats: { occupied: boolean; displayName?: string; ready?: boolean; deckSelected?: boolean; deckLocked?: boolean }[];
 };
+export type LimitedCard = Identity & { instanceId: string; typeLine?: string };
+export type LimitedBasicLand = { name: string; count: number; setCode?: string; collectorNumber?: string };
+export type LimitedParticipant = {
+  participantId: string; displayName: string; picked: number; packCards: number; queuedPacks: number; deckSubmitted: boolean; withdrawn?: boolean;
+};
+export type LimitedSnapshot = {
+  tournamentId: string; stage: string; packRound: number; direction: number; currentPack: LimitedCard[]; pool: LimitedCard[];
+  packsPerPlayer?: number; picksRequired?: number; participants: LimitedParticipant[];
+  mainboardInstanceIds: string[]; basicLands: LimitedBasicLand[]; minimumDeckCards?: number;
+  deckSubmitted: boolean; allDecksSubmitted: boolean; pickDeadline?: string; buildDeadline?: string;
+  rochester?: { activeParticipantId: string; openerId: string; packNumber: number; cards: LimitedCard[];
+    picks: { participantId: string; card: LimitedCard }[] };
+};
 export type Tournament = {
-  tournamentId: string; name: string; format: DeckFormat; clubStyle: "swiss" | "conquest";
+  tournamentId: string; name: string; format: DeckFormat; clubStyle: "swiss" | "conquest" | "cube";
+  eventType?: string; maxPlayers: number; registered: number;
+  draftSettings?: { mode?: "booster" | "rochester"; packsPerPlayer: number; packsPerBatch: number; cardsPerPack?: number };
   topEight?: boolean; elimination?: boolean; champion?: string; currentRound: number; plannedRounds: number;
   status: string; stage: string; matchMode: string; role: string; participantId?: string; canRegister: boolean;
   checkedIn: number; minimumPlayers: number; roundComplete: boolean;
   ownLineup?: { name: string; locked: boolean }[];
   ownChoice?: number;
-  participants: { participantId: string; displayName: string; checkedIn: boolean }[];
+  participants: { participantId: string; displayName: string; checkedIn: boolean; online?: boolean }[];
   pairings: { pairingId: string; playerAId: string; playerAName: string; playerBId?: string; playerBName?: string;
     roomId?: string; playerAWins: number; playerBWins: number; drawnGames: number; bye: boolean; status: string }[];
   standings: { rank: number; participantId: string; displayName: string; wins: number;

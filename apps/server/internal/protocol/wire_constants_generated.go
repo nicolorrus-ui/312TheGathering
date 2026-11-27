@@ -336,6 +336,8 @@ const (
 	LimitedEventSetDraft               = "set_draft"
 	LimitedEventCubeDraft              = "cube_draft"
 	LimitedEventCommanderCube          = "commander_cube"
+	LimitedDraftModeBooster            = "booster"
+	LimitedDraftModeRochester          = "rochester"
 	LimitedCoordinatorSwiss            = "swiss"
 	LimitedCoordinatorCasual           = "casual"
 	LimitedStageRegistration           = "registration"

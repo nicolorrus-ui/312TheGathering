@@ -78,7 +78,7 @@ func (h *Handler) handleTournamentCreate(sess *Session, env protocol.Envelope) e
 	}
 	if (h.config.ClubMode && !validClubTournament(request)) ||
 		(!h.config.ClubMode && (request.TopEight || request.ClubStyle != "")) {
-		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "Choose a supported Forge Swiss or Conquest tournament")
+		h.sendError(sess, env.ID, protocol.ErrInvalidMessage, "Choose a supported Forge Swiss, Conquest, or Cube event")
 		return nil
 	}
 	if h.config.ClubMode {
@@ -136,7 +136,7 @@ func (h *Handler) handleTournamentCreate(sess *Session, env protocol.Envelope) e
 				"Forge rules mode is not available on this server")
 			return nil
 		}
-		if event.IsCubeRoom() {
+		if event.IsCubeRoom() || event.ClubStyle == tournament.ClubCube {
 			participant, seatErr := event.Register(sess.DisplayName, sess.ConnectionID,
 				tournament.CredentialHash(token), now)
 			if seatErr != nil {
@@ -144,6 +144,8 @@ func (h *Handler) handleTournamentCreate(sess *Session, env protocol.Envelope) e
 				return nil
 			}
 			event.OrganizerParticipantID = participant.ID
+		}
+		if event.IsCubeRoom() {
 			if reserveErr := h.hub.reserveCubeRoomID(id); reserveErr != nil {
 				if code, _ := ErrCode(reserveErr); code == protocol.ErrServerLimit {
 					sendTournamentError(h, sess, env.ID, reserveErr)
@@ -385,6 +387,9 @@ func (h *Handler) handleTournamentUnregister(sess *Session, env protocol.Envelop
 	}
 	return h.mutateTournament(sess, env, protocol.TypeTournamentUnregistered,
 		func(event *tournament.Tournament, actor tournament.Actor) error {
+			if h.config.ClubMode && event.ClubStyle != tournament.ClubCube {
+				return &tournament.Error{Code: tournament.ErrForbidden, Message: "Seat withdrawal is available only during Cube registration"}
+			}
 			participantID := request.ParticipantID
 			if participantID == "" {
 				participantID = actor.ParticipantID

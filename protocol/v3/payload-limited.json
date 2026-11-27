@@ -22,9 +22,29 @@
       "name": "LimitedDraftSettings",
       "goType": "LimitedDraftSettings",
       "fields": [
+        {"name": "mode", "type": "string", "required": false, "enum": ["LimitedDraftModeBooster", "LimitedDraftModeRochester"]},
         {"name": "packsPerPlayer", "type": "integer", "required": true},
         {"name": "packsPerBatch", "type": "integer", "required": true},
         {"name": "cardsPerPack", "type": "integer", "required": false}
+      ]
+    },
+    {
+      "name": "LimitedRochesterPick",
+      "goType": "LimitedRochesterPick",
+      "fields": [
+        {"name": "participantId", "type": "string", "required": true},
+        {"name": "card", "type": "object", "required": true, "ref": "LimitedCardView"}
+      ]
+    },
+    {
+      "name": "LimitedRochesterView",
+      "goType": "LimitedRochesterView",
+      "fields": [
+        {"name": "activeParticipantId", "type": "string", "required": true},
+        {"name": "openerId", "type": "string", "required": true},
+        {"name": "packNumber", "type": "integer", "required": true},
+        {"name": "cards", "type": "array", "required": true, "items": {"type": "object", "ref": "LimitedCardView"}},
+        {"name": "picks", "type": "array", "required": true, "items": {"type": "object", "ref": "LimitedRochesterPick"}}
       ]
     },
     {
@@ -251,6 +271,7 @@
       "direction": "clientToServer",
       "goType": "LimitedPick",
       "fields": [
+        {"name": "pickDeadline", "type": "string", "required": false},
         {"name": "instanceId", "type": "string", "required": false},
         {"name": "instanceIds", "type": "array", "required": false, "items": {"type": "string"}}
       ]
@@ -269,6 +290,7 @@
       "direction": "clientToServer",
       "goType": "LimitedSubmitDeck",
       "fields": [
+        {"name": "draftOnly", "type": "boolean", "required": false},
         {"name": "name", "type": "string", "required": true},
         {"name": "mainboardInstanceIds", "type": "array", "required": true, "items": {"type": "string"}},
         {"name": "commanderInstanceIds", "type": "array", "required": false, "items": {"type": "string"}},
@@ -300,6 +322,9 @@
       "direction": "serverToClient",
       "goType": "LimitedSnapshot",
       "fields": [
+        {"name": "pickDeadline", "type": "string", "required": false},
+        {"name": "buildDeadline", "type": "string", "required": false},
+        {"name": "rochester", "type": "object", "required": false, "ref": "LimitedRochesterView", "goType": "*LimitedRochesterView"},
         {"name": "tournamentId", "type": "string", "required": true},
         {"name": "eventType", "type": "string", "required": true},
         {"name": "stage", "type": "string", "required": true},

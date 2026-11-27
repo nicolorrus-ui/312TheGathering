@@ -1,0 +1,165 @@
+{
+  "type": "limited.snapshot",
+  "payload": {
+    "tournamentId": "CUBE01",
+    "eventType": "cube_draft",
+    "stage": "draft",
+    "pickDeadline": "2026-11-27T11:00:00Z",
+    "product": {
+      "id": "ornithopters",
+      "name": "Ornithopters",
+      "productType": "cube",
+      "authentic": false,
+      "cardsPerPack": 0,
+      "cardCount": 360,
+      "productHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "packRound": 1,
+    "direction": 1,
+    "currentPack": [],
+    "pool": [],
+    "mainboardInstanceIds": [],
+    "picksRequired": 1,
+    "packsPerPlayer": 3,
+    "minimumDeckCards": 40,
+    "basicLands": [],
+    "participants": [
+      {
+        "participantId": "p-1",
+        "displayName": "Alice",
+        "picked": 1,
+        "packCards": 0,
+        "queuedPacks": 0,
+        "deckSubmitted": false
+      },
+      {
+        "participantId": "p-2",
+        "displayName": "Bob",
+        "picked": 0,
+        "packCards": 14,
+        "queuedPacks": 1,
+        "deckSubmitted": false
+      },
+      {
+        "participantId": "p-3",
+        "displayName": "Carol",
+        "picked": 0,
+        "packCards": 0,
+        "queuedPacks": 0,
+        "deckSubmitted": false
+      },
+      {
+        "participantId": "p-4",
+        "displayName": "Dave",
+        "picked": 0,
+        "packCards": 0,
+        "queuedPacks": 0,
+        "deckSubmitted": false
+      }
+    ],
+    "deckSubmitted": false,
+    "allDecksSubmitted": false,
+    "rochester": {
+      "activeParticipantId": "p-2",
+      "openerId": "p-1",
+      "packNumber": 1,
+      "cards": [
+        {
+          "instanceId": "limited-2",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-3",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-4",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-5",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-6",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-7",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-8",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-9",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-10",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-11",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-12",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-13",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-14",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        },
+        {
+          "instanceId": "limited-15",
+          "name": "Ornithopter",
+          "setCode": "M11",
+          "collectorNumber": "211"
+        }
+      ],
+      "picks": [
+        {
+          "participantId": "p-1",
+          "card": {
+            "instanceId": "limited-1",
+            "name": "Ornithopter",
+            "setCode": "M11",
+            "collectorNumber": "211"
+          }
+        }
+      ]
+    }
+  }
+}

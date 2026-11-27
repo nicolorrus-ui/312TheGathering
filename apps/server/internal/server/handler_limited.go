@@ -110,6 +110,12 @@ func (h *Handler) handleLimitedPick(sess *Session, env protocol.Envelope) error 
 	}
 	defer entry.opMu.Unlock()
 	entry.mu.Lock()
+	expired, expiryErr := entry.event.ExpireClubCube(time.Now().UTC())
+	if expiryErr != nil {
+		entry.mu.Unlock()
+		sendTournamentError(h, sess, env.ID, expiryErr)
+		return nil
+	}
 	previous := make(map[string]protocol.LimitedSnapshot)
 	if public := entry.event.LimitedSnapshot(""); public != nil {
 		previous[""] = *public
@@ -118,10 +124,13 @@ func (h *Handler) handleLimitedPick(sess *Session, env protocol.Envelope) error 
 		}
 	}
 	previousStage := entry.event.Stage
-	remaining, pickErr := entry.event.PickLimitedCards(tournamentActor(sess), instanceIDs)
+	remaining, pickErr := entry.event.PickLimitedOffer(tournamentActor(sess), instanceIDs, request.PickDeadline)
 	stageChanged := entry.event.Stage != previousStage
 	entry.mu.Unlock()
 	if pickErr != nil {
+		if expired {
+			h.fanoutTournament(binding.TournamentID)
+		}
 		if limited.ErrorCode(pickErr) != "" {
 			sendLimitedError(h, sess, env.ID, pickErr)
 		} else {
@@ -134,7 +143,7 @@ func (h *Handler) handleLimitedPick(sess *Session, env protocol.Envelope) error 
 	})
 	reply.ID = env.ID
 	h.send(sess, reply)
-	if stageChanged {
+	if stageChanged || expired {
 		h.fanoutTournament(binding.TournamentID)
 	} else {
 		h.fanoutTournamentState(binding.TournamentID, previous)
@@ -161,9 +170,18 @@ func (h *Handler) handleLimitedSubmitDeck(sess *Session, env protocol.Envelope) 
 	}
 	defer entry.opMu.Unlock()
 	entry.mu.Lock()
+	expired, expiryErr := entry.event.ExpireClubCube(time.Now().UTC())
+	if expiryErr != nil {
+		entry.mu.Unlock()
+		sendTournamentError(h, sess, env.ID, expiryErr)
+		return nil
+	}
 	deck, submitErr := entry.event.SubmitLimitedDeck(tournamentActor(sess), request)
 	entry.mu.Unlock()
 	if submitErr != nil {
+		if expired {
+			h.fanoutTournament(binding.TournamentID)
+		}
 		if limited.ErrorCode(submitErr) != "" {
 			sendLimitedError(h, sess, env.ID, submitErr)
 		} else {
@@ -179,7 +197,9 @@ func (h *Handler) handleLimitedSubmitDeck(sess *Session, env protocol.Envelope) 
 		})
 	reply.ID = env.ID
 	h.send(sess, reply)
-	h.fanoutTournament(binding.TournamentID)
+	if !request.DraftOnly || expired {
+		h.fanoutTournament(binding.TournamentID)
+	}
 	return nil
 }
 

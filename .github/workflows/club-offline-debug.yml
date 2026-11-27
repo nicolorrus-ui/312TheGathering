@@ -105,6 +105,12 @@ jobs:
               throw 'Offline card catalog unavailable'
             }
 
+            foreach ($slug in @('modovintage', '100-ornithopters')) {
+              $cube = Invoke-RestMethod "$url/club-cubes/$slug"
+              $cardCount = ($cube.cards | Measure-Object -Property count -Sum).Sum
+              if ($cube.slug -ne $slug -or $cardCount -lt 360) { throw "Bundled Cube unavailable: $slug" }
+            }
+
             $deck = @()
             $sideboard = @()
             $side = $false

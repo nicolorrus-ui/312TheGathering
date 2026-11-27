@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2026 Hexproof contributors
 
-"""Build the optional offline Club search catalog using the bundled Forge data."""
+"""Build the Club search and Cube catalog using the bundled Forge data."""
 
 import argparse
 import json
 from pathlib import Path
 import re
 
-from forge_card_data import card_scripts, normalize
+from forge_card_data import card_colors, card_scripts, normalize
 
 # The sections CardEdition.Reader reads as numbered printings. Other named
 # sections describe booster collation or token sheets, not collectible versions.
@@ -74,7 +74,7 @@ def generate(res, native_index):
         # cards, adventures and splits also accept the full printed name.
         name = front if mode in ("Specialize", "Meld") else " // ".join(face["Name"] for face in faces)
         displays = [face_display(face) for face in faces]
-        card = {**displays[0], "name": name, "printings": set()}
+        card = {**displays[0], "name": name, "colors": card_colors(mode, faces), "printings": set()}
         if len(displays) > 1:
             card["faces"] = displays
             card["manaCost"] = " // ".join(face["manaCost"] for face in displays if face["manaCost"])
@@ -85,11 +85,16 @@ def generate(res, native_index):
 
     sets = {}
     dates = {}
+    aliases = {}
     for path in sorted((res / "editions").glob("*.txt")):
         metadata, printings = edition(path)
         code = metadata.get("code", "").upper()
         if not code:
             continue
+        for key in ("scryfallcode", "alias"):
+            alias = metadata.get(key, "").upper()
+            if alias and alias != code:
+                aliases[alias] = code
         dates[code] = metadata.get("date", "")
         sets[code] = metadata.get("name") or code
         for name, number in printings:
@@ -117,7 +122,7 @@ def generate(res, native_index):
         printings = sorted(card["printings"], key=collector_order)
         printings.sort(key=lambda item: dates[item[0]], reverse=True)
         card["printings"] = [{"setCode": code, "collectorNumber": number} for code, number in printings]
-    return {"version": 1, "sets": sets, "cards": sorted(cards, key=lambda card: normalize(card["name"]))}
+    return {"version": 1, "sets": sets, "setAliases": aliases, "cards": sorted(cards, key=lambda card: normalize(card["name"]))}
 
 
 if __name__ == "__main__":

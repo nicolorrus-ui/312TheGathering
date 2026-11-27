@@ -14,6 +14,9 @@ func (e *Event) Direction() int {
 }
 
 func (e *Event) startDraftRound() error {
+	if e.rochester != nil {
+		return e.openRochesterPack()
+	}
 	if e.packRound >= e.packCount {
 		e.Stage = protocol.LimitedStageDeckBuilding
 		return nil
@@ -108,22 +111,79 @@ func (e *Event) PickCards(participantID string, instanceIDs []string) (int, erro
 			return 0, fail(ErrPickUnavailable, "select the required cards from each current pack")
 		}
 	}
+	e.takeCards(player, selected)
+	return e.afterPick(player)
+}
+
+// AutoPick handles one expired decision. It leaves subsequent choices under
+// the player's control, unlike explicitly handing the whole seat to auto-draft.
+func (e *Event) AutoPick(participantID string) (int, error) {
+	player := e.Player(participantID)
+	if e.Stage != protocol.LimitedStageDraft || player == nil || len(player.Inbox) == 0 {
+		return 0, fail(ErrPickUnavailable, "no pack is available")
+	}
+	e.takeRandomCards(player)
+	return e.afterPick(player)
+}
+
+func (e *Event) takeRandomCards(player *PlayerState) {
+	pack := player.Inbox[0]
+	for _, part := range pack.parts() {
+		if len(part.Cards) <= e.PicksPerSelection() {
+			for _, card := range part.Cards {
+				e.recordPick(player, card)
+			}
+			part.Cards = nil
+			continue
+		}
+		for range e.PicksPerSelection() {
+			i := e.random.Intn(len(part.Cards))
+			e.recordPick(player, part.Cards[i])
+			part.Cards = append(part.Cards[:i], part.Cards[i+1:]...)
+		}
+	}
+	e.passPack(player, pack)
+}
+
+func (e *Event) recordPick(player *PlayerState, card *CardInstance) {
+	player.Pool = append(player.Pool, card)
+	if e.rochester != nil {
+		e.rochester.picks = append(e.rochester.picks, protocol.LimitedRochesterPick{
+			ParticipantID: player.ID, Card: cardView(card),
+		})
+	}
+}
+
+func (e *Event) takeCards(player *PlayerState, selected map[string]bool) {
+	pack := player.Inbox[0]
 	for _, part := range pack.parts() {
 		remainingCards := make([]*CardInstance, 0, len(part.Cards))
 		for _, card := range part.Cards {
 			if selected[card.ID] {
-				player.Pool = append(player.Pool, card)
+				e.recordPick(player, card)
 			} else {
 				remainingCards = append(remainingCards, card)
 			}
 		}
 		part.Cards = remainingCards
 	}
+	e.passPack(player, pack)
+}
+
+func (e *Event) passPack(player *PlayerState, pack *Pack) {
 	player.Inbox = player.Inbox[1:]
 	if pack.cardCount() > 0 {
-		target := e.targetPlayer(player)
+		var target *PlayerState
+		if e.rochester != nil {
+			target = e.rochesterPicker()
+		} else {
+			target = e.targetPlayer(player)
+		}
 		target.Inbox = append(target.Inbox, pack)
 	}
+}
+
+func (e *Event) afterPick(player *PlayerState) (int, error) {
 	if err := e.advanceDraft(); err != nil {
 		return 0, err
 	}
@@ -165,25 +225,7 @@ func (e *Event) advanceDraft() error {
 		changed := false
 		for _, player := range e.Players {
 			for len(player.Inbox) > 0 && player.AutoDraft {
-				pack := player.Inbox[0]
-				for _, part := range pack.parts() {
-					if len(part.Cards) <= e.PicksPerSelection() {
-						player.Pool = append(player.Pool, part.Cards...)
-						part.Cards = nil
-					} else {
-						// Random picks obey each pack's quota without replacement.
-						for pick := 0; pick < e.PicksPerSelection(); pick++ {
-							index := e.random.Intn(len(part.Cards))
-							player.Pool = append(player.Pool, part.Cards[index])
-							part.Cards = append(part.Cards[:index], part.Cards[index+1:]...)
-						}
-					}
-				}
-				if pack.cardCount() > 0 {
-					target := e.targetPlayer(player)
-					target.Inbox = append(target.Inbox, pack)
-				}
-				player.Inbox = player.Inbox[1:]
+				e.takeRandomCards(player)
 				changed = true
 			}
 		}

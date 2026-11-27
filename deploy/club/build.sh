@@ -61,6 +61,7 @@ PY
 
 cp -a apps/web/dist "$stage/web"
 python3 deploy/club/deck-card-index.py "$stage/hexproof-forge-runtime/forge-gui/res/cardsfolder" "$stage/web/assets/deck-cards.json"
+python3 deploy/club/offline-card-catalog.py "$stage/hexproof-forge-runtime/forge-gui/res" "$stage/web/assets/offline-cards.json"
 install -m 644 LICENSE THIRD-PARTY-NOTICES.md "$stage/"
 cp "$stage/overlay/forge-overlay.jar" "$stage/"
 commit="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'source')"
@@ -68,7 +69,6 @@ if [[ -n "$offline" ]]; then
   portable="$stage/Hexproof-Club"
   mkdir -p "$portable"
   mv "$stage/$server" "$stage"/{hexproof-forge-runtime,forge-overlay.jar,web,LICENSE,THIRD-PARTY-NOTICES.md} "$portable/"
-  python3 deploy/club/offline-card-catalog.py "$portable/hexproof-forge-runtime/forge-gui/res" "$portable/web/assets/offline-cards.json"
   python3 deploy/club/portable-jre.py --platform "$offline" --output "$portable/jre"
   install -m 644 deploy/club/offline-demo.txt deploy/club/offline/README.txt "$portable/"
   printf 'Source: %s\nTarget: %s\n' "$(git rev-parse HEAD)" "$offline" > "$portable/BUILD.txt"

@@ -34,7 +34,7 @@ func TestForgeStartRequestPreservesPrintingsAndCommanderVariant(t *testing.T) {
 	request, seats, err := forgeStartRequest(r, []room.RulesStartPlayer{
 		{Seat: 2, DisplayName: "Alice", Deck: deck},
 		{Seat: 3, DisplayName: "Bob", Deck: deck},
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("forgeStartRequest: %v", err)
 	}

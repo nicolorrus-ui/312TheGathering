@@ -1,0 +1,50 @@
+{
+  "type": "limited.snapshot",
+  "payload": {
+    "tournamentId": "T-CUBE",
+    "eventType": "cube_draft",
+    "stage": "deck_building",
+    "buildDeadline": "2026-11-27T11:30:00Z",
+    "product": {
+      "id": "pool",
+      "name": "Cube",
+      "productType": "cube",
+      "authentic": false,
+      "cardsPerPack": 0,
+      "cardCount": 360,
+      "productHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "packRound": 3,
+    "direction": 1,
+    "currentPack": [],
+    "pool": [
+      {
+        "instanceId": "limited-1",
+        "name": "Island",
+        "setCode": "M21",
+        "collectorNumber": "263"
+      }
+    ],
+    "mainboardInstanceIds": [
+      "limited-1"
+    ],
+    "basicLands": [
+      {
+        "name": "Island",
+        "count": 1
+      }
+    ],
+    "participants": [
+      {
+        "participantId": "p-1",
+        "displayName": "Alice",
+        "picked": 45,
+        "packCards": 0,
+        "queuedPacks": 0,
+        "deckSubmitted": false
+      }
+    ],
+    "deckSubmitted": false,
+    "allDecksSubmitted": false
+  }
+}

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Board } from "./Board";
 import { CardImages } from "./CardImages";
+import { CubeEvent, isClubCube } from "./CubeEvent";
+import { CubeLobby } from "./CubeLobby";
 import { DecisionCard } from "./DecisionCard";
 import { DeckBuilder } from "./DeckBuilder";
 import { deckStorage, readDecks } from "./decks";
@@ -153,7 +155,7 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
       <strong>{seat.displayName || "Open seat"}{index === session.seat ? " (you)" : ""}</strong>
       <small>{seat.ready ? "Ready" : seat.deckSelected ? "Deck selected" : seat.occupied ? "Choosing a deck" : "Awaiting player"}</small>
     </li>)}</ul>
-    <div className="form-row">
+    {!(session.tournament && isClubCube(session.tournament) && ownSeat?.deckLocked) && <div className="form-row">
       <label>Your deck<select aria-label="Your deck" value={selected} disabled={!online || ownSeat?.ready || ownSeat?.deckLocked} onChange={(event) => setSelected(event.target.value)}>
         <option value="">Select a deck</option>{decks.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select></label>
@@ -162,7 +164,7 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
         session.send("deck.select", { name: deck.name, mainboard: deck.mainboard, sideboard: deck.sideboard,
           format: "modern", deckFormat: room.deckFormat });
       }}>Use deck</button>
-    </div>
+    </div>}
     {room.ownDeckName && <p className="selected-deck">{room.ownDeckName} {ownSeat?.deckLocked ? "registered for this match" : "selected"}</p>}
     <button className="primary" type="button" disabled={!online || !ownSeat?.deckSelected || waitingForForge || Boolean(session.pendingReady)}
       onClick={() => session.setReady(!ownSeat?.ready)}>{session.pendingReady ? "Submitting…" : ownSeat?.ready ? "Cancel ready" : "Ready"}</button>
@@ -209,13 +211,21 @@ function PlayerApp() {
   const [name, setName] = useState("");
   const [decks, setDecks] = useState(readDecks);
   const [deckScreen, setDeckScreen] = useState(false);
-  const [tournamentScreen, setTournamentScreen] = useState(() => new URLSearchParams(location.search).has("tournament"));
+  const [section, setSection] = useState<"duels" | "cube" | "tournaments">(() => {
+    const params = new URLSearchParams(location.search);
+    return params.has("cube") ? "cube" : params.has("tournament") ? "tournaments" : "duels";
+  });
   const matchSection = session.room?.phase === "started";
   const online = session.connection === "online";
   const sideboard = session.metadata?.sideboard && session.metadata.result && !session.metadata.result.matchFinished;
   const awaitingDecision = Boolean(session.prompt) && session.awaiting === session.prompt?.promptId;
   const tournamentTable = Boolean(session.room?.tournamentId);
-  const inTournament = tournamentScreen || Boolean(session.tournament);
+  const activeSection = session.tournament ? (isClubCube(session.tournament) ? "cube" : "tournaments") : section;
+  const cube = !session.room && activeSection === "cube";
+  function openSection(next: typeof section) {
+    setDeckScreen(false);
+    setSection(next);
+  }
   function saveDecks(next: Deck[]) {
     localStorage.setItem(deckStorage, JSON.stringify(next));
     setDecks(next);
@@ -255,18 +265,23 @@ function PlayerApp() {
         tournamentTable={tournamentTable}
         back={() => session.send(tournamentTable ? "room.leave" : "game.return_to_room")} />
       : session.room && session.room.phase !== "waiting" ? <main className="shell"><p role="status">Starting Forge…</p></main>
-      : <main className="shell"><div className="lobby-title"><h1>{deckScreen ? "Deck builder" : session.room ? "Duel room" : inTournament ? "Tournaments" : "Club lobby"}</h1></div>
+      : <main className={cube && !deckScreen ? "shell cube-shell" : "shell"}><div className="lobby-title">
+          <h1>{deckScreen ? "Deck builder" : session.room ? "Duel room" : cube ? "Cube" : activeSection === "tournaments" ? "Tournaments" : "Club lobby"}</h1></div>
         <nav className="tabs lobby-nav" aria-label="Club lobby">
           {session.room ? <button type="button" aria-pressed={!deckScreen} onClick={() => setDeckScreen(false)}>Duel room</button> : <>
-            {!session.tournament && <button type="button" aria-pressed={!deckScreen && !inTournament}
-              onClick={() => { setDeckScreen(false); setTournamentScreen(false); }}>Duels</button>}
-            <button type="button" aria-pressed={!deckScreen && inTournament}
-              onClick={() => { setDeckScreen(false); setTournamentScreen(true); }}>Tournaments</button>
+            {!session.tournament && <button type="button" aria-pressed={!deckScreen && activeSection === "duels"}
+              onClick={() => openSection("duels")}>Duels</button>}
+            {(!session.tournament || cube) && <button type="button" aria-pressed={!deckScreen && cube}
+              onClick={() => openSection("cube")}>Cube</button>}
+            {(!session.tournament || !cube) && <button type="button" aria-pressed={!deckScreen && activeSection === "tournaments"}
+              onClick={() => openSection("tournaments")}>Tournaments</button>}
           </>}
           <button type="button" aria-pressed={deckScreen} onClick={() => setDeckScreen(true)}>Deck builder</button>
         </nav>
-        <div hidden={deckScreen} className="lobby-content">{session.room ? <RoomPanel key={session.room.roomId} session={session} decks={decks} />
-          : inTournament ? <Tournaments session={session} decks={decks} /> : <Lobby session={session} />}</div>
+        <div hidden={deckScreen} className={cube ? "cube-content" : "lobby-content"}>{session.room ? <RoomPanel key={session.room.roomId} session={session} decks={decks} />
+          : cube ? (session.tournament ? <CubeEvent session={session} /> :
+            <CubeLobby online={online} onCreate={(request) => send("tournament.create", request)} onJoin={session.enterTournament} />)
+          : activeSection === "tournaments" ? <Tournaments session={session} decks={decks} /> : <Lobby session={session} />}</div>
         <div hidden={!deckScreen}><DeckBuilder decks={decks} save={saveDecks} /></div>
       </main>}
   </>;

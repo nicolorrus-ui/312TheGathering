@@ -77,7 +77,7 @@ func modelTestRoom(t *testing.T) (*Handler, *room.Room, *Session, *Session, *mod
 		t.Fatal(err)
 	}
 	players, _ := r.RulesStartPlayers()
-	native, _, err := forgeStartRequest(r, players)
+	native, _, err := forgeStartRequest(r, players, false)
 	if err != nil || native.HasAI() || native.Players[1].AIDifficulty != "" {
 		t.Fatalf("model used native AI: %+v %v", native, err)
 	}

@@ -19,6 +19,12 @@ Windows x64 双击 Start-Club.cmd。Linux x64 在解压目录运行 ./start-club
    换备期间也占用名额。日志显示 capacity 时，等上一场比赛结束、Forge 就绪后，
    在原房间重新点击 Ready 即可。
 
+Cube 轮抓
+在大厅打开 Cube，可使用随包的 Vintage Cube、100 Ornithopters，或在 Customed 上传自定义牌表并改名。
+更新预设需要连接 Cube Cobra。选择 4 到 8 人和 Booster Draft 或 Rochester Draft，创建房间后分享邀请。
+每人轮抓三包、每包 15 张。轮抓结束后可用 30 分钟组一套至少 40 张的牌。点击基本地并确认会增加所填张数。
+所有玩家 Ready 后提前开始比赛。4 人采用单循环，5 到 8 人采用瑞士轮。调试包同一时间可运行一桌 Forge 对局。
+
 调试
 在浏览器中打开开发者工具可以查看 TypeScript 源码、网络请求和 WebSocket 帧。
 终端和 state/club-debug.log 记录启动和对局诊断。Forge 崩溃报告如有生成，

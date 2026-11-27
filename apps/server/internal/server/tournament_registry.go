@@ -26,6 +26,9 @@ type tournamentRegistry struct {
 }
 
 type tournamentEntry struct {
+	cubeClockClosed   bool
+	cubeDeadline      time.Time
+	cubeTimer         *time.Timer
 	opMu              sync.Mutex
 	mu                sync.Mutex
 	startOperations   map[string]tournamentStartOperation
@@ -103,6 +106,7 @@ func (r *tournamentRegistry) deleteIfSame(id string, expected *tournamentEntry) 
 	r.mu.Unlock()
 	expected.mu.Lock()
 	stopTournamentCleanupLocked(expected)
+	stopClubCubeLocked(expected)
 	expected.mu.Unlock()
 	return true
 }
@@ -118,6 +122,7 @@ func (r *tournamentRegistry) close() {
 	for _, entry := range entries {
 		entry.mu.Lock()
 		stopTournamentCleanupLocked(entry)
+		stopClubCubeLocked(entry)
 		entry.mu.Unlock()
 	}
 }
