@@ -70,7 +70,7 @@ func TestClubBroadcastEnglishArtwork(t *testing.T) {
 				t.Fatalf("unexpected lookup %s", r.URL)
 			}
 			body = `{"name":"Demonic Tutor","lang":"en","image_uris":{"normal":"https://cards.scryfall.io/en.jpg"}}`
-		case "/cards/neo/499/en":
+		case "/cards/neo/9∞/en":
 			body = `{"name":"Front // Back","lang":"en","card_faces":[
 				{"name":"Front","image_uris":{"normal":"https://cards.scryfall.io/front.jpg"}},
 				{"name":"Back","image_uris":{"normal":"https://cards.scryfall.io/back.jpg"}}]}`
@@ -83,7 +83,8 @@ func TestClubBroadcastEnglishArtwork(t *testing.T) {
 		{"name=Demonic+Tutor&set=sta&number=90", "ja.jpg"},
 		{"name=Demonic+Tutor&set=sta&number=90&lang=en", "en.jpg"},
 		{"name=Demonic+Tutor&set=sta&number=90&lang=en", "en.jpg"},
-		{"name=Back&set=neo&number=499&lang=en", "back.jpg"},
+		{"name=Demonic+Tutor&set=STA&lang=en", "en.jpg"},
+		{"name=Back&set=neo&number=9%E2%88%9E&lang=en", "back.jpg"},
 	} {
 		w := httptest.NewRecorder()
 		art.ServeHTTP(w, httptest.NewRequest("GET", "/card-art?"+tt.query, nil))
@@ -91,7 +92,7 @@ func TestClubBroadcastEnglishArtwork(t *testing.T) {
 			t.Fatalf("%s got %d %s", tt.query, w.Code, w.Header().Get("Location"))
 		}
 	}
-	if len(requests) != 4 {
+	if len(requests) != 5 {
 		t.Fatalf("unexpected requests %v", requests)
 	}
 }

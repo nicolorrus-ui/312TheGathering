@@ -11,6 +11,7 @@ const roomId = "REVEAL", gameId = "known-zones";
 const players = ["Alice", "Bob"].map((name, seat) => ({ name, seat, life: 20, manaPool: [], status: "playing" }));
 const card = (id, name) => ({ id, visible: true, ownerSeat: 1, controllerSeat: 1, identity: { name } });
 const bolt = card("bolt", "Lightning Bolt"), island = card("island", "Island"), forest = card("forest", "Forest");
+const boltOracle = "闪电击对任意一个目标造成3点伤害。";
 const printing = (collectorNumber, setCode, count) => ({ name: "Lightning Bolt", setCode, collectorNumber, count });
 const lists = [
   { seat: 0, name: "Alice's deck", mainboard: [printing("149", "M11", 1), printing("141", "A25", 1), printing("149", "M11", 2)], sideboard: [] },
@@ -40,6 +41,12 @@ try {
     }
     await page.route("**/card-art?**", (route) => route.fulfill({ contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="18"/>' }));
+    await page.route("**/card-oracle-zh?**", (route) => {
+      assert.ok(watch, "player view requested broadcast rules");
+      const name = new URL(route.request().url()).searchParams.get("name");
+      return name === bolt.identity.name ? route.fulfill({ json: { faces: [{ name, zhName: "闪电击", text: boltOracle }] } })
+        : route.fulfill({ status: 404 });
+    });
     await page.route("**/assets/cards/index.json", (route) => route.fulfill({ json: { version: 1, printings: {}, names: {} } }));
     await page.routeWebSocket("**/ws", (ws) => {
       socket = ws;
@@ -79,6 +86,8 @@ try {
           await preview.waitFor();
           const query = new URL(await preview.getAttribute("src"), base).searchParams;
           assert.deepEqual([query.get("set"), query.get("number"), query.get("size")], [set.toLowerCase(), number, "normal"]);
+          assert.equal(query.get("lang"), "en");
+          await page.getByRole("tooltip").getByText(boltOracle, { exact: true }).waitFor();
         }
       }
       await rail.getByRole("tab", { name: "Alice" }).click();
@@ -111,6 +120,10 @@ try {
     await library.click();
     const top = page.getByRole("region", { name: "Library top" });
     await top.locator('img[src*="name=island"]').waitFor();
+    if (watch) {
+      assert.match(await top.locator("img").getAttribute("src"), /lang=en/);
+      await top.getByText("暂无中文 Oracle 译文。", { exact: true }).waitFor();
+    }
     snapshot([], [forest]);
     await top.locator('img[src*="name=forest"]').waitFor();
     snapshot([], []);
