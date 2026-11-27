@@ -81,7 +81,7 @@ export function CubeEvent({ session }: { session: Session }) {
     try { await navigator.clipboard.writeText(url.href); setCopied(true); }
     catch { window.prompt("Copy the Cube invite link", url.href); }
   }
-  return <section className="panel tournament cube-event">
+  return <section className={`panel tournament cube-event event-${event.status}`}>
     <header><div><h2>{event.name}</h2><small>{mode} · {seats} seats · {seats === 4 ? "Round robin" : "Swiss"}</small></div>
       <button type="button" className="quiet" disabled={!online} onClick={() => session.send("tournament.leave")}>Leave Cube view</button></header>
     {lobby && <>
@@ -91,9 +91,9 @@ export function CubeEvent({ session }: { session: Session }) {
         <span>{event.checkedIn} of {seats} checked in</span></header>
         <ul className="seats">{Array.from({ length: seats }, (_, index) => {
           const player = event.participants[index];
-          return <li key={player?.participantId ?? `open-${index}`}>
+          return <li key={player?.participantId ?? `open-${index}`} className={player && player.participantId === ownSeat?.participantId ? "own-seat" : undefined}>
             <strong>{player ? player.displayName + (player.participantId === ownSeat?.participantId ? " (you)" : "") : "Open seat"}</strong>
-            <small>{player ? player.online === false ? "Disconnected" : player.checkedIn ? "Checked in" : "Seated" : "Awaiting player"}</small>
+            <small className={player?.checkedIn && player.online !== false ? "seat-ready" : undefined}>{player ? player.online === false ? "Disconnected" : player.checkedIn ? "Checked in" : "Seated" : "Awaiting player"}</small>
             {player && event.role === "organizer" && player.online === false && player.participantId !== ownSeat?.participantId &&
               <button type="button" className="quiet" disabled={!online} aria-label={`Release seat for ${player.displayName}`}
                 onClick={() => session.send("tournament.unregister", { participantId: player.participantId })}>Release seat</button>}</li>;
@@ -101,7 +101,7 @@ export function CubeEvent({ session }: { session: Session }) {
         <div className="cube-seat-actions">
           {event.canRegister && !ownSeat && <button type="button" className="primary" disabled={!online || event.participants.length >= seats}
             onClick={() => session.send("tournament.register", { tournamentId: event.tournamentId })}>Join seat</button>}
-          {ownSeat && <button type="button" disabled={!online} onClick={() => session.send("tournament.check_in", { checkedIn: !ownSeat.checkedIn })}>
+          {ownSeat && <button type="button" className={ownSeat.checkedIn ? undefined : "check-in-action"} disabled={!online} onClick={() => session.send("tournament.check_in", { checkedIn: !ownSeat.checkedIn })}>
             {ownSeat.checkedIn ? "Cancel check-in" : "Check in"}</button>}
           {ownSeat && event.role !== "organizer" && <button type="button" className="quiet" disabled={!online}
             onClick={() => session.send("tournament.unregister")}>Leave seat</button>}

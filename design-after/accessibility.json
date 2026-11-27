@@ -1,0 +1,46 @@
+{
+  "scenes": 162,
+  "textSamples": 13515,
+  "controls": 4510,
+  "focusStops": 6446,
+  "reached": 6446,
+  "arrowStops": 22,
+  "arrowReached": 22,
+  "distinctColorPairs": 41,
+  "minimumActiveContrast": 5.58,
+  "issues": [
+    {
+      "kind": "hover-only-card",
+      "element": "button.table-card",
+      "count": 24,
+      "examples": [
+        "Grizzly Bears",
+        "Rancor",
+        "Lightning Bolt"
+      ],
+      "scenes": [
+        "1440/watch-decklist",
+        "1440/watch-match",
+        "390/watch-decklist",
+        "390/watch-match",
+        "768/watch-decklist",
+        "768/watch-match"
+      ]
+    },
+    {
+      "kind": "visual-order-review",
+      "element": "main.duel",
+      "count": 3,
+      "examples": [
+        "Turn phases → Card preview",
+        "Turn phases → Library top",
+        "Turn phases → Zone contents"
+      ],
+      "scenes": [
+        "390/duel-card-preview",
+        "390/duel-library-top",
+        "390/duel-zone"
+      ]
+    }
+  ]
+}

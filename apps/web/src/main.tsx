@@ -51,7 +51,7 @@ function Lobby({ session }: { session: Session }) {
   const [deckFormat, setDeckFormat] = useState<DeckFormat>("modern");
   const blocked = session.connection !== "online" || !session.welcome?.forgeRulesAvailable;
   const broadcast = !practice && live;
-  return <section className="panel">
+  return <section className="panel duel-lobby">
     <div className="tabs"><button type="button" aria-pressed={tab === "create"} onClick={() => { setTab("create"); setPassword(""); }}>Create room</button>
       <button type="button" aria-pressed={tab === "join"} onClick={() => { setTab("join"); setPassword(""); }}>Join room</button>
       <a className="watch-link" href="?watch">Watch live</a></div>
@@ -139,7 +139,7 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
   const waitingForForge = !ownSeat?.ready && forgeAvailability !== "ready";
   const invite = new URL(location.pathname, location.origin);
   invite.searchParams.set("room", room.roomId);
-  return <section className="panel">
+  return <section className="panel duel-room">
     <header><div><h2>{room.name}</h2><small>{formatLabel(room.deckFormat)} · {room.matchMode.toUpperCase()}</small></div>
       <button className="quiet" type="button" onClick={() => session.send("room.leave")} disabled={!online}>Leave</button></header>
     {!room.tournamentId && !room.aiSource && <div className="room-code"><span>Room code</span><strong>{room.roomId}</strong>
@@ -147,13 +147,13 @@ function RoomPanel({ session, decks }: { session: Session; decks: Deck[] }) {
         try { await navigator.clipboard.writeText(invite.href); setCopied(true); }
         catch { setCopied(false); }
       }}>{copied ? "Copied" : "Copy invite"}</button></div>}
-    {room.allowSpectators && room.spectatorsSeeHands && <div className="notice">
+    {room.allowSpectators && room.spectatorsSeeHands && <div className="notice live-notice">
       <span><strong>Live duel.</strong> This room appears in Watch live. Viewers can see both hands and registered decklists.</span>
       <WatchInvite roomId={room.roomId} />
     </div>}
-    <ul className="seats">{room.seats.map((seat, index) => <li key={index}>
+    <ul className="seats">{room.seats.map((seat, index) => <li key={index} className={index === session.seat ? "own-seat" : undefined}>
       <strong>{seat.displayName || "Open seat"}{index === session.seat ? " (you)" : ""}</strong>
-      <small>{seat.ready ? "Ready" : seat.deckSelected ? "Deck selected" : seat.occupied ? "Choosing a deck" : "Awaiting player"}</small>
+      <small className={seat.ready ? "seat-ready" : undefined}>{seat.ready ? "Ready" : seat.deckSelected ? "Deck selected" : seat.occupied ? "Choosing a deck" : "Awaiting player"}</small>
     </li>)}</ul>
     {!(session.tournament && isClubCube(session.tournament) && ownSeat?.deckLocked) && <div className="form-row">
       <label>Your deck<select aria-label="Your deck" value={selected} disabled={!online || ownSeat?.ready || ownSeat?.deckLocked} onChange={(event) => setSelected(event.target.value)}>
@@ -232,7 +232,7 @@ function PlayerApp() {
   }
   return <>
     <header className="topbar">
-      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
+      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true"></span>312<span>TheGathering</span></a>
       {session.identity && <div className="account"><span className={`connection ${session.connection}`}>{session.connection}</span>
         <span>{session.identity}</span>
         {matchSection && session.room?.allowSpectators && session.room.spectatorsSeeHands &&

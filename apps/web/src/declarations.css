@@ -5,6 +5,6 @@
 .card-slot:has(> .permanent-declaration) { height: auto; grid-template-rows: var(--card-height) auto; }
 .permanent-declaration {
   min-width: 0; max-width: 100%; padding: .18rem .28rem; text-align: center;
-  color: #fff; background: #182329f2; border: 1px solid var(--mint); border-radius: 4px;
-  font-size: clamp(.59rem, .9vw, .72rem); line-height: 1.14; overflow-wrap: anywhere; pointer-events: none;
+  color: var(--text); background: var(--surface); border: 1px solid var(--teal); border-radius: 4px;
+  font-size: .75rem; line-height: 1.14; overflow-wrap: anywhere; pointer-events: none;
 }

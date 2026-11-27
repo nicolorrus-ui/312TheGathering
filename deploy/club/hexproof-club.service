@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Hexproof contributors
 
 [Unit]
-Description=Hexproof Club
+Description=312TheGathering
 After=network.target
 
 [Service]

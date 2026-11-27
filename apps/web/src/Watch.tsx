@@ -43,7 +43,7 @@ function LiveRoomList() {
   return <ul className="live-room-list" aria-label="Live rooms">{rooms.map((room) => {
     const phase = room.phase === "waiting" ? "Waiting for players" : room.phase === "loading" ? "Starting" : "In game";
     const details = <><strong>{room.name}</strong><small>{formatLabel(room.deckFormat)} · {room.matchMode.toUpperCase()} · {phase} · {room.roomId}</small></>;
-    return <li key={room.roomId}>{room.joinable
+    return <li key={room.roomId} className={`room-${room.phase}`}>{room.joinable
       ? <a href={"?watch=" + encodeURIComponent(room.roomId)}>{details}</a>
       : <div>{details}<small>Spectators full</small></div>}</li>;
   })}</ul>;
@@ -190,13 +190,13 @@ export function Watch({ roomId }: { roomId: string }) {
   const betweenGames = metadata?.result && !metadata.result.matchFinished;
   return <>
     <header className="topbar">
-      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true">◆</span>Hexproof <span>Club</span></a>
+      <a className="brand" href={location.pathname}><span className="brand-mark" aria-hidden="true"></span>312<span>TheGathering</span></a>
       <div className="account"><span>{room?.name ?? "Live duels"}</span>
         {roomId && <button type="button" className="quiet" onClick={leave}>Leave live view</button>}</div>
     </header>
     {notice && <p role="status" className="notice app-error">{notice}</p>}
     {!roomId || error ? <main className="shell">
-      <section className="panel">
+      <section className="panel watch-lobby">
         <h1>Watch a live duel</h1>
         {error && <p role="alert" className="notice">{error}</p>}
         <LiveRoomList />

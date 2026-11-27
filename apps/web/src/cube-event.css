@@ -10,7 +10,7 @@
 .cube-seat-actions { justify-content: flex-start; }
 .cube-draft { display: grid; grid-template-columns: minmax(0,1fr) minmax(10rem,14rem); align-items: start; gap: 1.5rem; }
 .cube-draft-main { min-width: 0; }
-.cube-pick-clock { font: 650 1.1rem/1.2 ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--accent); }
+.cube-pick-clock { font: 600 1.1rem/1.2 var(--font-body); font-variant-numeric: tabular-nums; color: var(--amber); }
 .cube-pack, .cube-pool {
   display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%, 7.25rem),1fr));
   grid-auto-rows: max-content; align-content: start; align-items: start; justify-items: start; gap: .7rem;
@@ -18,19 +18,19 @@
 .cube-pool { max-height: 55vh; overflow-y: auto; padding: .25rem; scrollbar-width: thin; }
 .cube-image-choice { display: block; width: 100%; max-width: 12rem; position: relative; align-self: start; }
 .tournament .cube-pack > button, .tournament .cube-pool > button { margin: 0; }
-button.cube-image-choice { padding: .14rem; background: var(--paper); border-radius: .5rem; border: 1px solid var(--line); }
-button.cube-image-choice:not(:disabled):hover, .cube-image-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.cube-image-choice { padding: .14rem; background: var(--surface); border-radius: .5rem; border: 1px solid var(--line); }
+button.cube-image-choice:not(:disabled):hover, .cube-image-choice:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 .cube-image-choice .decision-art, .cube-public-picks .decision-art { width: 100%; display: flex; }
 .cube-card-art, .cube-history-art { display: block; aspect-ratio: 63 / 88; width: 100%; border-radius: .34rem; }
 .cube-card-art.card-image-fallback, .cube-history-art.card-image-fallback { display: inline-grid; }
 .cube-card-count { position: absolute; inset: auto .25rem .25rem auto; padding: .13rem .37rem;
-  background: #17221ff2; color: #fff; border: 1px solid #92ad9c; border-radius: .4rem; pointer-events: none; }
+  background: var(--surface); color: var(--text); border: 1px solid var(--line-bright); border-radius: .4rem; pointer-events: none; }
 .cube-draft-seats { padding-inline-start: 1rem; border-inline-start: 1px solid var(--line); }
 .cube-draft-seats h3 { margin-top: 0; }
 .cube-draft-seats ol { margin: 0; padding-left: 1.65rem; }
 .cube-draft-seats li { padding: .35rem 0 .55rem .15rem; overflow-wrap: anywhere; }
-.cube-draft-seats li[data-active] { color: var(--accent); }
-.cube-draft-seats small { display: block; color: var(--soft); }
+.cube-draft-seats li[data-active] { color: var(--amber); }
+.cube-draft-seats small { display: block; color: var(--muted); }
 .cube-public-picks ol { display: flex; gap: .55rem; padding: .25rem; list-style: none; overflow-x: auto; }
 .cube-public-picks li { flex: 0 0 4.9rem; font-size: .78rem; overflow-wrap: anywhere; }
 @media (max-width: 680px) {

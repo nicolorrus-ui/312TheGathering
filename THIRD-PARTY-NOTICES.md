@@ -81,6 +81,16 @@ The bundled MTGO Vintage Cube and 100 Ornithopters lists come from their
 public mainboards on Cube Cobra. The presets preserve the curators’ card
 selections, quantities and color groups. [MTGO Vintage Cube](https://cubecobra.com/cube/list/modovintage) · [100 Ornithopters](https://cubecobra.com/cube/list/100-ornithopters)
 
+## Web interface typefaces
+
+The browser interface bundles variable WOFF2 files for Inter and Space
+Grotesk (Latin and extended Latin), distributed by Fontsource 5.3.0
+under the SIL Open Font License 1.1. Inter is copyright 2016 The Inter
+Project Authors. Space Grotesk is copyright 2020 The Space Grotesk Project
+Authors. The original license texts ship with the web application in
+`licenses/inter-OFL.txt` and `licenses/space-grotesk-OFL.txt`.
+[Inter](https://github.com/rsms/inter) · [Space Grotesk](https://github.com/floriankarsten/space-grotesk)
+
 ## Mana symbol font
 
 The client bundles the unmodified Mana 1.18 font by Andrew Gioia under the SIL

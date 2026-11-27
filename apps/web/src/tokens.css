@@ -1,0 +1,44 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2026 Hexproof contributors
+ */
+:root {
+  color-scheme: dark;
+  --ink: #0F1117;
+  --surface: #181B26;
+  --raised: #222636;
+  --line: #2E3347;
+  --line-bright: #444B66;
+  --text: #ECEAF4;
+  --muted: #A8ADC2;
+  --amber: #F2B84B;
+  --on-amber: #14110A;
+  --teal: #4FC7B8;
+  --danger: #F07A5A;
+  --mana-w: #F4EBC8;
+  --mana-u: #6FB1F2;
+  --mana-b: #9B8FB5;
+  --mana-r: #F07A5A;
+  --mana-g: #62C47E;
+  --mana-c: #B8BCCB;
+  --mana-multi: #F2B84B;
+
+  --selected: color-mix(in srgb, var(--amber) 10%, var(--surface));
+  --live-tint: color-mix(in srgb, var(--teal) 10%, var(--surface));
+  --danger-tint: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  --amber-hover: color-mix(in srgb, var(--amber) 85%, var(--text));
+  --backdrop: color-mix(in srgb, var(--ink) 82%, transparent);
+
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-heading: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --radius-sm: 8px;
+  --radius-control: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+}

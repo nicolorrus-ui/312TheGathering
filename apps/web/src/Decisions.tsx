@@ -27,6 +27,7 @@ export function DecisionPanel({ title, children, compactActions, hideTitle = fal
 
 export function Options({ options, submit }: { options: Option[]; submit: (response: Response) => void }) {
   return <div className="choices">{options.map((option) => <button type="button" key={option.responseId}
+    className={option.kind === "keep" || option.kind === "acknowledge" ? "primary" : undefined}
     aria-label={option.kind === "spendFloatingMana" ? `Spend floating ${option.label} mana` : undefined}
     onClick={() => submit({ responseId: option.responseId })}>
     {option.kind === "spendFloatingMana" ? <ManaPip symbol={option.label} /> : option.label}

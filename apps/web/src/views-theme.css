@@ -1,0 +1,438 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-FileCopyrightText: 2026 Hexproof contributors */
+
+/* Sign-in and pregame. The outlined frames are decorative; the form stays
+   in document order alongside the heading or below it on a narrow screen. */
+.shell.intro {
+  align-items: center;
+  grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 28rem);
+  gap: clamp(2rem, 8vw, 9rem);
+  max-width: 68rem;
+}
+.intro > div:first-child {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-content: center;
+  min-height: 22rem;
+  padding: clamp(1.5rem, 4vw, 4rem);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.intro > div:first-child::before, .intro > div:first-child::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-block-start: 20%;
+  inset-inline-end: -4rem;
+  width: 44%;
+  aspect-ratio: 63 / 88;
+  transform: rotate(21deg);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+.intro > div:first-child::after {
+  inset-block-start: 26%;
+  inset-inline-end: -2.5rem;
+  transform: rotate(9deg);
+  background: linear-gradient(150deg, var(--surface), var(--raised));
+}
+.intro .eyebrow { margin: 0 0 var(--space-4); color: var(--muted); }
+.intro .panel { padding: clamp(1.5rem, 3vw, 2.5rem); }
+.intro .panel form { gap: var(--space-4); }
+.intro .watch-link { justify-self: start; }
+.lobby-content:has(.duel-room, .tournament) { max-width: none; }
+.duel-lobby, .tournament-lobby, .watch-lobby { max-width: 54rem; }
+:is(.duel-lobby, .tournament-lobby) form { gap: var(--space-4); }
+:is(.duel-lobby, .tournament-lobby) form > .primary { justify-self: start; }
+.checkbox { min-height: 44px; }
+.checkbox input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  min-height: 0;
+  flex: none;
+  accent-color: var(--amber);
+}
+#live-mode-details { display: block; max-width: 56ch; color: var(--muted); }
+.duel-room, .panel.sideboard { max-width: 64rem; }
+.duel-room header h2, .tournament > header h2, .watch-lobby h1 { overflow-wrap: anywhere; }
+.duel-room header small, .tournament > header small { display: block; margin-top: var(--space-1); }
+.room-code {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--ink);
+}
+.room-code > span, .cube-build-time > span, .turn-widget > small:first-child {
+  color: var(--muted);
+  font-size: .75rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.room-code strong { color: var(--text); }
+.duel-room .form-row { max-width: 40rem; }
+.duel-room > .primary { margin-top: var(--space-4); }
+.duel-room .selected-deck { color: var(--muted); overflow-wrap: anywhere; }
+.duel-room .notice.live-notice, .seat-ready {
+  color: var(--teal);
+  background-color: color-mix(in srgb, var(--teal) 8%, var(--surface));
+}
+.duel-room .notice.live-notice { border-color: color-mix(in srgb, var(--teal) 42%, var(--line)); }
+.duel-room .notice.live-notice > span { color: var(--text); }
+.duel-room .notice.live-notice strong { color: var(--teal); }
+.seats li { min-height: 44px; padding: var(--space-2) var(--space-3); overflow-wrap: anywhere; }
+.seats .seat-ready { padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+.seats li.own-seat, .tournament li.own-seat { border-inline-start: 2px solid var(--amber); }
+.duel-room .live-notice, .tournament > header, .duel-room > header,
+.sideboard header, .cube-build-heading, .cube-build-actions { flex-wrap: wrap; }
+.duel-room .notice > span { flex: 1 1 17rem; }
+
+/* Spectator rooms and current pairings share the same row surface. */
+.live-room-list { gap: var(--space-2); margin-block: var(--space-4) 0; }
+.live-room-list :is(a, li > div) {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+}
+.live-room-list a:hover { background: var(--raised); border-color: var(--line-bright); }
+.live-room-list .room-started strong { color: var(--teal); }
+.tournament > section:has(.pairing, .standings-scroll) {
+  margin-block: var(--space-6);
+  min-width: 0;
+}
+.tournament :is(h3 + .pairing, h3 + .standings-scroll) { margin-top: var(--space-3); }
+.pairing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  min-height: 3.5rem;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.pairing strong { margin-inline-end: auto; overflow-wrap: anywhere; }
+.pairing label { max-width: 100%; }
+.pairing:hover { background-color: var(--raised); }
+.pairing-open > strong::before {
+  content: "";
+  display: inline-block;
+  width: .5rem;
+  height: .5rem;
+  margin-inline-end: var(--space-2);
+  border-radius: 50%;
+  background: var(--teal);
+  vertical-align: .06em;
+}
+.pairing-confirmed { color: var(--muted); }
+.pairing.own-pairing { border-color: var(--amber); }
+.own-pairing strong, .standings-scroll .own-standing td:nth-child(2) { font-weight: 700; }
+.standings-scroll {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.standings-scroll table { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+.standings-scroll :is(th, td) { padding: var(--space-3); border-color: var(--line); }
+.standings-scroll th {
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--ink);
+}
+.standings-scroll tbody tr:hover { background: var(--raised); }
+.standings-scroll .own-standing td:first-child { box-shadow: inset 2px 0 var(--amber); }
+.standings-scroll tbody tr:last-child td { border-bottom-width: 0; }
+.tournament.event-completed > .notice { color: var(--muted); background: var(--surface); border-color: var(--line); }
+.tournament:has(.own-pairing .primary:enabled) section:has(> .own-pairing) > button.primary,
+.tournament section:has(> form .primary, > .check-in-action) > button.primary,
+.cube-seat-actions:has(.check-in-action) > .primary,
+.cube-seat-actions:has(.primary:enabled) > .primary:disabled {
+  background: var(--surface);
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.check-in-action:enabled, .check-in-action:hover:not(:disabled) {
+  color: var(--on-amber);
+  background: var(--amber);
+  border-color: var(--amber);
+  font-weight: 600;
+}
+
+/* Saved library, search, and galleries stay in their DOM reading order. */
+.builder-layout {
+  grid-template-columns: minmax(12rem, .24fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.builder-layout :is(.builder-library, .builder-workspace), .builder-layout > * { min-width: 0; }
+.builder-decks { padding: var(--space-1); scroll-padding: var(--space-1); }
+.builder-decks button { border-color: var(--line); background: var(--surface); }
+.builder-decks button:hover:not(:disabled) { background: var(--raised); }
+.builder-decks button[aria-pressed="true"] {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, var(--surface));
+}
+.builder-decks small, .deck-gallery h3 small { color: var(--muted); }
+.builder-input { padding: var(--space-4); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.builder-input .tabs { gap: var(--space-1); }
+.builder-input .tabs button { flex: 1 1 auto; }
+.builder-workspace .builder-status { color: var(--teal); }
+.catalog-results, .deck-gallery ul {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 6rem), 1fr));
+  gap: var(--space-2);
+}
+.deck-search .catalog-results { padding: var(--space-1); max-height: 29rem; }
+.deck-search label:has(select) { display: grid; }
+.deck-search select { width: 100%; }
+.deck-gallery ul {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7rem), 1fr));
+  gap: var(--space-3);
+}
+.catalog-results button, .deck-gallery button {
+  position: relative;
+  padding: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.catalog-results button:hover:not(:disabled), .deck-gallery button:hover:not(:disabled) {
+  background: var(--raised);
+  border-color: var(--line-bright);
+}
+.catalog-results button::after {
+  content: "+" / "";
+  position: absolute;
+  right: var(--space-1);
+  bottom: var(--space-1);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: 500 1.4rem/1 var(--font-heading);
+  pointer-events: none;
+}
+.catalog-results button:is(:hover, :focus-visible)::after { border-color: var(--amber); color: var(--amber); }
+.deck-art-frame, .deck-card-preview { background: var(--raised); border-radius: var(--radius-sm); }
+.deck-art-frame .deck-quantity, .cube-card-count {
+  color: var(--text);
+  background: var(--ink);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+.deck-art-download { padding-block: var(--space-2); }
+.deck-gallery h3 { margin-bottom: var(--space-3); }
+.deck-gallery:has(> p), .builder-library > p:only-of-type {
+  border-radius: var(--radius-md);
+  color: var(--muted);
+}
+.deck-gallery:has(> p) { border: 1px dashed var(--line); padding: var(--space-4); }
+.deck-gallery + .deck-gallery { margin-top: var(--space-4); }
+@media (min-width: 1024px) {
+  .builder-workspace {
+    display: grid;
+    grid-template-columns: minmax(13rem, .52fr) minmax(0, 1fr);
+    grid-template-rows: auto auto repeat(5, auto);
+    column-gap: var(--space-6);
+    align-items: start;
+  }
+  .builder-workspace > header, .builder-workspace > label { grid-column: 1 / -1; }
+  .builder-workspace > label { margin-bottom: var(--space-6); }
+  .builder-workspace > .builder-input {
+    grid-column: 1;
+    grid-row: 3 / span 5;
+    margin: 0;
+    position: sticky;
+    top: var(--space-4);
+    max-height: calc(100dvh - var(--space-8));
+    overflow-y: auto;
+  }
+  .builder-workspace > :is(.notice, .builder-status, .deck-art-download, .deck-gallery) { grid-column: 2; }
+}
+.sideboard .deck-list li { background: var(--surface); padding: var(--space-2); }
+.sideboard .deck-list li:hover { background: var(--raised); }
+.sideboard .deck-list .sideboard-card { flex-wrap: nowrap; gap: var(--space-2); }
+.sideboard .deck-list > li > button { flex-shrink: 0; }
+
+/* Match controls retain their native hit targets, action geometry and the
+   stable battlefield measurements used by card movement animations. */
+.duel { background: var(--ink); color: var(--text); }
+.table { background: var(--surface); border-color: var(--line); box-shadow: none; }
+.player-info { background: var(--ink); border-color: var(--line); border-radius: var(--radius-md); }
+.player-info.own-info { border-color: var(--line-bright); }
+.player-info .life-total, .player-info .monogram { color: var(--text); }
+.player-life[data-active="true"] .monogram {
+  background: color-mix(in srgb, var(--teal) 12%, var(--surface));
+  border-color: var(--teal);
+  color: var(--teal);
+  box-shadow: none;
+}
+.player-life[data-active="true"] .life-total, .turn-widget strong { color: var(--teal); }
+:is(.player-life, .table-card)[data-attack-state="target"] { box-shadow: none; }
+.duel :is(.player-life, .zone-button, .phase-stop, .priority-hold), .duel .priority-actions button,
+.duel .decision header button, .mana-choice-menu button, .deck-row-action { min-height: 44px; }
+.duel .zone-button { border: 1px solid var(--line); background: var(--surface); }
+.duel .log, .phase-rail, .monogram, .auto-pass[open] .choices { background: var(--surface); border-color: var(--line); }
+.phase-rail { padding: var(--space-2); }
+.phase-stop { background: var(--ink); border-color: var(--line); }
+.phase-stop[aria-pressed="true"] { background: var(--raised); }
+.phase-stop[data-active="true"] { border-color: var(--teal); background: color-mix(in srgb, var(--teal) 10%, var(--surface)); }
+.phase-track li[aria-current="step"] .phase-label { color: var(--teal); }
+.phase-track li[aria-current="step"] .phase-label, .waiting[data-decision="true"] { font-weight: 600; }
+.phase-label { font-size: .75rem; }
+.duel .priority-actions .primary:enabled, .duel .priority-actions .primary:hover:not(:disabled) {
+  border-color: var(--amber);
+  color: var(--on-amber);
+  background: var(--amber);
+  box-shadow: none;
+}
+.duel .priority-actions .primary:disabled,
+.duel:has(.decision.floating .primary) .priority-actions .primary,
+.builder-workspace:has(.deck-card-dialog[open]) > header .primary,
+.cube-build:has(.cube-basics-dialog[open]) .cube-build-actions .primary {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+.log summary, .auto-pass summary, .crash-notice summary {
+  min-height: 44px;
+  align-content: center;
+}
+.waiting { border-color: var(--line-bright); background: var(--ink); }
+.waiting[data-decision="true"] { border-color: var(--amber); color: var(--text); }
+.center-line::before, .center-line::after { background: var(--line-bright); }
+.duel-tools .log ol { background: var(--surface); }
+.duel .mana-payment { scrollbar-color: var(--line-bright) var(--surface); }
+.duel .phase-stop:disabled, .live-deck-tabs button[aria-selected="false"] { color: var(--muted); }
+.live-decks, .live-deck-toggle { color: var(--text); background: var(--surface); border-color: var(--line); }
+.live-deck-tabs { background: var(--ink); }
+.live-deck-tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, var(--surface));
+}
+.live-deck-section li {
+  border-inline-start-width: 2px;
+  background: color-mix(in srgb, var(--card-frame) 14%, var(--surface));
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+.live-deck-section li:is(:hover, :focus-within, :focus-visible) { background: var(--raised); }
+.deck-pip { font-variant-numeric: tabular-nums; }
+
+/* All dialogs use the same chrome, while keeping art prominent. */
+:is(.decision, .inspection, .closing-panel, .deck-card-dialog, .cube-basics-dialog, .mana-choice-menu) {
+  border-color: var(--line-bright);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: none;
+}
+:is(.decision, .inspection, .deck-card-dialog, .cube-basics-dialog) { padding: var(--space-4); }
+:is(.deck-card-dialog, .cube-basics-dialog)::backdrop { background: color-mix(in srgb, var(--ink) 80%, transparent); }
+.decision.floating { width: min(42rem, calc(100vw - var(--space-8))); }
+.decision :is(.choice-card, .ordered-effects button):hover:not(:disabled) { border-color: var(--line-bright); }
+.duel .decision .choice-card { min-height: 44px; }
+.decision .choice-card[aria-pressed="true"] { border-color: var(--amber); }
+.mana-choice-menu { padding: var(--space-1); gap: var(--space-1); border-radius: var(--radius-md); }
+.mana-choice-menu button { min-width: 44px; }
+.cube-pick-clock, .cube-build-time time { color: var(--teal); }
+.cube-draft-heading, .cube-build-heading, .cube-build-time { gap: var(--space-3); }
+.cube-draft-main > p[role="status"] { color: var(--teal); }
+.cube-draft-seats li[data-active] { color: var(--teal); font-weight: 600; }
+.cube-build-time, .cube-build-list { background: var(--ink); }
+.card-image-loading, .card-image-fallback { background: var(--raised); border-radius: var(--radius-sm); }
+.card-image-loading {
+  background-image: linear-gradient(140deg, var(--raised), var(--surface) 55%, var(--raised));
+}
+.deck-search small[role="status"], .card-edit-controls small[role="status"], .watch-lobby p[role="status"],
+.shell > p[role="status"] { color: var(--muted); }
+:is(.deck-search, .card-edit-controls) .catalog-error, [role="alert"] { color: var(--danger); }
+.notice.app-error, .notice[role="alert"], .decision [role="alert"] {
+  color: var(--text);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+.notice.app-error { max-height: 74dvh; overflow: auto; }
+.app-error > button { flex-shrink: 0; }
+
+@media (max-width: 850px) {
+  .shell.intro { grid-template-columns: minmax(0, 1fr) minmax(16rem, .9fr); gap: var(--space-4); }
+}
+@media (max-width: 720px) {
+  .builder-layout { grid-template-columns: minmax(0, 1fr); }
+  .shell.intro { grid-template-columns: minmax(0, 1fr); align-content: start; }
+  .intro > div:first-child { min-height: 11rem; }
+  .builder-library > header { margin-bottom: var(--space-2); }
+  .builder-input .tabs button { flex: 0 1 auto; }
+  .pairing { align-items: start; }
+  .sideboard .form-row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 570px) {
+  .intro > div:first-child, .intro .panel { padding: var(--space-6); }
+  .room-code { gap: var(--space-2); }
+  .builder-workspace header { align-items: flex-start; }
+  .builder-workspace header .choices { flex: 1 1 100%; }
+  :is(.duel-lobby, .tournament-lobby) .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .phase-rail { padding: var(--space-1); }
+  .phase-track .phase-label { font-size: .75rem; line-height: 1.04; }
+  .duel .auto-pass summary { text-align: center; }
+  .cube-build-table { grid-template-columns: minmax(0, 1fr) minmax(7rem, 38%); }
+  .cube-build-time { flex-wrap: wrap; }
+  .cube-basics-choices { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-1); }
+  .cube-basics-choices input { min-width: 0; padding-inline: var(--space-1); }
+  .order-controls { flex-wrap: wrap; }
+  .live-deck-tabs button { white-space: normal; }
+}
+
+/* Compact tables read in the same sequence as their controls: opponent,
+   game log, battlefield, own hand and actions, then the phase settings. */
+@media (max-width: 570px) {
+  .topbar:has(.account .concede) { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .topbar:has(.account .concede) .brand { grid-area: 1 / 1 / 2 / 3; }
+  .topbar:has(.account .concede) .account { display: contents; }
+  .topbar:has(.account .concede) .account .connection { grid-area: 1 / 3; justify-self: end; }
+  .topbar:has(.account .concede) .account > button { grid-row: 2; }
+  .topbar:has(.account .concede) .account .concede { grid-area: 2 / 3; justify-self: end; }
+  .duel { grid-template-columns: minmax(0, 1fr); align-content: start; }
+  .duel .table {
+    grid-template:
+      "opponent top-hand" auto
+      "opponent tools" auto
+      "away away" minmax(5.5rem, 1fr)
+      "divide divide" auto
+      "home home" minmax(6rem, 1fr)
+      "owner bottom-hand" auto
+      "actions actions" auto
+      / minmax(9.5rem, .86fr) minmax(0, 1fr);
+  }
+  .duel-tools { display: flex; align-items: center; justify-self: end; gap: var(--space-2); }
+  .duel .player-info { align-self: center; margin: var(--space-1); }
+  .duel .zones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .duel .zone-button { padding-inline: var(--space-1); }
+  .duel .own-hand, .duel .opponent-hand { align-self: center; }
+  .duel .action-dock { justify-self: end; width: min(16rem, calc(100% - var(--space-4))); }
+  .duel .phase-rail { padding: var(--space-3); }
+  .phase-rail .phase-track { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); }
+  .phase-rail .phase-sides { width: calc((100% - var(--space-2)) / 3); }
+  .phase-rail .priority-hold { width: auto; padding-inline: var(--space-3); }
+}
+
+@media (max-width: 800px) {
+  .live-decks { padding: var(--space-1); }
+}

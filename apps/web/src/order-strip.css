@@ -1,16 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 .ordered-effects { min-width: 0; padding: .25rem 0; }
-.order-direction { display: flex; align-items: center; gap: .7rem; justify-content: space-between; color: var(--accent); font-size: .8rem; }
+.order-direction { display: flex; align-items: center; gap: .7rem; justify-content: space-between; color: var(--amber); font-size: .8rem; }
 .order-direction::after { content: ""; order: 1; height: 1px; flex: 1; background: var(--line); }
 .order-direction > :last-child { order: 2; }
-.order-hint { color: var(--soft); font-size: .76rem; margin: .35rem 0; }
+.order-hint { color: var(--muted); font-size: .76rem; margin: .35rem 0; }
 .order-strip { display: flex; gap: .6rem; overflow-x: auto; list-style: none; margin: 0; padding: .35rem; scrollbar-width: thin; }
 .order-strip li { flex: 0 0 auto; position: relative; }
 .order-strip button { width: clamp(5.7rem, 17vw, 7.75rem); min-height: 3rem; height: 100%; padding: .15rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; overflow-wrap: anywhere; user-select: none; touch-action: pan-y; cursor: grab; }
 .order-strip .decision-art, .decision .order-strip .choice-card-image { width: 100%; }
 .order-strip li[data-dragging] { z-index: 1; }
 .order-strip li[data-dragging] button { opacity: .85; cursor: grabbing; }
-.order-strip li[data-insert]::after { content: ""; position: absolute; inset-block: 0; width: 3px; border-radius: 2px; background: var(--accent); }
+.order-strip li[data-insert]::after { content: ""; position: absolute; inset-block: 0; width: 3px; border-radius: 2px; background: var(--amber); }
 .order-strip li[data-insert="before"]::after { left: -.35rem; }
 .order-strip li[data-insert="after"]::after { right: -.35rem; }
 .order-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
